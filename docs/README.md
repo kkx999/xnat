@@ -1,4 +1,4 @@
-# XNAT v1.1.1 详细使用文档
+# XNAT v1.2.0 详细使用文档
 
 > 本文档负责详细说明 XNAT 的安装和运维。  
 > 根目录 `README.md` 保持简洁，具体操作以这里为准。
@@ -71,15 +71,15 @@ bash <(...)
 # 3. 指定版本安装 Panel
 
 ```bash
-XNAT_VERSION=1.1.1 \
+XNAT_VERSION=1.2.0 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
 ```text
-XNAT_VERSION=1.1.1
+XNAT_VERSION=1.2.0
 ```
 
-表示固定安装 Release `v1.1.1`，不自动跟随以后发布的新版本。
+表示固定安装 Release `v1.2.0`，不自动跟随以后发布的新版本。
 
 ---
 
@@ -575,19 +575,19 @@ Panel Server 的真实公网 IPv4。
 
 ---
 
-# 15. 指定 v1.1.1 安装 Host
+# 15. 指定 v1.2.0 安装 Host
 
 ```bash
-XNAT_VERSION=1.1.1 \
+XNAT_VERSION=1.2.0 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-host.sh)
 ```
 
-`XNAT_VERSION=1.1.1`：
+`XNAT_VERSION=1.2.0`：
 
 固定下载 Release tag：
 
 ```text
-v1.1.1
+v1.2.0
 ```
 
 然后仍然会进入正常的交互式 Panel IP + natpool 流程。
@@ -1339,66 +1339,62 @@ SMTP / Telegram → 独立通知服务页面
 
 ---
 
-# 31. v1.1.0 → v1.1.1 原地升级
+# 31. v1.1.1 → v1.2.0 原地升级
 
-正式兼容基线是 **XNAT Panel v1.1.0**。升级前不需要删除旧 Panel，也不要手工修改 SQLite。
+正式兼容基线是 **XNAT Panel v1.1.1**。升级前不需要删除旧 Panel，也不要手工修改 SQLite。
 
-正式 v1.1.1 Tag 发布后，v1.1.0 Panel 首选直接执行：
-
-```bash
-xnat update 1.1.1
-```
-
-v1.1.0 的更新命令会下载 v1.1.1 Tag，并调用新版本自身的 `scripts/upgrade-panel.sh` 完成备份、数据库兼容检查、健康检查与失败回滚。
-
-如果采用手动源码包升级，把完整的 v1.1.1 源码包上传到 Panel，例如解压到：
-
-```text
-/root/xnat-v1.1.1
-```
-
-然后执行：
+正式 v1.2.0 Tag 发布后，v1.1.1 Panel 首选直接执行：
 
 ```bash
-cd /root/xnat-v1.1.1
-bash scripts/upgrade-panel-from-v1.1.0.sh
+xnat update 1.2.0
 ```
 
-专用脚本会先确认现有 Panel 版本是 `1.1.0`，然后调用通用升级器。升级器会执行：
+也可以执行 `xnat`，进入 **检查 / 更新 Panel** 完成升级。v1.1.1 的更新命令会下载 v1.2.0 Tag，并调用新版本自身的 `scripts/upgrade-panel.sh`。
+
+如果采用手动源码包升级，把完整 v1.2.0 源码解压后执行：
+
+```bash
+cd /root/xnat-main
+bash scripts/upgrade-panel-from-v1.1.1.sh
+```
+
+专用脚本会先确认现有 Panel 版本是 `1.1.1`，然后调用通用升级器。升级器会执行：
 
 ```text
 SQLite quick_check
 ↓
 备份 panel.db / .env / 旧代码 / systemd / xnat 命令
 ↓
-更新 Panel 代码到 v1.1.1
+更新 Panel 代码到 v1.2.0
 ↓
 安装/更新 Python 依赖
 ↓
-执行 schema 兼容检查（沿用 additive migration）
+执行 additive schema migration
 ↓
-确认公告中心及 v1.1.0 既有字段/表仍完整
+确认流量重置价格、公告、调度、流量周期与生命周期字段完整
 ↓
 重建 Panel / maintenance systemd 单元
 ↓
 启动 Panel
 ↓
-/health 必须返回 v1.1.1
+/health 必须返回 v1.2.0
 ↓
 再次执行 SQLite quick_check
 ```
 
-升级不会删除 `data/`，因此原有用户、余额、订单、VPS、Host、套餐、充值、通知、公告、公告已读记录和备份目录都会保留。`.env` 也不会被覆盖；自定义 `PANEL_BIND_HOST` 或 `PANEL_PORT` 会继续使用原值。
+升级不会删除 `data/`。原有用户、余额、订单、VPS、Host、套餐、充值、通知、公告、公告已读记录和备份目录都会保留；`.env` 也不会被覆盖，自定义 `PANEL_BIND_HOST` 或 `PANEL_PORT` 会继续使用原值。
 
-如果更新流程出现错误，脚本会尝试恢复升级前的数据库、`.env`、代码、systemd 单元和管理脚本，然后重新启动旧 Panel。升级前快照统一保存在：
+v1.2.0 新增的套餐流量重置价格字段采用 additive migration。既有套餐首次迁移时会以当前月付价格回填为默认流量重置价格，管理员可在后台再单独调整。
+
+如果更新流程出现错误，脚本会尝试恢复升级前的数据库、`.env`、代码、systemd 单元和管理脚本。升级前快照统一保存在：
 
 ```text
 /root/xnat-backups/
 ```
 
-> Panel v1.1.1 仍支持 Agent API v1；现有 Host Agent v1.0.0 不需要因为本次 Panel 升级而重装。
+> Panel v1.2.0 仍支持 Agent API v1；现有 Host Agent v1.0.0 不需要因为本次 Panel 升级而重装。
 
-> 仍运行 v1.0.2 / v1.0.x 的旧 Panel，推荐先升级至 v1.1.0，再执行本节升级。
+> 更早版本推荐先按正式 Release 链升级到 v1.1.1，再执行本节升级。
 
 ---
 
@@ -1466,6 +1462,25 @@ v1.1.0 采用仅新增字段的迁移方式。Panel 启动时会自动检测并�
 - 后台操作反馈使用与前端一致的右上角 Toast；默认 3 秒后自动消失。
 - v1.1.0 升级到 v1.1.1 不要求数据库重建，也不要求重装 Host Agent。
 
+
+# 34. v1.2.0 界面与流量体验升级
+
+v1.2.0 是一次较大的 Panel UI / UX 与用户自助能力升级：
+
+- 用户前端新增深色 / 柔和明亮主题，并分别记忆主题选择；
+- 管理后台同步新增独立明亮主题，重点修正浅色模式下的文字对比度与暗色残留；
+- 统一按钮尺寸、表单栅格、Toast、Switch、网页确认 Modal 与危险操作反馈；
+- 宿主机卡片缩小，增加剩余可分配 CPU 调度余量、内存、存储展示；
+- 套餐绑定改为 iOS 风格 Switch，宿主机新增实例分配状态更直观；
+- 后台服务器管理改为更清晰的卡片/折叠操作结构；
+- VPS 重装期间前端显示“重装中”，任务完成后自动恢复“运行中”；
+- 用户流量用尽后支持付费自助重置，价格由套餐单独配置，扣费后生成订单与余额流水，并恢复套餐带宽；
+- 付费重置与永久删除等操作统一使用 XNAT 网页 Modal，不再调用浏览器原生 `confirm()`；
+- 公告中心、复制按钮、购买优惠码、套餐表单及大量明亮主题细节进一步统一。
+
+Host Agent 版本仍为 v1.0.0，Agent API 保持 v1。
+
+---
 
 ---
 

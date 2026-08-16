@@ -48,8 +48,16 @@
         </select>
       </label>
       <details class="plan-coupon-fold">
-        <summary>使用优惠码 <span>可选</span></summary>
-        <input name="coupon_code" maxlength="64" placeholder="输入优惠码" {% if stock.sold_out %}disabled{% endif %}>
+        <summary>
+          <span class="plan-coupon-summary-copy">
+            <strong>使用优惠码</strong>
+            <small>有优惠码时点击填写</small>
+          </span>
+          <span class="plan-coupon-summary-meta">可选</span>
+        </summary>
+        <div class="plan-coupon-input-wrap">
+          <input name="coupon_code" maxlength="64" placeholder="输入优惠码，例如 WELCOME20" {% if stock.sold_out %}disabled{% endif %}>
+        </div>
       </details>
       {% if stock.sold_out %}<button class="client-purchase-btn sold" type="button" disabled>已售罄</button>
       {% else %}<button class="client-purchase-btn" type="submit">立即购买</button>{% endif %}

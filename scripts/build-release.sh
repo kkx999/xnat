@@ -35,26 +35,28 @@ AGENT_API_VERSION="$(python3 -c 'import json; print(json.load(open("release.json
 cat > "$DIST/RELEASE_NOTES.md" <<EOF_NOTES
 # XNAT v${RELEASE_VERSION}
 
-XNAT v${RELEASE_VERSION} 公告中心交互与后台一致性维护版本。
+本次为较大的 Panel UI / UX 与用户自助能力升级。
 
 - Panel：v${PANEL_VERSION}
 - Host Agent：v${AGENT_VERSION}
 - Agent API：v${AGENT_API_VERSION}
-- 优化后台公告中心布局，移除冗余规则说明并统一操作区尺寸与对齐
-- “置顶显示 / 首次登录重点弹出”改为统一可见的 Switch 交互
-- 公告支持永久删除，并同步清理对应公告已读记录
-- 后台 Flash 与前端统一为右上角 Toast，默认 3 秒自动消失
-- 静态资源缓存版本更新，避免升级后浏览器继续加载旧 UI
-- 正式验收 v1.1.0 → v1.1.1 原地升级路径
-- 升级自动备份并保留 .env、SQLite、用户、余额、订单、VPS、Host、支付、通知、公告及已读记录
-- v1.1.1 沿用 additive schema 兼容机制，不重建旧表
+- 用户前端与管理后台新增独立深色 / 柔和明亮主题
+- 全面优化明亮主题对比度并清理暗色组件残留
+- 重构服务器管理与宿主机卡片，统一按钮、表单、Switch、Toast 与折叠交互
+- 宿主机新增剩余可分配资源展示，套餐绑定改为 iOS 风格 Switch
+- VPS 重装期间显示“重装中”，完成后自动恢复运行状态
+- 套餐购买优惠码与后台套餐表单重新整理并统一对齐
+- 新增付费自助流量重置；支持套餐独立配置重置价格、余额扣费、订单与余额流水
+- 新增统一 XNAT 网页确认 Modal，替代浏览器原生 confirm 弹窗
+- 正式支持 v1.1.1 → v1.2.0 原地升级；升级前自动备份并执行 additive schema migration
+- 升级保留 .env、SQLite、用户、余额、订单、VPS、Host、套餐、支付、通知、公告及已读记录
 - Host Agent 无需升级，继续保持 v1.0.0 / Agent API v1
 
-v1.1.0 Panel 推荐升级命令：
+v1.1.1 Panel 推荐升级命令：
 
-    xnat update 1.1.1
+    xnat update 1.2.0
 
-详细介绍请查看项目 README，完整部署与运维说明请查看 docs/README.md。
+也可执行 xnat 后选择“检查 / 更新 Panel”。
 EOF_NOTES
 
 (

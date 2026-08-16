@@ -35,11 +35,11 @@
       <article class="client-service-row">
         <div class="service-primary">
           <div class="service-title">
-            <span class="client-status-dot {{ s.status }}"></span>
+            <span class="client-status-dot {{ server_ui_status.get(s.id, s.status) }}"></span>
             <strong>{{ s.name }}</strong>
             <span class="client-tag os">{{ s.os_name or "Debian 12" }}</span>
           </div>
-          <span>{{ s.plan.name }} · {{ server_status_label(s.status) }}</span>
+          <span>{{ s.plan.name }} · {{ server_status_label(server_ui_status.get(s.id, s.status)) }}</span>
         </div>
         <div class="service-field"><span>公网 IP</span><strong>{{ s.public_ip }}</strong></div>
         <div class="service-field"><span>SSH</span><strong>{{ s.public_ip }}:{{ s.ssh_port or "-" }}</strong></div>

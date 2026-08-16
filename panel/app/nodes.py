@@ -48,7 +48,7 @@ def host_request(host: HostNode, method: str, path: str, *, payload=None, timeou
         "X-NAT-Timestamp": ts,
         "X-NAT-Signature": _signature(token, ts, method, path, body),
         "Content-Type": "application/json",
-        "User-Agent": "XNAT-Panel/1.1.1",
+        "User-Agent": "XNAT-Panel/1.2.0",
     }
     try:
         with httpx.Client(verify=bool(host.verify_tls), timeout=timeout) as client:
@@ -197,9 +197,25 @@ def host_active_server_count(db, host_id: int) -> int:
     ) or 0
 
 
+def host_allocated_cpu(db, host_id: int) -> int:
+    return db.scalar(
+        select(func.coalesce(func.sum(func.coalesce(Server.cpu, Plan.cpu, 0)), 0))
+        .select_from(Server)
+        .join(Plan, Server.plan_id == Plan.id)
+        .where(
+            Server.host_id == host_id,
+            Server.deleted_at.is_(None),
+            Server.status.in_(["provisioning", "running", "stopped"]),
+        )
+    ) or 0
+
+
 def host_allocated_memory_mb(db, host_id: int) -> int:
     return db.scalar(
-        select(func.coalesce(func.sum(Server.memory_mb), 0)).where(
+        select(func.coalesce(func.sum(func.coalesce(Server.memory_mb, Plan.memory_mb, 0)), 0))
+        .select_from(Server)
+        .join(Plan, Server.plan_id == Plan.id)
+        .where(
             Server.host_id == host_id,
             Server.deleted_at.is_(None),
             Server.status.in_(["provisioning", "running", "stopped"]),
@@ -209,7 +225,10 @@ def host_allocated_memory_mb(db, host_id: int) -> int:
 
 def host_allocated_disk_gb(db, host_id: int) -> int:
     return db.scalar(
-        select(func.coalesce(func.sum(Server.disk_gb), 0)).where(
+        select(func.coalesce(func.sum(func.coalesce(Server.disk_gb, Plan.disk_gb, 0)), 0))
+        .select_from(Server)
+        .join(Plan, Server.plan_id == Plan.id)
+        .where(
             Server.host_id == host_id,
             Server.deleted_at.is_(None),
             Server.status.in_(["provisioning", "running", "stopped"]),
@@ -259,32 +278,51 @@ def host_schedule_state(db, host: HostNode, plan: Plan | None = None, *, refresh
         "storage": max(0, int(host.schedule_storage_max_percent or 0)),
     }
     labels = {"cpu": "CPU", "memory": "内存", "storage": "natpool 存储"}
+
+    allocated_cpu = int(host_allocated_cpu(db, host.id) or 0)
+    allocated_memory = int(host_allocated_memory_mb(db, host.id) or 0)
+    allocated_disk = float(host_allocated_disk_gb(db, host.id) or 0)
+    memory_limit_percent = thresholds["memory"] or 100
+    storage_limit_percent = thresholds["storage"] or 100
+    cpu_limit_percent = thresholds["cpu"] or 100
+    memory_allocatable_mb = int((host.memory_total_mb or 0) * memory_limit_percent / 100)
+    storage_allocatable_gb = float((host.storage_total_gb or 0) * storage_limit_percent / 100)
+    capacity = {
+        "allocated_cpu": allocated_cpu,
+        "cpu_headroom_percent": round(max(0.0, cpu_limit_percent - float(host.cpu_percent or 0)), 1),
+        "cpu_limit_percent": cpu_limit_percent,
+        "allocated_memory_mb": allocated_memory,
+        "remaining_memory_mb": max(0, memory_allocatable_mb - allocated_memory),
+        "memory_limit_percent": memory_limit_percent,
+        "allocated_disk_gb": round(allocated_disk, 1),
+        "remaining_disk_gb": round(max(0.0, storage_allocatable_gb - allocated_disk), 1),
+        "storage_limit_percent": storage_limit_percent,
+    }
+
     for key in ("cpu", "memory", "storage"):
         limit = thresholds[key]
         if limit and percentages[key] >= limit:
             return {
                 "allowed": False, "code": f"watermark_{key}", "label": "资源保护",
                 "reason": f"{labels[key]} {percentages[key]:.1f}% 已达到调度阈值 {limit}%",
-                "percentages": percentages,
+                "percentages": percentages, "capacity": capacity,
             }
 
-    allocated_memory = host_allocated_memory_mb(db, host.id)
-    allocated_disk = host_allocated_disk_gb(db, host.id)
     if plan is not None:
         if host.memory_total_mb:
             projected_memory = (allocated_memory + int(plan.memory_mb or 0)) * 100 / host.memory_total_mb
             limit = thresholds["memory"] or 100
             if projected_memory > limit:
-                return {"allowed": False, "code": "capacity_memory", "label": "内存不足", "reason": f"开通后分配内存将达到 {projected_memory:.1f}%（上限 {limit}%）"}
+                return {"allowed": False, "code": "capacity_memory", "label": "内存不足", "reason": f"开通后分配内存将达到 {projected_memory:.1f}%（上限 {limit}%）", "capacity": capacity}
         if host.storage_total_gb:
             projected_disk = (allocated_disk + int(plan.disk_gb or 0)) * 100 / host.storage_total_gb
             limit = thresholds["storage"] or 100
             if projected_disk > limit:
-                return {"allowed": False, "code": "capacity_storage", "label": "存储不足", "reason": f"开通后逻辑磁盘分配将达到 {projected_disk:.1f}%（上限 {limit}%）"}
+                return {"allowed": False, "code": "capacity_storage", "label": "存储不足", "reason": f"开通后逻辑磁盘分配将达到 {projected_disk:.1f}%（上限 {limit}%）", "capacity": capacity}
 
     return {
-        "allowed": True, "code": "ready", "label": "可调度", "reason": "节点在线且资源水位正常",
-        "percentages": percentages, "active_vps": count,
+        "allowed": True, "code": "ready", "label": "允许分配", "reason": "当前可接收新实例",
+        "percentages": percentages, "active_vps": count, "capacity": capacity,
     }
 
 

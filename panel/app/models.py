@@ -47,6 +47,8 @@ class Plan(Base):
     bandwidth_mbps: Mapped[int] = mapped_column(Integer, default=100)
     traffic_gb: Mapped[int] = mapped_column(Integer, default=500)
     monthly_price_cents: Mapped[int] = mapped_column(Integer)
+    # Paid self-service traffic reset price. Existing plans are backfilled to the monthly price.
+    traffic_reset_price_cents: Mapped[int] = mapped_column(Integer, default=0)
     stock_limit: Mapped[int] = mapped_column(Integer, default=0)  # 0 = unlimited
 
     # Homepage merchandising controls.

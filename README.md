@@ -4,7 +4,7 @@
 
 XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、多宿主机节点、套餐、用户、流量、通知及日常运维。
 
-当前版本：**v1.1.1**
+当前版本：**v1.2.0**
 
 ---
 
@@ -15,19 +15,19 @@ XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、
 - NAT VPS 自动开通、重装、删除
 - CPU / 内存 / 磁盘 / 带宽管理
 - TCP / UDP NAT 端口
-- 流量统计、独立流量周期与超额限速
+- 流量统计、独立流量周期、超额限速与付费自助流量重置
 - 节点维护 / Drain 与资源水位调度保护
+- 宿主机剩余可分配资源展示与紧凑节点管理
 - 到期提醒、宽限期、自动停机与可选延迟删除
 - Host 离线、natpool、任务和备份异常通知
 - 套餐、库存、用户与订单
 - USDT 充值
 - Telegram / SMTP 通知
 - 工单、审计与数据库备份
-- 管理员可调整 VPS 流量额度与自定义到期时间
-- USDT 自动充值与通知服务独立管理
 - Panel 域名、HTTPS、Cloudflare
 - XNAT 敏感管理端口自动保护
-- 用户控制台交互反馈、复制、Toast 与轻量状态动画
+- 用户端与管理后台独立深色 / 明亮主题
+- 统一 Toast、Switch、网页确认 Modal 与操作反馈
 - 独立公告中心：历史公告、未读提示、首次登录重点公告与后台公告管理
 - `xnat` 统一管理命令
 
@@ -78,57 +78,63 @@ Host 连接 Panel 成功后，在 Panel 后台节点设置中配置 NAT 端口�
 
 ---
 
-# 指定 v1.1.1 安装
+# 指定 v1.2.0 安装
 
 Panel：
 
 ```bash
-XNAT_VERSION=1.1.1 \
+XNAT_VERSION=1.2.0 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
 Host：
 
 ```bash
-XNAT_VERSION=1.1.1 \
+XNAT_VERSION=1.2.0 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-host.sh)
 ```
 
-> 注：`XNAT_VERSION=1.1.1` 指 XNAT Release 版本。XNAT v1.1.1 继续使用 **Host Agent v1.0.0 / Agent API v1**，无需单独升级 Host Agent。
+> `XNAT_VERSION=1.2.0` 指 XNAT Release 版本。XNAT v1.2.0 继续使用 **Host Agent v1.0.0 / Agent API v1**，Host Agent 无需单独升级。
 
 ---
 
-# 从 v1.1.0 升级到 v1.1.1
+# 从 v1.1.1 升级到 v1.2.0
 
-正式兼容基线是 **XNAT Panel v1.1.0**。现有 v1.1.0 Panel 直接执行：
-
-```bash
-xnat update 1.1.1
-```
-
-v1.1.0 自带的 `xnat update` 会下载 v1.1.1 Tag 源码并调用 v1.1.1 的 `scripts/upgrade-panel.sh`；升级器会明确识别 `verified-v1.1.0` 路径。
-
-如果使用手动源码包升级，也可以执行：
+正式兼容基线是 **XNAT Panel v1.1.1**。现有 v1.1.1 Panel 直接执行：
 
 ```bash
-cd /root/xnat-v1.1.1
-bash scripts/upgrade-panel-from-v1.1.0.sh
+xnat update 1.2.0
 ```
 
-升级流程会自动：
+也可以执行：
 
-- 校验当前 Panel 为 v1.1.0；
-- 对现有 SQLite 执行 `PRAGMA quick_check`；
-- 备份 `panel.db`、`.env`、当前 Panel 代码、systemd 单元和 XNAT 管理命令；
-- 保留现有 Panel 监听地址与端口；
-- 原地更新 Panel 到 v1.1.1；
-- 执行兼容性 schema 检查，沿用 v1.1.0 additive migration，不重建旧表；
+```bash
+xnat
+```
+
+然后选择 **检查 / 更新 Panel**。
+
+v1.1.1 自带的 `xnat update` 会下载 v1.2.0 Tag 源码并调用 v1.2.0 的 `scripts/upgrade-panel.sh`。升级流程会自动：
+
+- 确认 v1.1.1 → v1.2.0 正式升级路径；
+- 对 SQLite 执行 `PRAGMA quick_check`；
+- 备份 `panel.db`、`.env`、旧 Panel 代码、systemd 单元与管理命令；
+- 保留原有监听地址与端口；
+- 原地更新 Panel 到 v1.2.0；
+- 执行 additive schema migration，不重建旧业务表；
 - 保留用户、余额、订单、VPS、Host、套餐、支付、通知、公告及公告已读记录；
 - 健康检查或数据库检查失败时自动尝试回滚。
 
-本次仅升级 Panel；**Host Agent 继续保持 v1.0.0 / Agent API v1，无需升级或重装。**
+手动源码包升级：
 
-> 仍在 v1.0.2 / v1.0.x 的旧 Panel，建议先升级到 v1.1.0，再执行 `xnat update 1.1.1`。
+```bash
+cd /root/xnat-main
+bash scripts/upgrade-panel-from-v1.1.1.sh
+```
+
+本次仅升级 Panel；**Host Agent 保持 v1.0.0 / Agent API v1，无需升级或重装。**
+
+> 如果仍在更早版本，推荐先按正式 Release 链升级到 v1.1.1，再执行 `xnat update 1.2.0`。
 
 ---
 

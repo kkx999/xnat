@@ -3,13 +3,13 @@
 {% block client_header %}
 <span class="client-kicker">BILLING</span>
 <h1>订单记录</h1>
-<p>查看新购、续费和管理员开通记录。</p>
+<p>查看新购、续费、流量重置和管理员开通记录。</p>
 {% endblock %}
 {% block content %}
 <div class="client-metrics order-metrics">
   <div class="client-metric"><span>订单总数</span><strong>{{ total_rows }}</strong><small>全部历史订单</small></div>
   <div class="client-metric"><span>累计消费</span><strong>{{ money(total_spend) }}</strong><small>已完成订单金额</small></div>
-  <div class="client-metric"><span>当前余额</span><strong>{{ money(user.balance_cents) }}</strong><small>可用于购买与续费</small></div>
+  <div class="client-metric"><span>当前余额</span><strong>{{ money(user.balance_cents) }}</strong><small>可用于购买、续费与流量重置</small></div>
 </div>
 
 <section class="client-panel">

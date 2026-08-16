@@ -18,14 +18,14 @@
     <div class="client-server-card-head">
       <div>
         <div class="service-title">
-          <span class="client-status-dot {{ s.status }}"></span>
+          <span class="client-status-dot {{ server_ui_status.get(s.id, s.status) }}"></span>
           <strong>{{ s.name }}</strong>
           <span class="client-tag os">{{ s.os_name or "Debian 12" }}</span>
           {% if traffic_level(s) in ["warning", "critical", "exhausted", "exempt"] %}
           <span class="traffic-state-badge {{ traffic_level(s) }}">{{ traffic_status_label(s) }}</span>
           {% endif %}
         </div>
-        <span>{{ s.plan.name }} · {{ server_status_label(s.status) }}</span>
+        <span>{{ s.plan.name }} · {{ server_status_label(server_ui_status.get(s.id, s.status)) }}</span>
       </div>
       <a class="client-detail-link" href="/servers/{{ s.id }}">管理服务器</a>
     </div>

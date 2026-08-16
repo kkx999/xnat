@@ -3,15 +3,16 @@
 {% block client_header %}
 <div class="client-breadcrumb"><a href="/servers">我的服务器</a><span>/</span><span>{{ server.name }}</span></div>
 <div class="client-server-title">
-  <span class="client-status-dot {{ server.status }}"></span>
+  <span class="client-status-dot {{ server_ui_status }}"></span>
   <h1>{{ server.name }}</h1>
   <span class="client-tag os">{{ server.os_name or "Debian 12" }}</span>
-  <span class="client-tag">{{ server_status_label(server.status) }}</span>
+  <span class="client-tag client-instance-status {{ server_ui_status }}">{{ server_status_label(server_ui_status) }}</span>
 </div>
 <p>{{ server.plan.name }} · {{ server.provider }}</p>
 {% endblock %}
 {% block content %}
-<div class="server-detail-page">
+<div class="server-detail-page" data-server-ui-status="{{ server_ui_status }}">
+{% if server_ui_status in ["provisioning", "reinstalling", "deleting"] %}<div class="client-operation-state {{ server_ui_status }}"><strong>{{ server_status_label(server_ui_status) }}</strong><span>{% if server_ui_status == "reinstalling" %}系统正在重新安装，完成后状态会自动恢复为运行中。{% elif server_ui_status == "deleting" %}实例正在删除，请稍候。{% else %}实例正在开通，请稍候。{% endif %}</span></div>{% endif %}
 <div class="server-detail-overview">
   <div class="detail-copy-field"><span>公网主机</span><strong>{{ server.public_ip }}</strong><button type="button" data-copy-value="{{ server.public_ip }}">复制</button></div>
   <div><span>私网 IPv4</span><strong>{{ server.private_ip or "-" }}</strong></div>
@@ -36,11 +37,30 @@
     </div>
   </div>
   <div class="traffic-policy-status {{ traffic_level(server) }}">
-    <strong>{{ traffic_status_label(server) }}</strong>
-    {% if traffic_level(server) == "warning" %}<span>本周期已使用超过 80%，建议关注剩余流量。</span>{% endif %}
-    {% if traffic_level(server) == "critical" %}<span>本周期已使用超过 90%，达到 100% 后会自动降至 1 Mbps。</span>{% endif %}
-    {% if traffic_level(server) == "exhausted" %}<span>套餐流量已经用尽，当前自动限速 1 Mbps；新流量周期开始后自动恢复 {{ server.bandwidth_mbps or 0 }} Mbps。</span>{% endif %}
-    {% if traffic_level(server) == "exempt" %}<span>套餐流量已经用尽，但管理员已临时解除本周期限速。</span>{% endif %}
+    <div class="traffic-policy-copy">
+      <strong>{{ traffic_status_label(server) }}</strong>
+      {% if traffic_level(server) == "warning" %}<span>本周期已使用超过 80%，建议关注剩余流量。</span>{% endif %}
+      {% if traffic_level(server) == "critical" %}<span>本周期已使用超过 90%，达到 100% 后会自动降至 1 Mbps。</span>{% endif %}
+      {% if traffic_level(server) == "exhausted" %}<span>套餐流量已经用尽，当前自动限速 1 Mbps。可付费重置流量并开启新的流量周期，恢复套餐带宽。</span>{% endif %}
+      {% if traffic_level(server) == "exempt" %}<span>套餐流量已经用尽，但管理员已临时解除本周期限速。仍可付费重置并开启新的流量周期。</span>{% endif %}
+    </div>
+    {% if traffic_level(server) in ["exhausted", "exempt"] %}
+    <form class="traffic-self-reset-form" method="post" action="/servers/{{ server.id }}/traffic/reset">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="traffic-self-reset-button" type="submit" data-loading-label="正在重置…"
+        data-xnat-confirm
+        data-confirm-tone="billing"
+        data-confirm-kicker="TRAFFIC RESET"
+        data-confirm-title="重置本周期流量"
+        data-confirm-message="当前套餐流量已经用尽。确认后会立即开启一个新的流量周期。"
+        data-confirm-fee="{{ money(server.plan.traffic_reset_price_cents) }}"
+        data-confirm-balance="{{ money(user.balance_cents) }}"
+        data-confirm-after="{{ money(user.balance_cents - server.plan.traffic_reset_price_cents) }}"
+        data-confirm-items="当前周期流量清零|恢复套餐带宽|立即开始新的流量周期"
+        data-confirm-note="扣费成功后不可撤销"
+        data-confirm-label="确认重置 · {{ money(server.plan.traffic_reset_price_cents) }}">重置流量 · {{ money(server.plan.traffic_reset_price_cents) }}</button>
+    </form>
+    {% endif %}
   </div>
   <div class="traffic-progress {{ traffic_level(server) }}"><span style="width: {{ '%.2f'|format(traffic_percent(server)) }}%"></span></div>
   <div class="traffic-usage-meta">
@@ -91,7 +111,13 @@
   <div class="client-detail-body">
     {% set current_root_password = decrypt_secret(server.root_password_enc) %}
     {% if current_root_password %}
-      <div class="client-password-display"><span>当前保存的 root 密码</span><code>{{ current_root_password }}</code><button type="button" data-copy-value="{{ current_root_password }}">复制密码</button></div>
+      <div class="client-password-display">
+        <span class="client-password-label">当前保存的 root 密码</span>
+        <div class="client-password-row">
+          <code>{{ current_root_password }}</code>
+          <button type="button" data-copy-value="{{ current_root_password }}">复制密码</button>
+        </div>
+      </div>
       <p class="client-help-text">如果你进入系统后手动执行 passwd 修改密码，这里不会自动同步。</p>
     {% else %}
       <div class="client-empty-inline">当前没有可显示的 root 密码，可使用上方“重置 root 密码”重新生成。</div>

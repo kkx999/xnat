@@ -87,12 +87,14 @@ grep -q 'schedule_storage_max_percent' panel/app/models.py
 grep -q 'def run_expiry_lifecycle' panel/app/lifecycle.py
 grep -q '"expiry_delete_enabled": "false"' panel/app/main.py
 grep -q '/admin/servers/{server_id}/traffic/cycle' panel/app/main.py
+grep -q '/servers/{server_id}/traffic/reset' panel/app/main.py
+grep -q 'traffic-self-reset-button' panel/app/templates/server_detail.html
 grep -q 'traffic_cycle_mode' panel/app/models.py
 grep -q 'queue_admin_notification' panel/app/nodes.py
 grep -q 'admin.payment.repair_no_tx' panel/app/main.py
 grep -q 'FORCE CREDIT' panel/app/templates/admin.html
-grep -q "client.js') }}?v=1.1.1-ux1" panel/app/templates/base.html
-grep -q "style.css') }}?v=1.1.1-ux1" panel/app/templates/base.html
+grep -q "client.js') }}?v=1.2.0-ux1" panel/app/templates/base.html
+grep -q "style.css') }}?v=1.2.0-ux1" panel/app/templates/base.html
 grep -q 'ensure_schema_extensions' panel/app/main.py
 grep -q 'ensure_schema_extensions' panel/app/backups.py
 grep -q 'announcement_seen_key' panel/app/models.py
@@ -104,6 +106,16 @@ grep -q '/announcements/{announcement_id}/read' panel/app/main.py
 grep -q '/admin/announcements/{announcement_id}/delete' panel/app/main.py
 grep -q 'announcement.delete' panel/app/main.py
 grep -q 'window.setTimeout(dismiss, 3000)' panel/app/static/client.js
+grep -q 'data-client-theme-toggle' panel/app/templates/base.html
+grep -q 'xnat-client-theme' panel/app/static/client.js
+grep -q 'xnat-admin-theme' panel/app/static/client.js
+grep -q 'data-admin-theme-toggle' panel/app/templates/admin.html
+grep -q 'traffic_reset_price_cents' panel/app/models.py
+grep -q 'kind="traffic_reset"' panel/app/main.py
+grep -q 'data-xnat-confirm' panel/app/templates/server_detail.html
+grep -q 'xnat-confirm-backdrop' panel/app/static/client.js
+! grep -RInE '(^|[^A-Za-z])confirm\s*\(' panel/app/static/client.js panel/app/templates >/tmp/xnat-native-confirm.txt
+grep -q 'data-client-theme="light"' panel/app/static/style.css
 grep -q 'body.admin-body .xnat-toast' panel/app/static/style.css
 grep -q 'announcement-option-switch' panel/app/templates/admin.html
 grep -q '删除公告' panel/app/templates/admin.html
@@ -111,12 +123,12 @@ grep -q '删除公告' panel/app/templates/admin.html
 ! grep -q 'name="announcement_enabled"' panel/app/templates/admin.html
 ! grep -q 'name="announcement_text"' panel/app/templates/admin.html
 grep -q '数据库迁移缺少表' scripts/upgrade-panel.sh
-grep -q 'v1.1.0 → v1.1.1' scripts/upgrade-panel-from-v1.1.0.sh
+grep -q 'v1.1.1 → v1.2.0' scripts/upgrade-panel-from-v1.1.1.sh
 grep -q 'PRAGMA quick_check' scripts/upgrade-panel.sh
 grep -q 'DATABASE_URL_VALUE' scripts/upgrade-panel.sh
 
 echo "[5/7] Clean baseline guard"
-if find . -maxdepth 3 -type f | grep -Ei '(testing|rc[0-9]|patch-panel|patch-management|upgrade-from-v1\.0\.3)' >/tmp/xnat-clean-guard.txt; then
+if find . -maxdepth 3 -type f | grep -Ei '(testing|preview-[0-9]|rc[0-9]|patch-panel|patch-management|upgrade-from-v1\.0\.3|UPGRADE-FROM)' >/tmp/xnat-clean-guard.txt; then
   echo "[ERROR] Found testing/RC/legacy artifacts:"
   cat /tmp/xnat-clean-guard.txt
   exit 1

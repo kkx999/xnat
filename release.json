@@ -1,6 +1,6 @@
 {
-  "release_version": "1.1.1",
-  "panel_version": "1.1.1",
+  "release_version": "1.2.0",
+  "panel_version": "1.2.0",
   "agent_version": "1.0.0",
   "agent_api_version": "1",
   "supported_agent_api_versions": [

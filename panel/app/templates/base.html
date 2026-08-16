@@ -4,7 +4,20 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{% block title %}{{ app_name }}{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}?v=1.1.1-ux1">
+  <script>
+    (() => {
+      try {
+        const clientSaved = localStorage.getItem("xnat-client-theme");
+        const adminSaved = localStorage.getItem("xnat-admin-theme");
+        document.documentElement.dataset.clientTheme = clientSaved === "light" ? "light" : "dark";
+        document.documentElement.dataset.adminTheme = adminSaved === "light" ? "light" : "dark";
+      } catch (_) {
+        document.documentElement.dataset.clientTheme = "dark";
+        document.documentElement.dataset.adminTheme = "dark";
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}?v=1.2.0-ux1">
 </head>
 {% set is_home_area = request.url.path == '/' %}
 {% set is_admin_area = request.url.path.startswith('/admin') %}
@@ -96,6 +109,10 @@
             <em class="client-announcement-badge{% if not announcement_unread_count %} is-empty{% endif %}" data-announcement-badge>{{ announcement_unread_count if announcement_unread_count else '' }}</em>
           </button>
           <a class="client-balance-pill" href="/plans"><span>余额</span><strong>{{ money(user.balance_cents) }}</strong></a>
+          <button class="client-theme-toggle" type="button" data-client-theme-toggle aria-label="切换为明亮主题" title="切换主题">
+            <span class="client-theme-symbol" aria-hidden="true"></span>
+            <span class="client-theme-label" data-client-theme-label>明亮</span>
+          </button>
           <a class="client-round-avatar" href="/account" title="账户设置">{{ user.username[:1]|upper }}</a>
         </div>
       </header>
@@ -153,7 +170,7 @@
 {% else %}
   </main>
   <footer class="wrap footer">
-    XNAT v1.1.1 Multi-Node · Provider: {{ provider_name }}
+    XNAT v1.2.0 Multi-Node · Provider: {{ provider_name }}
   </footer>
 {% endif %}
 
@@ -180,6 +197,6 @@
   </section>
 </div>
 {% endif %}
-<script src="{{ url_for('static', path='/client.js') }}?v=1.1.1-ux1" defer></script>
+<script src="{{ url_for('static', path='/client.js') }}?v=1.2.0-ux1" defer></script>
 </body>
 </html>

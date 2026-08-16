@@ -119,6 +119,10 @@
         {% endif %}
       </div>
       <div class="admin-top-actions">
+        <button class="admin-theme-toggle" type="button" data-admin-theme-toggle aria-label="切换为明亮主题" title="切换主题">
+          <span class="admin-theme-symbol" aria-hidden="true"></span>
+          <span class="admin-theme-label" data-admin-theme-label>明亮</span>
+        </button>
         <a class="admin-round-avatar" href="/admin?section=settings" title="{{ user.username }} · 管理员">
           {{ user.username[:1]|upper }}
         </a>
@@ -229,7 +233,7 @@
             </div>
           </div>
 
-          <form class="plan-edit-grid" method="post" action="/admin/plans/{{ p.id }}/update">
+          <form id="plan-update-{{ p.id }}" class="plan-edit-grid" method="post" action="/admin/plans/{{ p.id }}/update">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <label>套餐名称<input name="name" value="{{ p.name }}" required></label>
             <label>CPU<input type="number" name="cpu" min="1" value="{{ p.cpu }}" required></label>
@@ -239,19 +243,22 @@
             <label>流量 GB<input type="number" name="traffic_gb" min="0" value="{{ p.traffic_gb }}" required></label>
             <label>NAT 端口<input type="number" name="port_count" min="0" value="{{ p.port_count }}" required></label>
             <label>月付价格 ¥<input name="monthly_price" value="{{ '%.2f'|format(p.monthly_price_cents / 100) }}" required></label>
+            <label>流量重置价 ¥<input name="traffic_reset_price" value="{{ '%.2f'|format(p.traffic_reset_price_cents / 100) }}" required><small>流量用尽后用户自助重置时扣除</small></label>
             <label>库存上限<input type="number" name="stock_limit" min="0" value="{{ p.stock_limit }}" required><small>0 = 不限库存</small></label>
             <label>套餐中心排序<input type="number" name="sort_order" min="0" value="{{ p.sort_order }}" required><small>数字越小越靠前</small></label>
             <label>首页展示<select name="homepage_visible"><option value="true" {% if p.homepage_visible %}selected{% endif %}>显示</option><option value="false" {% if not p.homepage_visible %}selected{% endif %}>不显示</option></select><small>首页最多按排序展示前三个</small></label>
             <label>首页排序<input type="number" name="homepage_sort_order" min="0" value="{{ p.homepage_sort_order }}" required><small>只影响首页</small></label>
             <label>推荐套餐<select name="is_recommended"><option value="false" {% if not p.is_recommended %}selected{% endif %}>不推荐</option><option value="true" {% if p.is_recommended %}selected{% endif %}>推荐</option></select></label>
             <label>推荐标签<input name="recommendation_label" maxlength="32" value="{{ p.recommendation_label or '推荐' }}" placeholder="例如 性价比推荐"></label>
-            <div class="plan-edit-actions"><button type="submit">保存套餐</button></div>
           </form>
 
-          <form class="inline" method="post" action="/admin/plans/{{ p.id }}/toggle">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="secondary-admin-btn" type="submit">{{ "下架套餐" if p.is_active else "重新上架" }}</button>
-          </form>
+          <div class="admin-plan-actions-row">
+            <button class="primary-admin-action" type="submit" form="plan-update-{{ p.id }}">保存套餐</button>
+            <form class="inline" method="post" action="/admin/plans/{{ p.id }}/toggle">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button class="secondary-admin-btn" type="submit">{{ "下架套餐" if p.is_active else "重新上架" }}</button>
+            </form>
+          </div>
         </article>
       {% endfor %}
       </div>
@@ -268,6 +275,7 @@
           <label>流量 GB<input type="number" name="traffic_gb" min="0" value="200" required></label>
           <label>NAT 端口<input type="number" name="port_count" min="0" value="5" required></label>
           <label>月付价格 ¥<input name="monthly_price" value="3.00" required></label>
+          <label>流量重置价 ¥<input name="traffic_reset_price" value="3.00" required><small>必须大于 0</small></label>
           <label>库存上限<input type="number" name="stock_limit" min="0" value="0" required><small>0 = 不限库存</small></label>
           <label>套餐中心排序<input type="number" name="sort_order" min="0" value="100" required><small>数字越小越靠前</small></label>
           <label>首页展示<select name="homepage_visible"><option value="false" selected>不显示</option><option value="true">显示</option></select><small>新套餐默认不占首页</small></label>
@@ -451,156 +459,139 @@
       </form>
 
     {% elif section == "servers" %}
-      <form class="admin-search" method="get" action="/admin">
-        <input type="hidden" name="section" value="servers">
-        <input name="q" value="{{ q }}" placeholder="搜索实例名、用户名、邮箱、IP、系统">
-        <button type="submit">搜索</button>
-        {% if q %}<a href="/admin?section=servers">清除</a>{% endif %}
-      </form>
+      <div class="v112-server-toolbar">
+        <form class="admin-search" method="get" action="/admin">
+          <input type="hidden" name="section" value="servers">
+          <input name="q" value="{{ q }}" placeholder="搜索实例名、用户名、邮箱、IP、系统">
+          <button type="submit">搜索</button>
+          {% if q %}<a href="/admin?section=servers">清除</a>{% endif %}
+        </form>
+        <form class="v112-reconcile-all" method="post" action="/admin/reconcile-all">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit">全量状态校验</button>
+        </form>
+      </div>
+      <div class="v112-result-meta">共 {{ total_rows }} 条结果 · 每页 {{ per_page }} 条</div>
 
-      <div class="admin-section-actions"><div class="result-meta">共 {{ total_rows }} 条结果 · 每页 {{ per_page }} 条</div><form method="post" action="/admin/reconcile-all"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">全量状态校验 / 修复</button></form></div>
-
-      <div class="table-wrap">
-      <table>
-        <thead>
-        <tr><th>ID</th><th>用户</th><th>名称</th><th>节点</th><th>系统</th><th>配置</th><th>SSH</th><th>带宽</th><th>流量</th><th>一致性</th><th>到期</th><th>操作</th></tr>
-        </thead>
-        <tbody>
-        {% for s in servers %}
-        <tr>
-          <td>{{ s.id }}</td>
-          <td>{{ s.user.username }}</td>
-          <td>{{ s.name }}</td>
-          <td>{% if s.host %}<span class="node-mini-state {{ s.host.status }}">{{ s.host.name }}</span><small class="small-muted">{{ s.host.region }}</small>{% else %}<span class="small-muted">未绑定</span>{% endif %}</td>
-          <td>{{ s.os_name or "Debian 12" }}</td>
-          <td>
-            <div class="admin-resource-cell">
-              <strong>{{ s.cpu }}C / {{ s.memory_mb }}M / {{ s.disk_gb }}G</strong>
-              <details class="admin-resource-manage">
-                <summary>调整资源</summary>
-                <form method="post" action="/admin/servers/{{ s.id }}/resources">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                  <label>vCPU
-                    <input type="number" name="cpu" min="1" max="128" value="{{ s.cpu or 1 }}" required>
-                  </label>
-                  <label>内存 MB
-                    <input type="number" name="memory_mb" min="64" max="1048576" step="64" value="{{ s.memory_mb or 128 }}" required>
-                  </label>
-                  <label>磁盘 GB
-                    <input type="number" name="disk_gb" min="{{ s.disk_gb or 1 }}" max="65536" value="{{ s.disk_gb or 1 }}" required oninput="this.setCustomValidity('')" oninvalid="this.setCustomValidity('磁盘仅支持扩容，当前容量为 {{ s.disk_gb or 1 }} GB。请输入大于或等于 {{ s.disk_gb or 1 }} GB 的容量。')">
-                  </label>
-                  <small>CPU / 内存可升降；磁盘只允许扩容。降低内存可能影响正在运行的业务。</small>
-                  <button type="submit">应用资源配置</button>
-                </form>
-              </details>
+      <div class="v112-server-list">
+      {% for s in servers %}
+        <article class="v112-server-card">
+          <header class="v112-server-head">
+            <div class="v112-server-identity">
+              <div class="v112-server-title-row">
+                <strong>{{ s.name }}</strong>
+                <span class="v112-server-state {{ s.status }}">{{ server_status_label(s.status) }}</span>
+                <span class="v112-server-id">#{{ s.id }}</span>
+              </div>
+              <div class="v112-server-subline">
+                <span>{{ s.user.username }}</span>
+                <span>{{ s.os_name or "Debian 12" }}</span>
+                {% if s.host %}<span>{{ s.host.name }} · {{ s.host.region }}</span>{% else %}<span>未绑定节点</span>{% endif %}
+              </div>
             </div>
-          </td>
-          <td>{{ s.public_ip }}:{{ s.ssh_port }}</td>
-          <td>
-            <form class="bandwidth-form" method="post" action="/admin/servers/{{ s.id }}/bandwidth">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <input type="number" name="bandwidth_mbps" min="0" max="10000" value="{{ s.bandwidth_mbps or 0 }}" required>
-              <span>Mbps</span>
-              <button type="submit">应用</button>
-            </form>
-          </td>
-          <td>
-            <div class="admin-traffic-cell">
-              <strong>{{ human_bytes(traffic_used_bytes(s)) }} / {% if traffic_quota_gb(s) > 0 %}{{ traffic_quota_gb(s) }} GB{% else %}不限{% endif %}</strong>
-              <span>RX {{ human_bytes(s.traffic_used_rx_bytes or 0) }} · TX {{ human_bytes(s.traffic_used_tx_bytes or 0) }}</span>
-              <span class="admin-traffic-state {{ traffic_level(s) }}">{{ traffic_status_label(s) }}</span>
-              <small>{{ local_dt(s.traffic_cycle_start).strftime("%m-%d %H:%M") if s.traffic_cycle_start else "-" }} → {{ local_dt(s.traffic_cycle_end).strftime("%m-%d %H:%M") if s.traffic_cycle_end else "-" }}</small>
-              <small class="traffic-cycle-mode-label">{{ traffic_cycle_mode_label(s) }}</small>
-              {% if traffic_bonus_gb(s) > 0 %}<small>临时额度 +{{ traffic_bonus_gb(s) }} GB</small>{% endif %}
-              <details class="admin-traffic-manage">
-                <summary>调整流量</summary>
-                <div class="admin-traffic-manage-body">
-                  <form class="admin-traffic-quota-form" method="post" action="/admin/servers/{{ s.id }}/traffic/quota">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <label>新的流量额度 GB
-                      <input type="number" name="traffic_gb" min="0" max="1000000" value="{{ s.traffic_gb or 0 }}" required>
-                      <small>0 = 不限流量。保存后立即重新计算当前流量状态。</small>
-                    </label>
-                    <label class="admin-inline-check"><input type="checkbox" name="reset_used" value="true"> 同时把当前周期已用流量重置为 0</label>
-                    <label class="admin-inline-check"><input type="checkbox" name="confirm_overused" value="true"> 如果新额度低于当前已用流量，确认立即执行超额限速策略</label>
-                    <button type="submit">保存流量额度</button>
-                  </form>
-                  <form class="admin-traffic-cycle-form" method="post" action="/admin/servers/{{ s.id }}/traffic/cycle">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <label>周期模式
-                      <select name="cycle_mode">
-                        <option value="rolling30" {% if (s.traffic_cycle_mode or 'rolling30') == 'rolling30' %}selected{% endif %}>每 30 天滚动</option>
-                        <option value="monthly" {% if s.traffic_cycle_mode == 'monthly' %}selected{% endif %}>每月固定日期</option>
-                      </select>
-                    </label>
-                    <label>每月重置日
-                      <input type="number" name="cycle_day" min="1" max="28" value="{{ s.traffic_cycle_day or 1 }}">
-                      <small>仅“每月固定日期”模式使用，支持 1-28 日。</small>
-                    </label>
-                    <label class="admin-inline-check"><input type="checkbox" name="confirm_reset" value="true"> 确认切换周期并立即清零当前已用流量</label>
-                    <button type="submit">保存周期策略</button>
-                  </form>
-                  <form method="post" action="/admin/servers/{{ s.id }}/traffic/reset">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <button type="submit">仅重置当前周期</button>
-                  </form>
+            <div class="v112-reconcile-state reconcile-state {{ s.reconcile_status }}">
+              <strong>{{ s.reconcile_status or "unknown" }}</strong>
+              <small>{{ s.reconcile_message or "状态一致" }}</small>
+              <form method="post" action="/admin/servers/{{ s.id }}/reconcile">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="v112-inline-action" type="submit">校验</button>
+              </form>
+            </div>
+          </header>
+
+          <div class="v112-server-overview">
+            <div><span>资源</span><strong>{{ s.cpu }}C · {{ s.memory_mb }}M · {{ s.disk_gb }}G</strong></div>
+            <div><span>SSH</span><strong>{{ s.public_ip }}:{{ s.ssh_port }}</strong></div>
+            <div><span>带宽</span><strong>{{ s.bandwidth_mbps or 0 }} Mbps</strong></div>
+            <div><span>流量</span><strong>{{ human_bytes(traffic_used_bytes(s)) }} / {% if traffic_quota_gb(s) > 0 %}{{ traffic_quota_gb(s) }} GB{% else %}不限{% endif %}</strong><small>{{ traffic_status_label(s) }}</small></div>
+            <div><span>到期</span><strong>{{ local_dt(s.expires_at).strftime("%Y-%m-%d %H:%M") if s.expires_at else "-" }}</strong></div>
+          </div>
+
+          <div class="v112-server-tools">
+            <details class="v112-tool-panel">
+              <summary><span>资源配置</span><small>CPU / 内存 / 磁盘</small></summary>
+              <form class="v112-resource-form" method="post" action="/admin/servers/{{ s.id }}/resources">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <label>vCPU<input type="number" name="cpu" min="1" max="128" value="{{ s.cpu or 1 }}" required></label>
+                <label>内存 MB<input type="number" name="memory_mb" min="64" max="1048576" step="64" value="{{ s.memory_mb or 128 }}" required></label>
+                <label>磁盘 GB<input type="number" name="disk_gb" min="{{ s.disk_gb or 1 }}" max="65536" value="{{ s.disk_gb or 1 }}" required oninput="this.setCustomValidity('')" oninvalid="this.setCustomValidity('磁盘仅支持扩容，当前容量为 {{ s.disk_gb or 1 }} GB。请输入大于或等于 {{ s.disk_gb or 1 }} GB 的容量。')"></label>
+                <small>CPU / 内存可调整；磁盘只允许扩容。</small>
+                <button type="submit">保存资源配置</button>
+              </form>
+            </details>
+
+            <details class="v112-tool-panel">
+              <summary><span>网络与流量</span><small>带宽 / 流量周期</small></summary>
+              <div class="v112-network-tools">
+                <form class="v112-bandwidth-form" method="post" action="/admin/servers/{{ s.id }}/bandwidth">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <label>带宽 Mbps<input type="number" name="bandwidth_mbps" min="0" max="10000" value="{{ s.bandwidth_mbps or 0 }}" required></label>
+                  <button type="submit">保存带宽</button>
+                </form>
+                <div class="v112-traffic-summary">
+                  <span>RX {{ human_bytes(s.traffic_used_rx_bytes or 0) }} · TX {{ human_bytes(s.traffic_used_tx_bytes or 0) }}</span>
+                  <span class="admin-traffic-state {{ traffic_level(s) }}">{{ traffic_status_label(s) }}</span>
+                  <small>{{ local_dt(s.traffic_cycle_start).strftime("%m-%d %H:%M") if s.traffic_cycle_start else "-" }} → {{ local_dt(s.traffic_cycle_end).strftime("%m-%d %H:%M") if s.traffic_cycle_end else "-" }} · {{ traffic_cycle_mode_label(s) }}</small>
+                </div>
+                <form class="v112-traffic-form" method="post" action="/admin/servers/{{ s.id }}/traffic/quota">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <label>流量额度 GB<input type="number" name="traffic_gb" min="0" max="1000000" value="{{ s.traffic_gb or 0 }}" required><small>0 = 不限流量</small></label>
+                  <label class="admin-inline-check"><input type="checkbox" name="reset_used" value="true"> 同时重置当前周期已用流量</label>
+                  <label class="admin-inline-check"><input type="checkbox" name="confirm_overused" value="true"> 新额度低于已用流量时立即执行超额策略</label>
+                  <button type="submit">保存流量额度</button>
+                </form>
+                <form class="v112-cycle-form" method="post" action="/admin/servers/{{ s.id }}/traffic/cycle">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <label>周期模式<select name="cycle_mode"><option value="rolling30" {% if (s.traffic_cycle_mode or 'rolling30') == 'rolling30' %}selected{% endif %}>每 30 天滚动</option><option value="monthly" {% if s.traffic_cycle_mode == 'monthly' %}selected{% endif %}>每月固定日期</option></select></label>
+                  <label>每月重置日<input type="number" name="cycle_day" min="1" max="28" value="{{ s.traffic_cycle_day or 1 }}"></label>
+                  <label class="admin-inline-check"><input type="checkbox" name="confirm_reset" value="true"> 切换周期时立即清零当前已用流量</label>
+                  <button type="submit">保存周期策略</button>
+                </form>
+                <div class="v112-traffic-actions">
+                  <form method="post" action="/admin/servers/{{ s.id }}/traffic/reset"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">重置当前周期</button></form>
                   {% if traffic_level(s) in ["exhausted", "exempt"] %}
                     {% if s.traffic_throttle_exempt %}
-                    <form method="post" action="/admin/servers/{{ s.id }}/traffic/auto">
-                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <button type="submit">恢复自动限速</button>
-                    </form>
+                    <form method="post" action="/admin/servers/{{ s.id }}/traffic/auto"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">恢复自动限速</button></form>
                     {% else %}
-                    <form method="post" action="/admin/servers/{{ s.id }}/traffic/unthrottle">
-                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <button type="submit">解除本周期限速</button>
-                    </form>
+                    <form method="post" action="/admin/servers/{{ s.id }}/traffic/unthrottle"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">解除本周期限速</button></form>
                     {% endif %}
                   {% endif %}
                 </div>
-              </details>
-            </div>
-          </td>
-          <td><div class="reconcile-state {{ s.reconcile_status }}"><strong>{{ s.reconcile_status or "unknown" }}</strong><small>{{ s.reconcile_message or "状态一致" }}</small></div><form method="post" action="/admin/servers/{{ s.id }}/reconcile"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="tiny-action" type="submit">校验</button></form></td>
-          <td>{{ local_dt(s.expires_at).strftime("%Y-%m-%d %H:%M") if s.expires_at else "-" }}<div class="small-muted">{{ server_status_label(s.status) }}</div></td>
-          <td>
-            <div class="admin-server-actions">
-              <details class="admin-expiry-details">
-                <summary>调整到期</summary>
-                <div class="admin-expiry-panel">
-                  <form method="post" action="/admin/servers/{{ s.id }}/expiry">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <input type="hidden" name="mode" value="add">
-                    <label>增加天数<input type="number" name="days" min="1" max="3650" value="30" required></label>
-                    <button type="submit">按天续期</button>
-                  </form>
-                  <form method="post" action="/admin/servers/{{ s.id }}/expiry">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <input type="hidden" name="mode" value="set">
-                    <label>直接设置到期时间<input type="datetime-local" name="expires_at" value="{{ local_dt(s.expires_at).strftime('%Y-%m-%dT%H:%M') if s.expires_at else '' }}" required></label>
-                    <label>立即到期确认<input name="confirm_expired" placeholder="仅设置过去时间时输入 EXPIRE NOW"></label>
-                    <small>设置为过去时间会进入当前生命周期策略：先应用宽限期，再按策略停机；自动删除默认关闭。</small>
-                    <button type="submit">设置到期时间</button>
-                  </form>
-                </div>
-              </details>
-              <details class="admin-delete-details">
-                <summary>删除</summary>
-                <form method="post" action="/admin/servers/{{ s.id }}/delete">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                  <small>输入 <code>{{ s.name }}</code> 确认永久删除</small>
-                  <input name="confirm_name" placeholder="{{ s.name }}" required>
-                  <button class="danger" type="submit">永久删除</button>
+              </div>
+            </details>
+
+            <details class="v112-tool-panel">
+              <summary><span>到期管理</span><small>续期 / 指定日期</small></summary>
+              <div class="v112-expiry-tools">
+                <form method="post" action="/admin/servers/{{ s.id }}/expiry">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="mode" value="add">
+                  <label>增加天数<input type="number" name="days" min="1" max="3650" value="30" required></label>
+                  <button type="submit">按天续期</button>
                 </form>
-              </details>
-            </div>
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="12">没有找到服务器</td></tr>
-        {% endfor %}
-        </tbody>
-      </table>
+                <form method="post" action="/admin/servers/{{ s.id }}/expiry">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="mode" value="set">
+                  <label>直接设置到期时间<input type="datetime-local" name="expires_at" value="{{ local_dt(s.expires_at).strftime('%Y-%m-%dT%H:%M') if s.expires_at else '' }}" required></label>
+                  <label>立即到期确认<input name="confirm_expired" placeholder="仅设置过去时间时输入 EXPIRE NOW"></label>
+                  <small>过去时间会按现有生命周期策略进入宽限期 / 停机流程。</small>
+                  <button type="submit">设置到期时间</button>
+                </form>
+              </div>
+            </details>
+
+            <details class="v112-tool-panel v112-danger-panel">
+              <summary><span>删除服务器</span><small>永久操作</small></summary>
+              <form method="post" action="/admin/servers/{{ s.id }}/delete">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <small>输入 <code>{{ s.name }}</code> 确认永久删除。</small>
+                <input name="confirm_name" placeholder="{{ s.name }}" required>
+                <button class="danger" type="submit">永久删除</button>
+              </form>
+            </details>
+          </div>
+        </article>
+      {% else %}
+        <div class="empty">没有找到服务器</div>
+      {% endfor %}
       </div>
 
       {% include "_admin_pagination.html" %}
@@ -940,20 +931,47 @@
             <div><span>VPS</span><strong>{{ h.active_vps }}{% if h.max_vps %} / {{ h.max_vps }}{% endif %}</strong></div>
           </div>
 
-          <div class="node-schedule-banner {{ sched.get('code', 'unknown') }}">
-            <div><span>新实例调度</span><strong>{{ sched.get('label', '未知') }}</strong></div>
+          {% set cap = sched.get('capacity', {}) %}
+          <div class="node-schedule-banner node-capacity-banner {{ sched.get('code', 'unknown') }}">
+            <div class="node-capacity-state">
+              <span>新实例分配</span>
+              <strong>{{ sched.get('label', '未知') }}</strong>
+              {% if not sched.get('allowed') %}<small>{{ sched.get('reason', '-') }}</small>{% endif %}
+            </div>
+            {% if cap %}
+            <div class="node-capacity-grid">
+              <div>
+                <span>CPU 调度余量</span>
+                <strong>{{ '%.1f'|format(cap.get('cpu_headroom_percent', 0)) }}%</strong>
+                <small>已分配 {{ cap.get('allocated_cpu', 0) }} vCPU</small>
+              </div>
+              <div>
+                <span>剩余内存</span>
+                <strong>{% if cap.get('remaining_memory_mb', 0) >= 1024 %}{{ '%.2f'|format(cap.get('remaining_memory_mb', 0) / 1024) }} GB{% else %}{{ cap.get('remaining_memory_mb', 0) }} MB{% endif %}</strong>
+                <small>已分配 {{ cap.get('allocated_memory_mb', 0) }} MB</small>
+              </div>
+              <div>
+                <span>剩余存储</span>
+                <strong>{{ '%.1f'|format(cap.get('remaining_disk_gb', 0)) }} GB</strong>
+                <small>已分配 {{ '%.1f'|format(cap.get('allocated_disk_gb', 0)) }} GB</small>
+              </div>
+            </div>
+            {% else %}
             <p>{{ sched.get('reason', '-') }}</p>
+            {% endif %}
           </div>
 
-          <div class="node-meta-list">
-            <div><span>Agent</span><code>{{ h.api_url }}</code></div>
-            <div><span>公网 IP</span><code>{{ h.public_ip }}</code></div>
-            {% set hp = host_port_stats.get(h.id, {}) %}
-            <div><span>NAT 端口池</span><code>{% if hp.get('configured') %}{{ hp.start }}-{{ hp.end }}{% else %}未配置{% endif %}</code></div>
-            <div><span>Agent 版本</span><code>{{ h.agent_version or '-' }}</code></div>
-            <div><span>Agent API</span><code>v{{ h.agent_api_version or '-' }} · {{ '兼容' if hs.get('api_compatible') else '不兼容' }}</code></div>
-            <div><span>最后心跳</span><code>{{ local_dt(h.last_seen_at).strftime('%Y-%m-%d %H:%M:%S') if h.last_seen_at else '-' }}</code></div>
-          </div>
+          <details class="node-info-details">
+            <summary><span>节点信息</span><small>Agent / IP / 版本 / 心跳</small></summary>
+            <div class="node-meta-list">
+              <div><span>Agent</span><code>{{ h.api_url }}</code></div>
+              <div><span>公网 IP</span><code>{{ h.public_ip }}</code></div>
+              {% set hp = host_port_stats.get(h.id, {}) %}
+              <div><span>NAT 端口池</span><code>{% if hp.get('configured') %}{{ hp.start }}-{{ hp.end }}{% else %}未配置{% endif %}</code></div>
+              <div><span>Agent</span><code>{{ h.agent_version or '-' }} · API v{{ h.agent_api_version or '-' }} · {{ '兼容' if hs.get('api_compatible') else '不兼容' }}</code></div>
+              <div><span>最后心跳</span><code>{{ local_dt(h.last_seen_at).strftime('%m-%d %H:%M:%S') if h.last_seen_at else '-' }}</code></div>
+            </div>
+          </details>
           {% if h.last_error %}<div class="node-error">{{ h.last_error }}</div>{% endif %}
 
           <details class="node-edit-details">
@@ -1000,19 +1018,23 @@
             <summary>允许的套餐</summary>
             <form method="post" action="/admin/nodes/{{ h.id }}/plans">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <div class="node-plan-checks">
+              <div class="node-plan-switches">
               {% for p in plans %}
-                <label><input type="checkbox" name="plan_ids" value="{{ p.id }}" {% if p.id in plan_host_map.get(h.id, []) %}checked{% endif %}> {{ p.name }}</label>
+                <label class="node-plan-switch-row">
+                  <span class="node-plan-switch-name">{{ p.name }}</span>
+                  <input class="node-plan-switch-input" type="checkbox" name="plan_ids" value="{{ p.id }}" {% if p.id in plan_host_map.get(h.id, []) %}checked{% endif %}>
+                  <span class="node-plan-switch-ui" aria-hidden="true"></span>
+                </label>
               {% endfor %}
               </div>
-              <small>如果某套餐没有绑定到任何节点，则默认允许调度到所有在线节点。</small>
-              <button>保存套餐绑定</button>
+              <small>开启即允许该套餐调度到此节点；如果套餐未绑定任何节点，则默认允许调度到所有在线节点。</small>
+              <button class="node-plan-save">保存套餐绑定</button>
             </form>
           </details>
 
           <div class="node-card-actions v110-node-actions">
-            <form method="post" action="/admin/nodes/{{ h.id }}/test"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>立即检测</button></form>
-            <form method="post" action="/admin/nodes/{{ h.id }}/toggle"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>{{ '停用调度' if h.enabled else '重新启用' }}</button></form>
+            <form method="post" action="/admin/nodes/{{ h.id }}/test"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>检测</button></form>
+            <form method="post" action="/admin/nodes/{{ h.id }}/toggle"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>{{ '停用调度' if h.enabled else '启用调度' }}</button></form>
             <details class="node-maintenance-control" {% if h.maintenance_mode %}open{% endif %}>
               <summary>{{ '维护中' if h.maintenance_mode else '维护模式' }}</summary>
               <div class="node-maintenance-body">
@@ -1050,7 +1072,7 @@
       {% endfor %}
       </div>
 
-      <details class="admin-create-box node-create-box" open>
+      <details class="admin-create-box node-create-box">
         <summary>＋ 添加宿主机节点</summary>
         <form class="node-create-form" method="post" action="/admin/nodes">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -1172,7 +1194,7 @@
         <div class="announcement-submit-row"><button type="submit">创建公告</button></div>
       </form>
       <form class="admin-search announcement-search" method="get" action="/admin"><input type="hidden" name="section" value="announcements"><input name="q" value="{{ q }}" placeholder="搜索公告标题或内容"><button>搜索</button>{% if q %}<a href="/admin?section=announcements">清除</a>{% endif %}</form>
-      <div class="announcement-admin-list">{% for item in announcement_admin_rows %}<details class="admin-card announcement-admin-item" {% if loop.first and q %}open{% endif %}><summary><div class="announcement-admin-summary"><div class="announcement-admin-statuses"><span class="announcement-status {{ 'published' if item.is_published else 'draft' }}">{{ '已发布' if item.is_published else '草稿' }}</span>{% if item.show_on_login %}<span class="announcement-status login">首次登录</span>{% endif %}{% if item.is_pinned %}<span class="announcement-status pinned">置顶</span>{% endif %}</div><strong>{{ item.title }}</strong><small>#{{ item.id }} · {{ local_dt(item.published_at or item.created_at).strftime('%Y-%m-%d %H:%M') }}</small></div><span class="announcement-admin-expand">编辑 ›</span></summary><div class="announcement-admin-edit-body"><form method="post" action="/admin/announcements/{{ item.id }}/update"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>标题<input name="title" maxlength="160" required value="{{ item.title }}"></label><label>内容<textarea name="body" rows="7" maxlength="12000" required>{{ item.body }}</textarea></label><div class="announcement-editor-options"><label class="announcement-status-field">状态<select name="status"><option value="published" {% if item.is_published %}selected{% endif %}>已发布</option><option value="draft" {% if not item.is_published %}selected{% endif %}>草稿</option></select></label><label class="announcement-option-card"><span class="announcement-option-text">置顶显示</span><input class="announcement-option-switch" type="checkbox" name="is_pinned" value="1" aria-label="置顶显示" {% if item.is_pinned %}checked{% endif %}></label><label class="announcement-option-card"><span class="announcement-option-text">首次登录重点弹出</span><input class="announcement-option-switch" type="checkbox" name="show_on_login" value="1" aria-label="首次登录重点弹出" {% if item.show_on_login %}checked{% endif %}></label></div><div class="announcement-edit-actions"><button type="submit">保存修改</button></div></form><form method="post" action="/admin/announcements/{{ item.id }}/delete" class="announcement-delete-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="danger announcement-delete-button" onclick="return confirm('确定永久删除这条公告吗？删除后无法恢复。')">删除公告</button></form></div></details>{% else %}<div class="admin-card announcement-admin-empty"><span class="announcement-empty-icon">i</span><div><strong>暂无公告</strong><small>创建第一条公告后，用户即可从右上角查看历史公告。</small></div></div>{% endfor %}</div>
+      <div class="announcement-admin-list">{% for item in announcement_admin_rows %}<details class="admin-card announcement-admin-item" {% if loop.first and q %}open{% endif %}><summary><div class="announcement-admin-summary"><div class="announcement-admin-statuses"><span class="announcement-status {{ 'published' if item.is_published else 'draft' }}">{{ '已发布' if item.is_published else '草稿' }}</span>{% if item.show_on_login %}<span class="announcement-status login">首次登录</span>{% endif %}{% if item.is_pinned %}<span class="announcement-status pinned">置顶</span>{% endif %}</div><strong>{{ item.title }}</strong><small>#{{ item.id }} · {{ local_dt(item.published_at or item.created_at).strftime('%Y-%m-%d %H:%M') }}</small></div><span class="announcement-admin-expand">编辑 ›</span></summary><div class="announcement-admin-edit-body"><form method="post" action="/admin/announcements/{{ item.id }}/update"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>标题<input name="title" maxlength="160" required value="{{ item.title }}"></label><label>内容<textarea name="body" rows="7" maxlength="12000" required>{{ item.body }}</textarea></label><div class="announcement-editor-options"><label class="announcement-status-field">状态<select name="status"><option value="published" {% if item.is_published %}selected{% endif %}>已发布</option><option value="draft" {% if not item.is_published %}selected{% endif %}>草稿</option></select></label><label class="announcement-option-card"><span class="announcement-option-text">置顶显示</span><input class="announcement-option-switch" type="checkbox" name="is_pinned" value="1" aria-label="置顶显示" {% if item.is_pinned %}checked{% endif %}></label><label class="announcement-option-card"><span class="announcement-option-text">首次登录重点弹出</span><input class="announcement-option-switch" type="checkbox" name="show_on_login" value="1" aria-label="首次登录重点弹出" {% if item.show_on_login %}checked{% endif %}></label></div><div class="announcement-edit-actions"><button type="submit">保存修改</button></div></form><form method="post" action="/admin/announcements/{{ item.id }}/delete" class="announcement-delete-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" class="danger announcement-delete-button" data-xnat-confirm data-confirm-tone="danger" data-confirm-kicker="PERMANENT ACTION" data-confirm-title="删除这条公告？" data-confirm-message="删除后，用户端历史公告中心也会同步移除这条记录。" data-confirm-note="此操作不可恢复" data-confirm-label="确认删除">删除公告</button></form></div></details>{% else %}<div class="admin-card announcement-admin-empty"><span class="announcement-empty-icon">i</span><div><strong>暂无公告</strong><small>创建第一条公告后，用户即可从右上角查看历史公告。</small></div></div>{% endfor %}</div>
       {% include "_admin_pagination.html" %}
 
     {% elif section == "settings" %}

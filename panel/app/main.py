@@ -112,8 +112,47 @@ def server_status_label(value: str | None) -> str:
         "running": "运行中",
         "stopped": "已关机",
         "provisioning": "开通中",
+        "reinstalling": "重装中",
+        "deleting": "删除中",
+        "provision_failed": "开通失败",
         "deleted": "已删除",
     }.get((value or "").lower(), value or "未知")
+
+
+def server_ui_status_map(db, servers) -> dict[int, str]:
+    """Return user-facing transient server states without mutating allocation state.
+
+    A reinstall/delete is queued and processed asynchronously. The persisted
+    Server.status intentionally continues to describe the last confirmed
+    provider state so capacity/accounting code is not affected. For client UI,
+    however, an active lifecycle job should take precedence until it finishes.
+    """
+    rows = list(servers or [])
+    result = {s.id: (s.status or "unknown") for s in rows}
+    server_ids = [s.id for s in rows if getattr(s, "id", None)]
+    if not server_ids:
+        return result
+
+    jobs = db.scalars(
+        select(Job).where(
+            Job.server_id.in_(server_ids),
+            Job.status.in_(["pending", "running"]),
+            Job.job_type.in_(["provision_server", "reinstall_server", "delete_server"]),
+        ).order_by(Job.id.desc())
+    ).all()
+
+    transient = {
+        "provision_server": "provisioning",
+        "reinstall_server": "reinstalling",
+        "delete_server": "deleting",
+    }
+    seen = set()
+    for job in jobs:
+        if not job.server_id or job.server_id in seen:
+            continue
+        result[job.server_id] = transient.get(job.job_type, result.get(job.server_id, "unknown"))
+        seen.add(job.server_id)
+    return result
 
 
 def order_status_label(value: str | None) -> str:
@@ -135,6 +174,7 @@ def order_kind_label(value: str | None) -> str:
         "renewal": "续费",
         "admin": "管理员开通",
         "admin_provision": "管理员开通",
+        "traffic_reset": "流量重置",
     }.get((value or "purchase").lower(), value or "新购")
 
 
@@ -557,15 +597,15 @@ def seed():
         if not (db.scalar(select(func.count()).select_from(Plan)) or 0):
             db.add_all([
                 Plan(name="NAT Mini", cpu=1, memory_mb=128, disk_gb=2, port_count=5,
-                     bandwidth_mbps=100, traffic_gb=200, monthly_price_cents=300,
+                     bandwidth_mbps=100, traffic_gb=200, monthly_price_cents=300, traffic_reset_price_cents=300,
                      stock_limit=0, sort_order=10, homepage_visible=True, homepage_sort_order=10,
                      is_recommended=False, recommendation_label="推荐"),
                 Plan(name="NAT Basic", cpu=1, memory_mb=256, disk_gb=4, port_count=10,
-                     bandwidth_mbps=100, traffic_gb=500, monthly_price_cents=500,
+                     bandwidth_mbps=100, traffic_gb=500, monthly_price_cents=500, traffic_reset_price_cents=500,
                      stock_limit=0, sort_order=20, homepage_visible=True, homepage_sort_order=20,
                      is_recommended=False, recommendation_label="推荐"),
                 Plan(name="NAT Plus", cpu=1, memory_mb=512, disk_gb=8, port_count=15,
-                     bandwidth_mbps=100, traffic_gb=1000, monthly_price_cents=900,
+                     bandwidth_mbps=100, traffic_gb=1000, monthly_price_cents=900, traffic_reset_price_cents=900,
                      stock_limit=0, sort_order=30, homepage_visible=True, homepage_sort_order=30,
                      is_recommended=False, recommendation_label="推荐"),
             ])
@@ -1608,11 +1648,13 @@ def dashboard(request: Request):
             "traffic_attention": len(traffic_attention_servers),
         }
 
+        server_ui_status = server_ui_status_map(db, servers)
         return render(
             request,
             "dashboard.html",
             db,
             servers=servers[:3],
+            server_ui_status=server_ui_status,
             recent_orders=recent_orders,
             dashboard_stats=dashboard_stats,
             traffic_attention_servers=traffic_attention_servers,
@@ -1654,6 +1696,7 @@ def customer_servers_page(request: Request):
             "servers.html",
             db,
             servers=servers,
+            server_ui_status=server_ui_status_map(db, servers),
             traffic=traffic,
             now=datetime.utcnow(),
             app_timezone=APP_TIMEZONE,
@@ -1695,12 +1738,14 @@ def customer_server_detail(request: Request, server_id: int):
         server_jobs = db.scalars(
             select(Job).where(Job.server_id == server.id).order_by(Job.id.desc()).limit(8)
         ).all()
+        server_ui_status = server_ui_status_map(db, [server]).get(server.id, server.status)
 
         return render(
             request,
             "server_detail.html",
             db,
             server=server,
+            server_ui_status=server_ui_status,
             traffic_stat=traffic_stat,
             system_images=system_images,
             service_orders=service_orders,
@@ -1882,6 +1927,105 @@ def reset_password(
             write_audit(db, actor=user, request=request, action="server.root_password.reset", target_type="server", target_id=server.id, target_name=server.name, detail=str(exc), success=False)
             db.commit()
             flash(request, f"密码重置失败：{str(exc)[:180]}", "error")
+        return RedirectResponse(f"/servers/{server.id}", status_code=303)
+
+
+@app.post("/servers/{server_id}/traffic/reset")
+def customer_reset_traffic_cycle(
+    request: Request,
+    server_id: int,
+    csrf_token: str = Form(...),
+):
+    validate_csrf(request, csrf_token)
+    with db_session() as db:
+        user = login_required(request, db)
+        server = active_server_for_user(db, user, server_id)
+        blocked = lifecycle_operation_block(db, server)
+        if blocked:
+            flash(request, blocked, "error")
+            return RedirectResponse(f"/servers/{server.id}", status_code=303)
+
+        if traffic_quota_gb(server) <= 0:
+            flash(request, "当前套餐为不限流量，无需重置。", "info")
+            return RedirectResponse(f"/servers/{server.id}", status_code=303)
+        if traffic_raw_percent(server) < 100.0:
+            flash(request, "仅当本周期流量已经用尽后才能重置流量。", "error")
+            return RedirectResponse(f"/servers/{server.id}", status_code=303)
+
+        # Resetting a full quota is a paid add-on. v1.1.1 plans are migrated
+        # with the monthly price as the initial reset price; admins can set a
+        # dedicated price per plan from 套餐管理. Never silently fall back to
+        # a free reset even if an old/malformed row contains 0.
+        reset_price = int(getattr(server.plan, "traffic_reset_price_cents", 0) or 0)
+        if reset_price <= 0:
+            reset_price = int(server.monthly_price_cents or server.plan.monthly_price_cents or 0)
+        if reset_price <= 0:
+            flash(request, "该套餐尚未配置有效的流量重置价格，请联系管理员。", "error")
+            return RedirectResponse(f"/servers/{server.id}", status_code=303)
+        if int(user.balance_cents or 0) < reset_price:
+            flash(request, f"余额不足，重置流量需要 {money(reset_price)}。", "error")
+            return RedirectResponse("/recharge", status_code=303)
+
+        before = {
+            "used_bytes": traffic_used_bytes(server),
+            "quota_gb": traffic_quota_gb(server),
+            "cycle_start": server.traffic_cycle_start.isoformat() if server.traffic_cycle_start else None,
+            "cycle_end": server.traffic_cycle_end.isoformat() if server.traffic_cycle_end else None,
+            "traffic_throttled": bool(server.traffic_throttled),
+            "balance_cents": int(user.balance_cents or 0),
+        }
+
+        order = Order(
+            user_id=user.id, plan_id=server.plan_id, server_id=server.id,
+            amount_cents=reset_price, status="completed", kind="traffic_reset",
+        )
+        db.add(order)
+        db.flush()
+        change_balance(
+            db, user, -reset_price, kind="traffic_reset",
+            reference_type="order", reference_id=order.id,
+            note=f"流量重置 {server.name}",
+        )
+
+        now = datetime.utcnow()
+        reset_cycle(server, now)
+        server.traffic_throttle_exempt = False
+        provider_error = None
+        try:
+            enforce_traffic_policy(server, provider, now)
+        except Exception as exc:
+            provider_error = str(exc)[:180]
+
+        write_audit(
+            db, actor=user, request=request, action="server.traffic.reset",
+            target_type="server", target_id=server.id, target_name=server.name,
+            detail={
+                "order_id": order.id,
+                "amount_cents": reset_price,
+                "balance_after_cents": int(user.balance_cents or 0),
+                "before": before,
+                "cycle_start": server.traffic_cycle_start.isoformat() if server.traffic_cycle_start else None,
+                "cycle_end": server.traffic_cycle_end.isoformat() if server.traffic_cycle_end else None,
+                "provider_error": provider_error,
+            },
+        )
+        queue_notification(
+            db, user,
+            title="流量重置成功",
+            body=(
+                f"{server.name} 已扣除 {money(reset_price)} 并开启新的流量周期，本周期用量已清零。"
+                + (" 带宽恢复正在等待后台重试。" if provider_error else f" 当前带宽已恢复为 {configured_bandwidth_mbps(server)} Mbps。")
+                + f" 当前余额 {money(user.balance_cents)}。"
+            ),
+            kind="billing",
+            severity="warning" if provider_error else "success",
+            event_key=f"traffic-self-reset:{order.id}",
+        )
+        db.commit()
+        message = f"流量已重置，已扣除 {money(reset_price)}，新的流量周期已开始。"
+        if provider_error:
+            message += f" 流量已清零，但带宽恢复暂时失败：{provider_error}"
+        flash(request, message, "warning" if provider_error else "success")
         return RedirectResponse(f"/servers/{server.id}", status_code=303)
 
 
@@ -2734,6 +2878,7 @@ def admin_create_plan(
     traffic_gb: int = Form(...),
     port_count: int = Form(...),
     monthly_price: str = Form(...),
+    traffic_reset_price: str = Form(...),
     stock_limit: int = Form(0),
     sort_order: int = Form(100),
     homepage_visible: str = Form("false"),
@@ -2745,14 +2890,16 @@ def admin_create_plan(
     validate_csrf(request, csrf_token)
     try:
         price = int(Decimal(monthly_price) * 100)
+        reset_price = int(Decimal(traffic_reset_price) * 100)
     except Exception:
         price = -1
+        reset_price = -1
 
     clean_name = name.strip()
     clean_label = (recommendation_label or "").strip()[:32] or "推荐"
     if (
         not clean_name or len(clean_name) > 80 or cpu < 1 or memory_mb < 64
-        or disk_gb < 1 or price < 0 or stock_limit < 0
+        or disk_gb < 1 or price < 0 or reset_price <= 0 or stock_limit < 0
         or not (0 <= sort_order <= 1000000)
         or not (0 <= homepage_sort_order <= 1000000)
     ):
@@ -2771,6 +2918,7 @@ def admin_create_plan(
             traffic_gb=max(0, traffic_gb),
             port_count=max(0, port_count),
             monthly_price_cents=price,
+            traffic_reset_price_cents=reset_price,
             stock_limit=stock_limit,
             sort_order=sort_order,
             homepage_visible=str(homepage_visible).lower() == "true",
@@ -2809,6 +2957,7 @@ def admin_update_plan(
     traffic_gb: int = Form(...),
     port_count: int = Form(...),
     monthly_price: str = Form(...),
+    traffic_reset_price: str = Form(...),
     stock_limit: int = Form(...),
     sort_order: int = Form(...),
     homepage_visible: str = Form("false"),
@@ -2820,8 +2969,10 @@ def admin_update_plan(
     validate_csrf(request, csrf_token)
     try:
         price = int(Decimal(monthly_price) * 100)
+        reset_price = int(Decimal(traffic_reset_price) * 100)
     except Exception:
         price = -1
+        reset_price = -1
 
     clean_name = name.strip()
     clean_label = (recommendation_label or "").strip()[:32] or "推荐"
@@ -2833,7 +2984,7 @@ def admin_update_plan(
             raise HTTPException(404, "套餐不存在")
 
         if (
-            not clean_name or len(clean_name) > 80 or price < 0 or cpu < 1
+            not clean_name or len(clean_name) > 80 or price < 0 or reset_price <= 0 or cpu < 1
             or memory_mb < 64 or disk_gb < 1 or stock_limit < 0
             or not (0 <= sort_order <= 1000000)
             or not (0 <= homepage_sort_order <= 1000000)
@@ -2850,7 +3001,7 @@ def admin_update_plan(
             "name": row.name, "cpu": row.cpu, "memory_mb": row.memory_mb,
             "disk_gb": row.disk_gb, "bandwidth": row.bandwidth_mbps,
             "traffic": row.traffic_gb, "ports": row.port_count,
-            "price": row.monthly_price_cents, "stock": row.stock_limit,
+            "price": row.monthly_price_cents, "traffic_reset_price": row.traffic_reset_price_cents, "stock": row.stock_limit,
             "catalog_sort_order": row.sort_order,
             "homepage_visible": row.homepage_visible,
             "homepage_sort_order": row.homepage_sort_order,
@@ -2866,6 +3017,7 @@ def admin_update_plan(
         row.traffic_gb = max(0, traffic_gb)
         row.port_count = max(0, port_count)
         row.monthly_price_cents = price
+        row.traffic_reset_price_cents = reset_price
         row.stock_limit = stock_limit
         row.sort_order = sort_order
         row.homepage_visible = str(homepage_visible).lower() == "true"
@@ -2877,7 +3029,7 @@ def admin_update_plan(
             "name": row.name, "cpu": row.cpu, "memory_mb": row.memory_mb,
             "disk_gb": row.disk_gb, "bandwidth": row.bandwidth_mbps,
             "traffic": row.traffic_gb, "ports": row.port_count,
-            "price": row.monthly_price_cents, "stock": row.stock_limit,
+            "price": row.monthly_price_cents, "traffic_reset_price": row.traffic_reset_price_cents, "stock": row.stock_limit,
             "catalog_sort_order": row.sort_order,
             "homepage_visible": row.homepage_visible,
             "homepage_sort_order": row.homepage_sort_order,
@@ -4182,7 +4334,7 @@ def admin_backup_download(request:Request,backup_name:str):
 def health():
     return {
         "status": "ok",
-        "version": "1.1.1",
+        "version": "1.2.0",
         "provider": PROVIDER_NAME,
         "timezone": APP_TIMEZONE,
     }
