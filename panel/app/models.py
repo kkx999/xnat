@@ -50,6 +50,8 @@ class Plan(Base):
     # Paid self-service traffic reset price. Existing plans are backfilled to the monthly price.
     traffic_reset_price_cents: Mapped[int] = mapped_column(Integer, default=0)
     stock_limit: Mapped[int] = mapped_column(Integer, default=0)  # 0 = unlimited
+    # Instance virtualization requested by this plan. Existing plans default to LXC.
+    virtualization_type: Mapped[str] = mapped_column(String(16), default="lxc")
 
     # Homepage merchandising controls.
     # sort_order remains package-center/catalog order for compatibility.
@@ -88,6 +90,9 @@ class HostNode(Base):
     max_vps: Mapped[int] = mapped_column(Integer, default=0)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     verify_tls: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Host Agent reports configured modes (lxc / kvm / lxc,kvm) and live KVM capability.
+    virtualization_modes: Mapped[str] = mapped_column(String(32), default="lxc")
+    kvm_available: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # v1.1 scheduling controls. Maintenance/drain only blocks new placement;
     # existing instances keep running and remain manageable.
@@ -178,6 +183,8 @@ class Server(Base):
     bandwidth_mbps: Mapped[int | None] = mapped_column(Integer, nullable=True)
     traffic_gb: Mapped[int | None] = mapped_column(Integer, nullable=True)
     monthly_price_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Snapshot so reinstall keeps the original virtualization type even if the plan changes later.
+    virtualization_type: Mapped[str] = mapped_column(String(16), default="lxc")
 
     # Persistent traffic accounting for the current 30-day service cycle.
     traffic_used_rx_bytes: Mapped[int] = mapped_column(Integer, default=0)

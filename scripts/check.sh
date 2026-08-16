@@ -93,8 +93,17 @@ grep -q 'traffic_cycle_mode' panel/app/models.py
 grep -q 'queue_admin_notification' panel/app/nodes.py
 grep -q 'admin.payment.repair_no_tx' panel/app/main.py
 grep -q 'FORCE CREDIT' panel/app/templates/admin.html
-grep -q "client.js') }}?v=1.2.0-ux1" panel/app/templates/base.html
-grep -q "style.css') }}?v=1.2.0-ux1" panel/app/templates/base.html
+grep -q "client.js') }}?v=1.3.0-rc1" panel/app/templates/base.html
+grep -q "style.css') }}?v=1.3.0-rc1" panel/app/templates/base.html
+grep -q 'class="plan-coupon-field"' panel/app/templates/plans.html
+grep -q 'class="card admin-plan-card admin-plan-fold"' panel/app/templates/admin.html
+grep -q 'admin-plan-summary-specs' panel/app/templates/admin.html
+grep -q 'release polish: responsive cards, visible coupon field, folded plans' panel/app/static/style.css
+grep -q 'body.client-body .client-plan-grid{' panel/app/static/style.css
+grep -q 'grid-template-columns:repeat(3,minmax(0,1fr))!important' panel/app/static/style.css
+! grep -q 'flex:1 1 calc(25% - 12px)!important' panel/app/static/style.css
+grep -Fq 'grid-template-columns:repeat(3,minmax(0,1fr))!important' panel/app/static/style.css
+! grep -Fq 'justify-content:center!important' panel/app/static/style.css
 grep -q 'ensure_schema_extensions' panel/app/main.py
 grep -q 'ensure_schema_extensions' panel/app/backups.py
 grep -q 'announcement_seen_key' panel/app/models.py
@@ -123,9 +132,39 @@ grep -q '删除公告' panel/app/templates/admin.html
 ! grep -q 'name="announcement_enabled"' panel/app/templates/admin.html
 ! grep -q 'name="announcement_text"' panel/app/templates/admin.html
 grep -q '数据库迁移缺少表' scripts/upgrade-panel.sh
-grep -q 'v1.1.1 → v1.2.0' scripts/upgrade-panel-from-v1.1.1.sh
+grep -q '1.2.0) UPGRADE_PATH="verified-v1.2.0"' scripts/upgrade-panel.sh
 grep -q 'PRAGMA quick_check' scripts/upgrade-panel.sh
 grep -q 'DATABASE_URL_VALUE' scripts/upgrade-panel.sh
+grep -q 'virtualization_type' panel/app/models.py
+grep -q 'virtualization_modes' panel/app/models.py
+grep -q 'kvm_available' panel/app/models.py
+grep -q 'args.append("--vm")' agent/natvps_agent/main.py
+grep -q 'def wait_guest_agent' agent/natvps_agent/main.py
+grep -q 'KVM Guest Agent 未能在' agent/natvps_agent/main.py
+grep -q 'debconf: delaying package configuration' agent/natvps_agent/main.py
+grep -q 'def _wait_guest_agent' panel/app/providers/incus.py
+grep -q 'def add_proxy_device' agent/natvps_agent/main.py
+grep -q 'connect={protocol}:0.0.0.0:{private_port}' agent/natvps_agent/main.py
+grep -q '"nat=true"' agent/natvps_agent/main.py
+grep -q 'def _add_proxy_device' panel/app/providers/incus.py
+grep -q '00-00-xnat.conf' agent/natvps_agent/main.py
+grep -q 'passwordauthentication yes' agent/natvps_agent/main.py
+# Avoid grep -q in SSH validation pipelines under set -o pipefail: an early
+# grep exit can SIGPIPE sshd/ss and make a successful check return 141.
+grep -Fq "sshd -T | grep -x 'permitrootlogin yes' >/dev/null" agent/natvps_agent/main.py
+grep -Fq "sshd -T | grep -x 'passwordauthentication yes' >/dev/null" agent/natvps_agent/main.py
+grep -Fq "ss -lnt '( sport = :22 )' | grep 'LISTEN' >/dev/null" agent/natvps_agent/main.py
+! grep -Fq "sshd -T | grep -qx" agent/natvps_agent/main.py panel/app/providers/incus.py
+! grep -Fq "ss -lnt '( sport = :22 )' | grep -q LISTEN" agent/natvps_agent/main.py panel/app/providers/incus.py
+grep -Fq '$2 != \"lo\"' panel/app/providers/incus.py
+! grep -q 'addr show dev eth0 scope global' panel/app/providers/incus.py
+grep -q 'for d in /sys/class/net/\*' panel/app/providers/incus.py
+grep -q 'VIRTUALIZATION_MODE' scripts/install-host.sh
+grep -q 'LXC + KVM' scripts/install-host.sh
+grep -q 'kvm_unavailable' panel/app/nodes.py
+grep -q 'name="virtualization_type"' panel/app/templates/admin.html
+grep -q 'timeout=600 if str(virtualization_type).lower() == "kvm" else 260' panel/app/providers/remote.py
+grep -Fq 'str(detail)[:1200]' panel/app/nodes.py
 
 echo "[5/7] Clean baseline guard"
 if find . -maxdepth 3 -type f | grep -Ei '(testing|preview-[0-9]|rc[0-9]|patch-panel|patch-management|upgrade-from-v1\.0\.3|UPGRADE-FROM)' >/tmp/xnat-clean-guard.txt; then
@@ -164,3 +203,14 @@ if grep -RInE \
 fi
 
 echo "XNAT repository checks passed."
+
+# v1.3.0 release-candidate KVM/admin compatibility guards
+grep -q 'KVM 套餐最低需要 512 MB 内存和 4 GB 磁盘' panel/app/main.py
+grep -q 'data-virtualization-form' panel/app/templates/admin.html
+grep -q 'KVM 实例最低需要 512 MB 内存和 4 GB 磁盘' panel/app/main.py
+grep -q 'wait_guest_agent(instance_id, mode)' agent/natvps_agent/main.py
+grep -q 'virtualization_type: str | None = None' panel/app/providers/base.py
+grep -q '虚拟化类型不一致：Panel=' panel/app/reconcile.py
+grep -q '实例内全部数据' panel/app/templates/server_detail.html
+grep -q 's.virtualization_type' panel/app/templates/servers.html
+grep -q 's.virtualization_type' panel/app/templates/dashboard.html

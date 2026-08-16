@@ -48,7 +48,7 @@ def host_request(host: HostNode, method: str, path: str, *, payload=None, timeou
         "X-NAT-Timestamp": ts,
         "X-NAT-Signature": _signature(token, ts, method, path, body),
         "Content-Type": "application/json",
-        "User-Agent": "XNAT-Panel/1.2.0",
+        "User-Agent": "XNAT-Panel/1.3.0",
     }
     try:
         with httpx.Client(verify=bool(host.verify_tls), timeout=timeout) as client:
@@ -60,7 +60,7 @@ def host_request(host: HostNode, method: str, path: str, *, payload=None, timeou
             detail = response.json().get("detail") or response.text
         except Exception:
             detail = response.text
-        raise HostAPIError(f"Host Agent HTTP {response.status_code}: {str(detail)[:300]}")
+        raise HostAPIError(f"Host Agent HTTP {response.status_code}: {str(detail)[:1200]}")
     if not response.content:
         return {}
     try:
@@ -98,6 +98,21 @@ def refresh_host(host: HostNode) -> dict:
         host.storage_total_gb = max(0.0, float(data.get("storage_total_gb") or 0))
         host.storage_used_gb = max(0.0, float(data.get("storage_used_gb") or 0))
         host.active_vps = max(0, int(data.get("active_vps") or 0))
+        raw_modes = data.get("virtualization_modes")
+        if isinstance(raw_modes, str):
+            raw_modes = [part.strip() for part in raw_modes.split(",")]
+        if isinstance(raw_modes, list):
+            modes = []
+            for item in raw_modes:
+                mode = str(item or "").strip().lower()
+                if mode in {"lxc", "kvm"} and mode not in modes:
+                    modes.append(mode)
+            if modes:
+                host.virtualization_modes = ",".join(modes)
+        # Legacy Agent v1.0.0 does not report virtualization; its safe default is LXC only.
+        if not (host.virtualization_modes or "").strip():
+            host.virtualization_modes = "lxc"
+        host.kvm_available = bool(data.get("kvm_available", False))
         host.last_seen_at = now
         host.last_error = None
         host.updated_at = now
@@ -116,6 +131,12 @@ def _setting_int(db, key: str, default: int, low: int = 0, high: int = 100) -> i
     except Exception:
         value = default
     return max(low, min(high, value))
+
+
+def host_virtualization_modes(host: HostNode) -> set[str]:
+    raw = str(host.virtualization_modes or "lxc")
+    modes = {part.strip().lower() for part in raw.split(",") if part.strip().lower() in {"lxc", "kvm"}}
+    return modes or {"lxc"}
 
 
 def host_resource_percentages(host: HostNode) -> dict:
@@ -267,6 +288,20 @@ def host_schedule_state(db, host: HostNode, plan: Plan | None = None, *, refresh
     if host.port_start is None or host.port_end is None:
         return {"allowed": False, "code": "port_pool", "label": "待配置", "reason": "尚未配置 NAT 端口池"}
 
+    if plan is not None:
+        requested_mode = str(plan.virtualization_type or "lxc").strip().lower()
+        modes = host_virtualization_modes(host)
+        if requested_mode not in modes:
+            return {
+                "allowed": False, "code": "virtualization", "label": "虚拟化不匹配",
+                "reason": f"套餐要求 {requested_mode.upper()}，节点仅启用 {' + '.join(m.upper() for m in sorted(modes))}",
+            }
+        if requested_mode == "kvm" and not bool(host.kvm_available):
+            return {
+                "allowed": False, "code": "kvm_unavailable", "label": "KVM 不可用",
+                "reason": "节点配置了 KVM，但当前 /dev/kvm 不可用，请检查 Nested Virtualization",
+            }
+
     count = host_active_server_count(db, host.id)
     if host.max_vps and count >= host.max_vps:
         return {"allowed": False, "code": "max_vps", "label": "容量已满", "reason": f"VPS 数量已达到 {host.max_vps}"}
@@ -345,7 +380,7 @@ def select_host_for_plan(db, plan: Plan) -> HostNode:
     if not candidates:
         detail = "；".join(rejected[:4])
         suffix = f"。{detail}" if detail else ""
-        raise HostAPIError("当前没有可用宿主机：请检查维护模式、节点在线状态、NAT 端口池和资源水位" + suffix)
+        raise HostAPIError("当前没有可用宿主机：请检查虚拟化类型、维护模式、节点在线状态、NAT 端口池和资源水位" + suffix)
     candidates.sort(key=lambda item: (item[0], item[1]))
     return candidates[0][2]
 
@@ -394,6 +429,8 @@ def host_summary(host: HostNode) -> dict:
         "storage_percent": percentages["storage"],
         "cpu_percent": percentages["cpu"],
         "api_compatible": host.agent_api_version in SUPPORTED_AGENT_API_VERSIONS,
+        "virtualization_modes": sorted(host_virtualization_modes(host)),
+        "kvm_available": bool(host.kvm_available),
     }
 
 

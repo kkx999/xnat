@@ -339,3 +339,40 @@ document.addEventListener('DOMContentLoaded', () => {
     if (document.visibilityState === 'visible') window.location.reload();
   }, 5000);
 });
+
+
+// v1.3.0: keep KVM plan resource minimums visible in the admin UI.
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('[data-virtualization-form]').forEach((form) => {
+    const select = form.querySelector('[data-virt-select]');
+    const memory = form.querySelector('[data-virt-memory]');
+    const disk = form.querySelector('[data-virt-disk]');
+    if (!select || !memory || !disk) return;
+
+    const sync = () => {
+      const kvm = select.value === 'kvm';
+      memory.min = kvm ? '512' : '64';
+      disk.min = kvm ? '4' : '1';
+      memory.setCustomValidity('');
+      disk.setCustomValidity('');
+    };
+    select.addEventListener('change', sync);
+    form.addEventListener('submit', (event) => {
+      sync();
+      if (select.value === 'kvm' && Number(memory.value) < 512) {
+        memory.setCustomValidity('KVM 套餐内存最低为 512 MB。');
+        memory.reportValidity();
+        event.preventDefault();
+        return;
+      }
+      if (select.value === 'kvm' && Number(disk.value) < 4) {
+        disk.setCustomValidity('KVM 套餐磁盘最低为 4 GB。');
+        disk.reportValidity();
+        event.preventDefault();
+      }
+    });
+    memory.addEventListener('input', () => memory.setCustomValidity(''));
+    disk.addEventListener('input', () => disk.setCustomValidity(''));
+    sync();
+  });
+});

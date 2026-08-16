@@ -15,6 +15,83 @@ PANEL_CIDR="${PANEL_CIDR:-${PANEL_IP:-}}"
 
 CRED_FILE="/root/xnat-host-agent-credentials.txt"
 
+VIRTUALIZATION_MODE="${VIRTUALIZATION_MODE:-}"
+VIRTUALIZATION_MODES_JSON='["lxc"]'
+VIRTUALIZATION_LABEL="LXC"
+
+detect_kvm(){
+  [[ -c /dev/kvm && -r /dev/kvm && -w /dev/kvm ]]
+}
+
+select_virtualization_mode(){
+  local kvm_ok="false" choice mode
+  detect_kvm && kvm_ok="true"
+  mode="${VIRTUALIZATION_MODE,,}"
+  case "$mode" in
+    1|lxc) mode="lxc" ;;
+    2|kvm) mode="kvm" ;;
+    3|hybrid|both|lxc+kvm|kvm+lxc) mode="hybrid" ;;
+    "") ;;
+    *) die "VIRTUALIZATION_MODE 仅支持 lxc / kvm / hybrid" ;;
+  esac
+  if [[ -z "$mode" && -t 0 ]]; then
+    echo
+    echo "========================================"
+    echo "       XNAT Host Agent · 虚拟化模式"
+    echo "========================================"
+    echo
+    echo "虚拟化能力检测："
+    echo "  LXC：✓ 可用"
+    if [[ "$kvm_ok" == "true" ]]; then
+      echo "  KVM：✓ 可用（/dev/kvm 已开放）"
+      echo
+      echo "  1. LXC"
+      echo "  2. KVM"
+      echo "  3. LXC + KVM（推荐）"
+      read -r -p "请选择 [1-3] [3]: " choice
+      choice="${choice:-3}"
+      case "$choice" in 1) mode="lxc";; 2) mode="kvm";; 3) mode="hybrid";; *) die "无效选择：${choice}";; esac
+    else
+      echo "  KVM：✗ 不可用（未检测到可访问的 /dev/kvm）"
+      echo "当前只能使用 LXC；如需 KVM，请先开启 Nested Virtualization。"
+      read -r -p "按 Enter 继续使用 LXC..." _
+      mode="lxc"
+    fi
+  fi
+  mode="${mode:-lxc}"
+  if [[ "$mode" != "lxc" && "$kvm_ok" != "true" ]]; then
+    die "选择了 KVM，但 /dev/kvm 不可用。"
+  fi
+  VIRTUALIZATION_MODE="$mode"
+  case "$mode" in
+    lxc) VIRTUALIZATION_MODES_JSON='["lxc"]'; VIRTUALIZATION_LABEL="LXC" ;;
+    kvm) VIRTUALIZATION_MODES_JSON='["kvm"]'; VIRTUALIZATION_LABEL="KVM" ;;
+    hybrid) VIRTUALIZATION_MODES_JSON='["lxc","kvm"]'; VIRTUALIZATION_LABEL="LXC + KVM" ;;
+  esac
+}
+
+write_virtualization_config(){
+  install -d -m 0755 /etc/xnat
+  python3 - /etc/xnat/node.json "${VIRTUALIZATION_MODES_JSON}" <<'PY_NODE_CONFIG'
+import json, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+try:
+    data = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+except Exception:
+    data = {}
+if not isinstance(data, dict):
+    data = {}
+data["virtualization_modes"] = json.loads(sys.argv[2])
+tmp = p.with_suffix(".tmp")
+tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+tmp.chmod(0o600)
+tmp.replace(p)
+PY_NODE_CONFIG
+  chmod 600 /etc/xnat/node.json
+}
+
+
 info(){ echo; echo "==== $* ===="; }
 die(){ echo "[ERROR] $*" >&2; exit 1; }
 
@@ -51,6 +128,8 @@ if n.version != 4:
 print(n)
 PY
 )" || die "Panel IPv4/CIDR 无效：${PANEL_CIDR}"
+
+select_virtualization_mode
 
 incus storage show "${POOL_NAME}" >/dev/null 2>&1 ||
   die "找不到 Incus storage pool: ${POOL_NAME}"
@@ -113,11 +192,7 @@ XNAT_NODE_CONFIG=/etc/xnat/node.json
 EOF
 chmod 600 "${DEST_DIR}/.env" "${DEST_DIR}/tls/agent.key"
 
-install -d -m 0755 /etc/xnat
-if [[ ! -f /etc/xnat/node.json ]]; then
-  printf '%s\n' '{}' > /etc/xnat/node.json
-  chmod 600 /etc/xnat/node.json
-fi
+write_virtualization_config
 
 info "3/4 配置防火墙与 systemd"
 install -m 0755 "${REPO_ROOT}/scripts/xnat" /usr/local/sbin/xnat
@@ -166,6 +241,8 @@ Agent Token: ${TOKEN}
 Public IP: ${PUBLIC_IP}
 NAT Port Pool: 尚未配置，请在 Panel 后台设置
 Storage: ${POOL_NAME}
+Virtualization: ${VIRTUALIZATION_LABEL}
+KVM device: $([[ -c /dev/kvm ]] && echo available || echo unavailable)
 Bridge: ${BRIDGE_NAME}
 Panel allow: ${PANEL_CIDR}
 Agent Firewall: TCP ${AGENT_PORT} only from ${PANEL_CIDR}
@@ -176,6 +253,7 @@ chmod 600 "${CRED_FILE}"
 echo "Agent URL: https://${PUBLIC_IP}:${AGENT_PORT}"
 echo "Agent Token: ${TOKEN}"
 echo "Credentials: ${CRED_FILE}"
+echo "Virtualization: ${VIRTUALIZATION_LABEL}"
 
 echo "Firewall: TCP ${AGENT_PORT} 仅允许 ${PANEL_CIDR}"
 echo "Firewall status: xnat-firewall status"

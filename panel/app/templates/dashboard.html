@@ -38,6 +38,7 @@
             <span class="client-status-dot {{ server_ui_status.get(s.id, s.status) }}"></span>
             <strong>{{ s.name }}</strong>
             <span class="client-tag os">{{ s.os_name or "Debian 12" }}</span>
+            <span class="client-tag">{{ (s.virtualization_type or "lxc")|upper }}</span>
           </div>
           <span>{{ s.plan.name }} · {{ server_status_label(server_ui_status.get(s.id, s.status)) }}</span>
         </div>

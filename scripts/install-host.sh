@@ -14,17 +14,82 @@ BRIDGE_NAME="${BRIDGE_NAME:-incusbr0}"
 BRIDGE_ADDR="${BRIDGE_ADDR:-10.12.139.1/24}"
 NATPOOL_GB="${NATPOOL_GB:-}"
 PANEL_CIDR="${PANEL_CIDR:-${PANEL_IP:-}}"
+VIRTUALIZATION_MODE="${VIRTUALIZATION_MODE:-}"
 
 ZABBLY_FPR="4EFC590696CB15B87C73A3AD82CC8797C838DCFD"
 TEST_NAME="xnat-install-test"
+TEST_VM_NAME="xnat-install-test-vm"
 CRED_FILE="/root/xnat-host-agent-credentials.txt"
 
 info(){ echo; echo "==== $* ===="; }
 die(){ echo "[ERROR] $*" >&2; exit 1; }
 
 cleanup_test(){
-  command -v incus >/dev/null 2>&1 &&
+  if command -v incus >/dev/null 2>&1; then
     incus delete "${TEST_NAME}" --force >/dev/null 2>&1 || true
+    incus delete "${TEST_VM_NAME}" --force >/dev/null 2>&1 || true
+  fi
+}
+
+detect_kvm(){
+  [[ -c /dev/kvm && -r /dev/kvm && -w /dev/kvm ]]
+}
+
+select_virtualization_mode(){
+  local kvm_ok="false" choice mode
+  detect_kvm && kvm_ok="true"
+  mode="${VIRTUALIZATION_MODE,,}"
+
+  case "$mode" in
+    1|lxc) mode="lxc" ;;
+    2|kvm) mode="kvm" ;;
+    3|hybrid|both|lxc+kvm|kvm+lxc) mode="hybrid" ;;
+    "") ;;
+    *) die "VIRTUALIZATION_MODE 仅支持 lxc / kvm / hybrid" ;;
+  esac
+
+  if [[ -z "$mode" && -t 0 ]]; then
+    echo
+    echo "========================================"
+    echo "       XNAT Host 安装 · 2/3"
+    echo "========================================"
+    echo
+    echo "虚拟化能力检测："
+    echo "  LXC：✓ 可用"
+    if [[ "$kvm_ok" == "true" ]]; then
+      echo "  KVM：✓ 可用（/dev/kvm 已开放）"
+      echo
+      echo "请选择此 Host 允许创建的实例类型："
+      echo "  1. LXC"
+      echo "  2. KVM"
+      echo "  3. LXC + KVM（推荐，可同时销售两类套餐）"
+      read -r -p "请选择 [1-3] [3]: " choice
+      choice="${choice:-3}"
+      case "$choice" in
+        1) mode="lxc" ;;
+        2) mode="kvm" ;;
+        3) mode="hybrid" ;;
+        *) die "无效选择：${choice}" ;;
+      esac
+    else
+      echo "  KVM：✗ 不可用（未检测到可访问的 /dev/kvm）"
+      echo
+      echo "当前只能启用 LXC。若这台 Host 本身运行在 KVM VPS 中，请让上层商家开放 Nested Virtualization。"
+      read -r -p "按 Enter 继续使用 LXC..." _
+      mode="lxc"
+    fi
+  fi
+
+  mode="${mode:-lxc}"
+  if [[ "$mode" != "lxc" && "$kvm_ok" != "true" ]]; then
+    die "选择了 KVM，但 /dev/kvm 不可用。请先开启 Nested Virtualization，或使用 VIRTUALIZATION_MODE=lxc。"
+  fi
+  VIRTUALIZATION_MODE="$mode"
+  case "$mode" in
+    lxc) VIRTUALIZATION_MODES_JSON='["lxc"]'; VIRTUALIZATION_LABEL="LXC" ;;
+    kvm) VIRTUALIZATION_MODES_JSON='["kvm"]'; VIRTUALIZATION_LABEL="KVM" ;;
+    hybrid) VIRTUALIZATION_MODES_JSON='["lxc","kvm"]'; VIRTUALIZATION_LABEL="LXC + KVM" ;;
+  esac
 }
 trap cleanup_test EXIT
 
@@ -38,7 +103,7 @@ trap cleanup_test EXIT
   die "要求 Debian 12 bookworm"
 
 # 全新 Debian 可能没有 python3。先安装基础校验依赖，再验证 PANEL_IP。
-info "0/6 安装基础校验依赖"
+info "0/7 安装基础校验依赖"
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates python3
 
@@ -46,7 +111,7 @@ if [[ -z "${PANEL_CIDR}" ]]; then
   if [[ -t 0 ]]; then
     echo
     echo "========================================"
-    echo "       XNAT Host 安装 · 1/2"
+    echo "       XNAT Host 安装 · 1/3"
     echo "========================================"
     echo
     echo "请输入 XNAT Panel Server 的【真实公网 IPv4】。"
@@ -79,6 +144,8 @@ print(n)
 PY
 )" || die "Panel IPv4/CIDR 无效：${PANEL_CIDR}"
 
+select_virtualization_mode
+
 TOTAL_GB="$(df -BG --output=size / | tail -n1 | tr -dc '0-9')"
 FREE_GB="$(df -BG --output=avail / | tail -n1 | tr -dc '0-9')"
 [[ "${TOTAL_GB}" =~ ^[0-9]+$ && "${FREE_GB}" =~ ^[0-9]+$ ]] || die "无法读取磁盘空间"
@@ -94,7 +161,7 @@ if [[ -z "${NATPOOL_GB}" ]]; then
   if [[ -t 0 ]]; then
     echo
     echo "========================================"
-    echo "       XNAT Host 安装 · 2/2"
+    echo "       XNAT Host 安装 · 3/3"
     echo "========================================"
     echo
     echo "natpool 是 LVM Thin 存储池，专门用于存放用户 NAT VPS 的系统盘。"
@@ -127,7 +194,7 @@ if command -v incus >/dev/null 2>&1; then
     die "检测到已有 Incus VPS。本脚本拒绝覆盖。"
 fi
 
-info "1/6 安装 Debian / Incus 依赖"
+info "1/7 安装 Debian / Incus 依赖"
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
   ca-certificates curl gnupg openssl python3 python3-venv python3-pip \
@@ -158,7 +225,7 @@ apt-get install -y incus
 systemctl enable --now incus
 sleep 2
 
-info "2/6 创建 LVM Thin 与 NAT Bridge"
+info "2/7 创建 LVM Thin 与 NAT Bridge"
 cat <<EOF | incus admin init --preseed
 config:
   images.auto_update_interval: "6"
@@ -195,7 +262,7 @@ EOF
 [[ "$(incus storage show "${POOL_NAME}" | awk '/^driver:/{print $2}')" == "lvm" ]] ||
   die "Storage Pool 没有使用 LVM"
 
-info "3/6 强制验证 2GiB 实例磁盘"
+info "3/7 验证 LXC / 存储 / NAT Bridge"
 cleanup_test
 
 incus launch images:debian/12 "${TEST_NAME}" \
@@ -208,7 +275,7 @@ IP=""
 for _ in $(seq 1 45); do
   IP="$(
     incus exec "${TEST_NAME}" -- sh -lc \
-      "ip -4 -o addr show dev eth0 scope global | awk '{print \$4}' | cut -d/ -f1 | head -n1" \
+      "ip -4 -o addr show scope global | awk '\$2 != \"lo\" {print \$4; exit}' | cut -d/ -f1" \
       2>/dev/null || true
   )"
   [[ -n "${IP}" ]] && break
@@ -232,7 +299,28 @@ incus exec "${TEST_NAME}" -- getent hosts deb.debian.org >/dev/null ||
 
 cleanup_test
 
-info "4/6 安装 XNAT Host Agent"
+if [[ "${VIRTUALIZATION_MODE}" == "kvm" || "${VIRTUALIZATION_MODE}" == "hybrid" ]]; then
+  info "4/7 验证 KVM 虚拟机能力"
+  incus launch images:debian/12 "${TEST_VM_NAME}" --vm \
+    --storage "${POOL_NAME}" \
+    --config limits.cpu=1 \
+    --config limits.memory=512MiB \
+    --device root,size=4GiB
+
+  VM_IP=""
+  for _ in $(seq 1 100); do
+    VM_IP="$(incus exec "${TEST_VM_NAME}" -- sh -lc "ip -4 -o addr show scope global | awk '\$2 != \"lo\" {print \$4; exit}' | cut -d/ -f1" 2>/dev/null || true)"
+    [[ -n "${VM_IP}" ]] && break
+    sleep 1
+  done
+  [[ -n "${VM_IP}" ]] || die "KVM 测试虚拟机未能获取 IPv4 / incus-agent 未就绪"
+  incus exec "${TEST_VM_NAME}" -- getent hosts deb.debian.org >/dev/null || die "KVM 测试虚拟机无法联网"
+  cleanup_test
+else
+  info "4/7 KVM 验证已跳过（当前模式：LXC）"
+fi
+
+info "5/7 安装 XNAT Host Agent"
 install -d -m 0755 /opt/xnat
 rm -rf "${DEST_DIR}"
 mkdir -p "${DEST_DIR}"
@@ -284,12 +372,25 @@ chmod 600 "${DEST_DIR}/.env" "${DEST_DIR}/tls/agent.key"
 
 # NAT 用户端口池不在安装阶段决定。连接 Panel 后由后台配置并同步到这里。
 install -d -m 0755 /etc/xnat
-if [[ ! -f /etc/xnat/node.json ]]; then
-  printf '%s\n' '{}' > /etc/xnat/node.json
-  chmod 600 /etc/xnat/node.json
-fi
+python3 - /etc/xnat/node.json "${VIRTUALIZATION_MODES_JSON}" <<'PY_NODE_CONFIG'
+import json, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+try:
+    data = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+except Exception:
+    data = {}
+if not isinstance(data, dict):
+    data = {}
+data["virtualization_modes"] = json.loads(sys.argv[2])
+tmp = p.with_suffix(".tmp")
+tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+tmp.chmod(0o600)
+tmp.replace(p)
+PY_NODE_CONFIG
+chmod 600 /etc/xnat/node.json
 
-info "5/6 配置防火墙与 systemd"
+info "6/7 配置防火墙与 systemd"
 install -m 0755 "${REPO_ROOT}/scripts/xnat" /usr/local/sbin/xnat
 install -m 0755 "${REPO_ROOT}/scripts/xnat-firewall" /usr/local/sbin/xnat-firewall
 xnat-firewall install-host "${PANEL_CIDR}" "${AGENT_PORT}"
@@ -321,7 +422,7 @@ EOF
 systemctl daemon-reload
 systemctl enable --now xnat-host-agent.service
 
-info "6/6 健康检查"
+info "7/7 健康检查"
 rm -f /tmp/xnat-agent-health.json
 for _ in $(seq 1 40); do
   if curl -kfsS "https://127.0.0.1:${AGENT_PORT}/health" \
@@ -351,6 +452,8 @@ Agent Token: ${TOKEN}
 Public IP: ${PUBLIC_IP}
 NAT Port Pool: 尚未配置，请在 Panel 后台连接节点后设置
 Storage: ${POOL_NAME} / LVM Thin / ${NATPOOL_GB}GiB
+Virtualization: ${VIRTUALIZATION_LABEL}
+KVM device: $([[ -c /dev/kvm ]] && echo available || echo unavailable)
 Bridge: ${BRIDGE_NAME} / ${BRIDGE_ADDR}
 Panel allow: ${PANEL_CIDR}
 Agent Firewall: TCP ${AGENT_PORT} only from ${PANEL_CIDR}
@@ -363,6 +466,7 @@ echo "XNAT Host Node v${COMPONENT_VERSION} 安装完成"
 echo "Agent URL: https://${PUBLIC_IP}:${AGENT_PORT}"
 echo "Agent Token: ${TOKEN}"
 echo "Credentials: ${CRED_FILE}"
+echo "Virtualization: ${VIRTUALIZATION_LABEL}"
 echo "Firewall: TCP ${AGENT_PORT} 仅允许 ${PANEL_CIDR}"
 echo "Management: xnat"
 echo "Firewall status: xnat-firewall status"

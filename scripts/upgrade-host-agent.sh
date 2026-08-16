@@ -12,6 +12,54 @@ AGENT_PORT="${AGENT_PORT:-29443}"
 info(){ echo; echo "==== $* ===="; }
 die(){ echo "[ERROR] $*" >&2; exit 1; }
 
+detect_kvm(){ [[ -c /dev/kvm && -r /dev/kvm && -w /dev/kvm ]]; }
+ensure_virtualization_config(){
+  install -d -m 0755 /etc/xnat
+  if python3 - /etc/xnat/node.json <<'PY_CHECK'
+import json, sys
+from pathlib import Path
+p=Path(sys.argv[1])
+try: data=json.loads(p.read_text())
+except Exception: raise SystemExit(1)
+raise SystemExit(0 if isinstance(data,dict) and data.get("virtualization_modes") else 1)
+PY_CHECK
+  then
+    return
+  fi
+  local mode="${VIRTUALIZATION_MODE:-}" choice kvm_ok="false"
+  detect_kvm && kvm_ok="true"
+  mode="${mode,,}"
+  if [[ -z "$mode" && -t 0 ]]; then
+    echo
+    echo "首次升级到 Agent v1.1.0：请选择 Host 虚拟化模式。"
+    echo "  LXC：✓ 可用"
+    if [[ "$kvm_ok" == "true" ]]; then
+      echo "  KVM：✓ 可用"
+      echo "  1. LXC  2. KVM  3. LXC + KVM"
+      read -r -p "请选择 [1-3] [1]: " choice
+      choice="${choice:-1}"
+      case "$choice" in 1) mode=lxc;; 2) mode=kvm;; 3) mode=hybrid;; *) die "无效选择";; esac
+    else
+      echo "  KVM：✗ 不可用；保持 LXC。"
+      mode=lxc
+    fi
+  fi
+  mode="${mode:-lxc}"
+  if [[ "$mode" != lxc && "$kvm_ok" != true ]]; then die "KVM 模式要求可访问的 /dev/kvm"; fi
+  case "$mode" in lxc) modes='["lxc"]';; kvm) modes='["kvm"]';; hybrid|both|lxc+kvm) modes='["lxc","kvm"]';; *) die "VIRTUALIZATION_MODE 无效";; esac
+  python3 - /etc/xnat/node.json "$modes" <<'PY_WRITE'
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1])
+try: data=json.loads(p.read_text()) if p.exists() else {}
+except Exception: data={}
+if not isinstance(data,dict): data={}
+data['virtualization_modes']=json.loads(sys.argv[2])
+tmp=p.with_suffix('.tmp'); tmp.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n'); tmp.chmod(0o600); tmp.replace(p)
+PY_WRITE
+}
+
+
 [[ $EUID -eq 0 ]] || die "请使用 root 运行"
 [[ -f "${DEST_DIR}/.env" ]] || die "未检测到 XNAT Host Agent：${DEST_DIR}/.env"
 [[ -f "${SRC_DIR}/requirements.txt" ]] || die "目标 Release 缺少 Agent 源码"
@@ -71,6 +119,8 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 
+ensure_virtualization_config
+
 info "4/5 更新管理命令、防火墙和服务"
 DEBIAN_FRONTEND=noninteractive apt-get install -y nftables
 install -m 0755 "${REPO_ROOT}/scripts/xnat" /usr/local/sbin/xnat
@@ -124,4 +174,5 @@ trap - ERR
 echo
 echo "XNAT Host Agent v${COMPONENT_VERSION} 更新完成"
 echo "Agent Token / TLS / Incus / natpool / VPS 均已保留"
+echo "虚拟化配置：$(python3 -c 'import json; print(" + ".join(x.upper() for x in json.load(open("/etc/xnat/node.json")).get("virtualization_modes", ["lxc"])))')"
 echo "备份：${BACKUP_DIR}"

@@ -4,7 +4,19 @@
 
 XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、多宿主机节点、套餐、用户、流量、通知及日常运维。
 
-当前版本：**v1.2.0**
+当前版本：**v1.3.0**
+
+## v1.3.0 Hybrid Virtualization
+
+XNAT Host 现在支持 **LXC / KVM / LXC + KVM**。全新 Host 安装时会检测 `/dev/kvm` 并交互选择模式；套餐可指定 LXC 或 KVM，调度器只会选择匹配且 KVM 实际可用的节点。Host Agent 版本升级为 **v1.1.0**，Agent API 继续保持 v1。
+
+从 v1.2.0 升级：
+
+```bash
+xnat update 1.3.0
+```
+
+Panel 与 Host 都需要执行更新；Host 首次升级到 Agent v1.1.0 时会保存虚拟化模式。
 
 ---
 
@@ -70,7 +82,10 @@ bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/boo
 Host 安装器会一步一步询问：
 
 1. **Panel Server 的真实公网 IPv4**：用于限制 Host Agent 管理端口，只允许 Panel 访问。
-2. **natpool 大小**：用于存放用户 VPS 磁盘；脚本会检测磁盘并给出推荐值。
+2. **虚拟化模式**：自动检测 `/dev/kvm`，可选择 LXC、KVM 或 LXC + KVM；没有可访问的 `/dev/kvm` 时只允许 LXC。
+3. **natpool 大小**：用于存放用户 VPS 磁盘；脚本会检测磁盘并给出推荐值。
+
+> 如果 Host 自身是一台 KVM VPS，想在里面继续创建 KVM VM，需要上层宿主机开放 Nested Virtualization，并让 `/dev/kvm` 在 Host 内可访问。
 
 **NAT 用户端口池不在 Host 安装时填写。**
 
@@ -78,23 +93,35 @@ Host 连接 Panel 成功后，在 Panel 后台节点设置中配置 NAT 端口�
 
 ---
 
-# 指定 v1.2.0 安装
+# 指定 v1.3.0 安装
 
 Panel：
 
 ```bash
-XNAT_VERSION=1.2.0 \
+XNAT_VERSION=1.3.0 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
 Host：
 
 ```bash
-XNAT_VERSION=1.2.0 \
+XNAT_VERSION=1.3.0 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-host.sh)
 ```
 
-> `XNAT_VERSION=1.2.0` 指 XNAT Release 版本。XNAT v1.2.0 继续使用 **Host Agent v1.0.0 / Agent API v1**，Host Agent 无需单独升级。
+> `XNAT_VERSION=1.3.0` 指 XNAT Release 版本。XNAT v1.3.0 使用 **Host Agent v1.1.0 / Agent API v1**。
+
+---
+
+# 从 v1.2.0 升级到 v1.3.0
+
+Panel：
+
+```bash
+xnat update 1.3.0
+```
+
+Host 也需要升级到本 Release 的 **Host Agent v1.1.0**。首次从旧 Agent 升级时会让你选择 LXC / KVM / LXC + KVM；旧节点默认保持 LXC，不会因为升级自动改成 KVM。
 
 ---
 

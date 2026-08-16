@@ -11,6 +11,7 @@ from .db import engine
 SCHEMA_EXTENSIONS: dict[str, dict[str, str]] = {
     "plans": {
         "traffic_reset_price_cents": "INTEGER NOT NULL DEFAULT 0",
+        "virtualization_type": "VARCHAR(16) NOT NULL DEFAULT 'lxc'",
     },
     "users": {
         "announcement_seen_key": "VARCHAR(64)",
@@ -21,12 +22,15 @@ SCHEMA_EXTENSIONS: dict[str, dict[str, str]] = {
         "schedule_cpu_max_percent": "INTEGER NOT NULL DEFAULT 90",
         "schedule_memory_max_percent": "INTEGER NOT NULL DEFAULT 90",
         "schedule_storage_max_percent": "INTEGER NOT NULL DEFAULT 90",
+        "virtualization_modes": "VARCHAR(32) NOT NULL DEFAULT 'lxc'",
+        "kvm_available": "BOOLEAN NOT NULL DEFAULT 0",
     },
     "servers": {
         "traffic_cycle_mode": "VARCHAR(24) NOT NULL DEFAULT 'rolling30'",
         "traffic_cycle_day": "INTEGER NOT NULL DEFAULT 1",
         "expiry_suspended_at": "DATETIME",
         "expiry_delete_queued_at": "DATETIME",
+        "virtualization_type": "VARCHAR(16) NOT NULL DEFAULT 'lxc'",
     },
 }
 

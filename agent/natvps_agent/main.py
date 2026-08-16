@@ -9,6 +9,7 @@ import secrets
 import socket
 import string
 import subprocess
+import shlex
 import time
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse
 
-AGENT_VERSION = "1.0.0"
+AGENT_VERSION = "1.1.0"
 AGENT_API_VERSION = "1"
 AGENT_TOKEN = os.getenv("AGENT_TOKEN", "")
 STORAGE_POOL = os.getenv("INCUS_STORAGE_POOL", "natpool")
@@ -64,6 +65,38 @@ def nat_port_pool() -> tuple[int | None, int | None]:
     if not (1024 <= start <= end <= 65535):
         return None, None
     return start, end
+
+
+def kvm_available() -> bool:
+    path = Path("/dev/kvm")
+    return path.exists() and os.access(path, os.R_OK | os.W_OK)
+
+
+def configured_virtualization_modes() -> list[str]:
+    cfg = load_node_config()
+    raw = cfg.get("virtualization_modes", ["lxc"])
+    if isinstance(raw, str):
+        raw = [part.strip() for part in raw.split(",")]
+    if not isinstance(raw, list):
+        raw = ["lxc"]
+    modes = []
+    for item in raw:
+        mode = str(item or "").strip().lower()
+        if mode in {"lxc", "kvm"} and mode not in modes:
+            modes.append(mode)
+    return modes or ["lxc"]
+
+
+def require_virtualization_allowed(mode: str) -> str:
+    mode = (mode or "lxc").strip().lower()
+    if mode not in {"lxc", "kvm"}:
+        raise HTTPException(400, f"不支持的虚拟化类型: {mode}")
+    configured = configured_virtualization_modes()
+    if mode not in configured:
+        raise HTTPException(409, f"当前 Host 未启用 {mode.upper()} 虚拟化")
+    if mode == "kvm" and not kvm_available():
+        raise HTTPException(409, "当前 Host 已配置 KVM，但 /dev/kvm 不可用；请检查上层宿主机是否开放 Nested Virtualization")
+    return mode
 
 
 def require_nat_port_allowed(port: int):
@@ -120,11 +153,49 @@ def current_proxy_public_ports() -> set[int]:
     return result
 
 
+def _clean_command_output(text: str) -> str:
+    lines = []
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        # Debian may emit this harmless warning on minimal images. Do not let
+        # it hide the actual command failure returned elsewhere.
+        if stripped.startswith("debconf: delaying package configuration, since apt-utils is not installed"):
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def _command_error(args, proc) -> str:
+    command = shlex.join(str(x) for x in args)
+    stderr = _clean_command_output(proc.stderr)
+    stdout = _clean_command_output(proc.stdout)
+    parts = [f"命令失败 (exit={proc.returncode}): {command}"]
+    # Keep the tail: apt/systemd failures are normally at the end.
+    if stderr:
+        parts.append(f"stderr: {stderr[-900:]}")
+    if stdout:
+        parts.append(f"stdout: {stdout[-900:]}")
+    if len(parts) == 1:
+        parts.append("无命令输出")
+    return "\n".join(parts)
+
+
 def run(args, *, input_text=None, timeout=None, check=True):
-    proc = subprocess.run(args, input=input_text, text=True, capture_output=True, timeout=timeout or TIMEOUT)
+    effective_timeout = timeout or TIMEOUT
+    try:
+        proc = subprocess.run(
+            args, input=input_text, text=True, capture_output=True,
+            timeout=effective_timeout
+        )
+    except subprocess.TimeoutExpired as exc:
+        command = shlex.join(str(x) for x in args)
+        stderr = _clean_command_output(exc.stderr or "")
+        stdout = _clean_command_output(exc.stdout or "")
+        detail = stderr or stdout
+        suffix = f"；最后输出: {detail[-600:]}" if detail else ""
+        raise RuntimeError(f"命令超时 ({effective_timeout}s): {command}{suffix}") from exc
     if check and proc.returncode != 0:
-        msg = (proc.stderr or proc.stdout or "command failed").strip()
-        raise RuntimeError(msg[:1000])
+        raise RuntimeError(_command_error(args, proc)[:2200])
     return proc
 
 
@@ -181,28 +252,103 @@ def random_password(length=20):
     return "".join(secrets.choice(chars) for _ in range(length))
 
 
-def wait_ipv4(name: str):
-    deadline = time.time() + 50
+def instance_virtualization_type(name: str) -> str:
+    proc = run(["incus", "query", f"/1.0/instances/{name}"], check=False, timeout=20)
+    if proc.returncode != 0:
+        return "lxc"
+    try:
+        payload = json.loads(proc.stdout or "{}")
+        meta = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else payload
+        return "kvm" if str(meta.get("type") or "").lower() == "virtual-machine" else "lxc"
+    except Exception:
+        return "lxc"
+
+
+def wait_guest_agent(name: str, virtualization_type: str = "lxc"):
+    mode = (virtualization_type or "lxc").strip().lower()
+    # Containers can normally exec immediately. KVM VMs enter RUNNING before
+    # the in-guest incus-agent is ready, so explicitly wait for the agent.
+    if mode != "kvm":
+        return
+    wait_seconds = 180
+    deadline = time.time() + wait_seconds
+    last_error = ""
     while time.time() < deadline:
-        proc = run(["incus", "exec", name, "--", "sh", "-lc", "ip -4 -o addr show dev eth0 scope global | awk '{print $4}' | cut -d/ -f1 | head -n1"], check=False, timeout=15)
-        ip = (proc.stdout or "").strip()
-        if ip:
-            return ip
-        time.sleep(1)
-    raise RuntimeError("容器未能在 50 秒内获取 IPv4")
+        try:
+            proc = run(["incus", "exec", name, "--", "true"], check=False, timeout=12)
+            if proc.returncode == 0:
+                return
+            last_error = _clean_command_output(proc.stderr) or _clean_command_output(proc.stdout)
+        except RuntimeError as exc:
+            last_error = str(exc)
+        time.sleep(3)
+    detail = f"；最后错误: {last_error[-500:]}" if last_error else ""
+    raise RuntimeError(f"KVM Guest Agent 未能在 {wait_seconds} 秒内就绪{detail}")
+
+
+def wait_ipv4(name: str, virtualization_type: str = "lxc"):
+    mode = (virtualization_type or "lxc").strip().lower()
+    wait_guest_agent(name, mode)
+    wait_seconds = 120 if mode == "kvm" else 90
+    deadline = time.time() + wait_seconds
+    last_error = ""
+    while time.time() < deadline:
+        try:
+            proc = run([
+                "incus", "exec", name, "--", "sh", "-lc",
+                "ip -4 -o addr show scope global | awk '$2 != \"lo\" {print $4; exit}' | cut -d/ -f1",
+            ], check=False, timeout=15)
+            ip = (proc.stdout or "").strip()
+            if ip:
+                return ip
+            last_error = _clean_command_output(proc.stderr) or _clean_command_output(proc.stdout)
+        except RuntimeError as exc:
+            last_error = str(exc)
+        time.sleep(2 if mode == "kvm" else 1)
+    detail = f"；最后错误: {last_error[-500:]}" if last_error else ""
+    raise RuntimeError(f"{mode.upper()} 实例未能在 {wait_seconds} 秒内获取 IPv4{detail}")
 
 
 def prepare_ssh(name: str, password: str):
-    script = (
-        "export DEBIAN_FRONTEND=noninteractive; "
-        "apt-get update && apt-get install -y --no-install-recommends openssh-server ca-certificates && "
-        "mkdir -p /run/sshd /etc/ssh/sshd_config.d && "
-        "printf '%s\\n' 'PermitRootLogin yes' 'PasswordAuthentication yes' > /etc/ssh/sshd_config.d/00-natvps.conf && "
-        "sshd -t && systemctl enable ssh && systemctl restart ssh"
-    )
-    run(["incus", "exec", name, "--", "bash", "-lc", script], timeout=160)
-    run(["incus", "exec", name, "--", "chpasswd"], input_text=f"root:{password}\n", timeout=30)
-    run(["incus", "exec", name, "--", "systemctl", "restart", "ssh"], timeout=30)
+    # Debian/Ubuntu images can ship their own sshd_config.d snippets. OpenSSH
+    # uses the first value it sees for many keywords, so merely dropping a
+    # late *.conf file can leave PasswordAuthentication disabled. Put the XNAT
+    # include first, then verify the effective sshd configuration before the
+    # instance is exposed through a public NAT port.
+    try:
+        run(["incus", "exec", name, "--", "chpasswd"], input_text=f"root:{password}\n", timeout=30)
+    except Exception as exc:
+        raise RuntimeError(f"KVM/LXC SSH 初始化失败 [设置 root 密码]: {exc}") from exc
+    script = r"""
+set -Eeuo pipefail
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends openssh-server ca-certificates
+mkdir -p /run/sshd /etc/ssh/sshd_config.d
+cat > /etc/ssh/sshd_config.d/00-00-xnat.conf <<'EOF_XNAT_SSH'
+PermitRootLogin yes
+PasswordAuthentication yes
+EOF_XNAT_SSH
+rm -f /etc/ssh/sshd_config.d/00-natvps.conf
+TMP_CFG="$(mktemp)"
+grep -vFx 'Include /etc/ssh/sshd_config.d/00-00-xnat.conf' /etc/ssh/sshd_config > "$TMP_CFG" || true
+{
+  printf '%s\n' 'Include /etc/ssh/sshd_config.d/00-00-xnat.conf'
+  cat "$TMP_CFG"
+} > /etc/ssh/sshd_config
+rm -f "$TMP_CFG"
+sshd -t
+sshd -T | grep -x 'permitrootlogin yes' >/dev/null
+sshd -T | grep -x 'passwordauthentication yes' >/dev/null
+passwd -S root | awk '$2 == "P" {ok=1} END {exit ok ? 0 : 1}'
+systemctl enable --now ssh
+systemctl restart ssh
+ss -lnt '( sport = :22 )' | grep 'LISTEN' >/dev/null
+"""
+    try:
+        run(["incus", "exec", name, "--", "bash", "-lc", script], timeout=300)
+    except Exception as exc:
+        raise RuntimeError(f"KVM/LXC SSH 初始化失败 [安装/配置 sshd]: {exc}") from exc
 
 
 def set_eth0_value(instance_id: str, key: str, value: str):
@@ -228,17 +374,40 @@ def set_bandwidth(instance_id: str, mbps: int):
     set_eth0_value(instance_id, "limits.max", f"{mbps}Mbit")
 
 
-def launch(name: str, image_alias: str, memory_mb: int, disk_gb: int, cpu: int, bandwidth_mbps: int):
-    run([
+def launch(name: str, image_alias: str, memory_mb: int, disk_gb: int, cpu: int, bandwidth_mbps: int, virtualization_type: str = "lxc"):
+    mode = require_virtualization_allowed(virtualization_type)
+    args = [
         "incus", "launch", image_alias, name, "--storage", STORAGE_POOL,
         "--config", f"limits.cpu={cpu}", "--config", f"limits.memory={memory_mb}MiB",
         "--device", f"root,size={disk_gb}GiB",
-    ], timeout=190)
+    ]
+    if mode == "kvm":
+        if memory_mb < 512:
+            raise RuntimeError("KVM 实例内存至少需要 512 MiB")
+        if disk_gb < 4:
+            raise RuntimeError("KVM 实例系统盘至少需要 4 GiB")
+        args.append("--vm")
+    run(args, timeout=250 if mode == "kvm" else 190)
     set_bandwidth(name, bandwidth_mbps)
 
 
+def add_proxy_device(name: str, device: str, protocol: str, public_port: int, private_port: int):
+    args = [
+        "incus", "config", "device", "add", name, device, "proxy",
+        f"listen={protocol}:0.0.0.0:{public_port}",
+    ]
+    if instance_virtualization_type(name) == "kvm":
+        # Incus proxy devices on VMs are supported in NAT mode only. The
+        # wildcard target lets Incus follow the VM's DHCP address on incusbr0.
+        args.extend([f"connect={protocol}:0.0.0.0:{private_port}", "nat=true"])
+    else:
+        # Preserve the existing container proxy behavior.
+        args.append(f"connect={protocol}:127.0.0.1:{private_port}")
+    run(args, timeout=35)
+
+
 def add_ssh_proxy(name: str, ssh_port: int):
-    run(["incus", "config", "device", "add", name, f"ssh-{ssh_port}", "proxy", f"listen=tcp:0.0.0.0:{ssh_port}", "connect=tcp:127.0.0.1:22"], timeout=35)
+    add_proxy_device(name, f"ssh-{ssh_port}", "tcp", ssh_port, 22)
 
 
 def _space_from_payload(payload):
@@ -542,6 +711,7 @@ class ProvisionBody(BaseModel):
     cpu: int = Field(ge=1, le=128)
     bandwidth_mbps: int = Field(ge=0, le=10000)
     ssh_port: int = Field(ge=1024, le=65535)
+    virtualization_type: str = "lxc"
 
 
 
@@ -561,6 +731,7 @@ class ReinstallBody(BaseModel):
     cpu: int
     bandwidth_mbps: int
     ssh_port: int
+    virtualization_type: str = "lxc"
 
 
 class PortBody(BaseModel):
@@ -580,7 +751,11 @@ class NatPortPoolBody(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "agent_version": AGENT_VERSION, "api_version": AGENT_API_VERSION}
+    configured = configured_virtualization_modes()
+    return {
+        "status": "ok", "agent_version": AGENT_VERSION, "api_version": AGENT_API_VERSION,
+        "virtualization_modes": configured, "kvm_available": kvm_available(),
+    }
 
 
 @app.get("/v1/status")
@@ -615,6 +790,8 @@ def status():
         "storage_used_gb": round(used_gb, 2),
         "storage_stats_source": storage_source,
         "active_vps": active,
+        "virtualization_modes": configured_virtualization_modes(),
+        "kvm_available": kvm_available(),
     }
 
 
@@ -655,14 +832,17 @@ def provision(body: ProvisionBody):
         raise HTTPException(409, "实例已经存在")
     password = random_password()
     try:
-        launch(body.instance_name, body.image_alias, body.memory_mb, body.disk_gb, body.cpu, body.bandwidth_mbps)
-        private_ip = wait_ipv4(body.instance_name)
+        mode = require_virtualization_allowed(body.virtualization_type)
+        launch(body.instance_name, body.image_alias, body.memory_mb, body.disk_gb, body.cpu, body.bandwidth_mbps, mode)
+        private_ip = wait_ipv4(body.instance_name, mode)
         prepare_ssh(body.instance_name, password)
         add_ssh_proxy(body.instance_name, body.ssh_port)
-        return {"instance_id": body.instance_name, "private_ip": private_ip, "ssh_port": body.ssh_port, "status": "running", "root_password": password}
+        return {"instance_id": body.instance_name, "private_ip": private_ip, "ssh_port": body.ssh_port, "status": "running", "root_password": password, "virtualization_type": mode}
+    except HTTPException:
+        raise
     except Exception as exc:
         delete_instance(body.instance_name)
-        raise HTTPException(500, str(exc)[:500])
+        raise HTTPException(500, str(exc)[:1800])
 
 
 @app.post("/v1/instances/{instance_id}/power")
@@ -682,6 +862,8 @@ def power(instance_id: str, body: PowerBody):
 @app.post("/v1/instances/{instance_id}/reset-password")
 def reset_password(instance_id: str):
     require_instance(instance_id)
+    mode = instance_virtualization_type(instance_id)
+    wait_guest_agent(instance_id, mode)
     password = random_password()
     run(["incus", "exec", instance_id, "--", "chpasswd"], input_text=f"root:{password}\n", timeout=30)
     run(["incus", "exec", instance_id, "--", "systemctl", "restart", "ssh"], timeout=30)
@@ -692,17 +874,25 @@ def reset_password(instance_id: str):
 def reinstall(instance_id: str, body: ReinstallBody):
     require_instance(instance_id)
     require_nat_port_allowed(body.ssh_port)
+    # Validate the requested mode before deleting the current instance.
+    # This prevents a temporary KVM capability problem from destroying a VM
+    # before we know that the replacement can be created.
+    mode = require_virtualization_allowed(body.virtualization_type)
+    if mode == "kvm" and (body.memory_mb < 512 or body.disk_gb < 4):
+        raise HTTPException(400, "KVM 实例至少需要 512 MiB 内存和 4 GiB 系统盘")
     delete_instance(instance_id)
     password = random_password()
     try:
-        launch(instance_id, body.image_alias, body.memory_mb, body.disk_gb, body.cpu, body.bandwidth_mbps)
-        private_ip = wait_ipv4(instance_id)
+        launch(instance_id, body.image_alias, body.memory_mb, body.disk_gb, body.cpu, body.bandwidth_mbps, mode)
+        private_ip = wait_ipv4(instance_id, mode)
         prepare_ssh(instance_id, password)
         add_ssh_proxy(instance_id, body.ssh_port)
-        return {"instance_id": instance_id, "private_ip": private_ip, "ssh_port": body.ssh_port, "status": "running", "root_password": password}
+        return {"instance_id": instance_id, "private_ip": private_ip, "ssh_port": body.ssh_port, "status": "running", "root_password": password, "virtualization_type": mode}
+    except HTTPException:
+        raise
     except Exception as exc:
         delete_instance(instance_id)
-        raise HTTPException(500, str(exc)[:500])
+        raise HTTPException(500, str(exc)[:1800])
 
 
 @app.delete("/v1/instances/{instance_id}")
@@ -720,7 +910,7 @@ def add_port(instance_id: str, body: PortBody):
     if protocol not in {"tcp", "udp"}:
         raise HTTPException(400, "仅支持 TCP / UDP")
     device = f"nat-{protocol}-{body.public_port}"
-    run(["incus", "config", "device", "add", instance_id, device, "proxy", f"listen={protocol}:0.0.0.0:{body.public_port}", f"connect={protocol}:127.0.0.1:{body.private_port}"], timeout=35)
+    add_proxy_device(instance_id, device, protocol, body.public_port, body.private_port)
     return {"device_name": device}
 
 
@@ -734,7 +924,16 @@ def remove_port(instance_id: str, device_name: str):
 @app.get("/v1/instances/{instance_id}/stats")
 def stats(instance_id: str):
     require_instance(instance_id)
-    proc = run(["incus", "exec", instance_id, "--", "sh", "-lc", "printf '%s %s' \"$(cat /sys/class/net/eth0/statistics/rx_bytes 2>/dev/null || echo 0)\" \"$(cat /sys/class/net/eth0/statistics/tx_bytes 2>/dev/null || echo 0)\""], check=False, timeout=15)
+    proc = run([
+        "incus", "exec", instance_id, "--", "sh", "-lc",
+        "rx=0; tx=0; "
+        "for d in /sys/class/net/*; do "
+        "[ \"$(basename \"$d\")\" = lo ] && continue; "
+        "r=$(cat \"$d/statistics/rx_bytes\" 2>/dev/null || echo 0); "
+        "t=$(cat \"$d/statistics/tx_bytes\" 2>/dev/null || echo 0); "
+        "rx=$((rx+r)); tx=$((tx+t)); "
+        "done; printf '%s %s\\n' \"$rx\" \"$tx\"",
+    ], check=False, timeout=15)
     if proc.returncode != 0:
         return {"rx_bytes": 0, "tx_bytes": 0, "available": False}
     try:
@@ -750,6 +949,9 @@ def resize_resources(instance_id: str, body: ResourceResizeBody):
     require_instance(instance_id)
     if not instance_exists(instance_id):
         raise HTTPException(404, "实例不存在")
+    mode = instance_virtualization_type(instance_id)
+    if mode == "kvm" and (body.memory_mb < 512 or body.disk_gb < 4):
+        raise HTTPException(400, "KVM 实例至少需要 512 MiB 内存和 4 GiB 系统盘")
     try:
         result = resize_instance_resources(instance_id, body.cpu, body.memory_mb, body.disk_gb)
         return result
@@ -795,6 +997,7 @@ def inspect(instance_id: str):
             "cpu": int(raw_cpu) if raw_cpu.isdigit() else None,
             "memory_mb": int(round(memory_bytes / (1024 ** 2))) if memory_bytes else None,
             "disk_gb": int(round(disk_bytes / (1024 ** 3))) if disk_bytes else None,
+            "virtualization_type": "kvm" if str(meta.get("type") or "").lower() == "virtual-machine" else "lxc",
         }
     except Exception:
         return {"exists": True, "status": "unknown", "bandwidth_mbps": None}

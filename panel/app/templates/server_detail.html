@@ -18,6 +18,7 @@
   <div><span>私网 IPv4</span><strong>{{ server.private_ip or "-" }}</strong></div>
   <div class="detail-copy-field"><span>SSH</span><strong>{{ server.public_ip }}:{{ server.ssh_port or "-" }}</strong><button type="button" data-copy-value="{{ server.public_ip }}:{{ server.ssh_port or '' }}">复制</button></div>
   <div><span>配置</span><strong>{{ server.cpu }}C / {{ server.memory_mb }}M / {{ server.disk_gb }}G</strong></div>
+  <div><span>虚拟化</span><strong>{{ (server.virtualization_type or "lxc")|upper }}</strong></div>
   <div><span>当前带宽</span><strong>{% if server.traffic_throttled %}1 Mbps · 流量限速{% elif (server.bandwidth_mbps or 0) == 0 %}不限速{% else %}{{ server.bandwidth_mbps }} Mbps{% endif %}</strong></div>
   <div><span>本周期已用</span><strong>{{ human_bytes(traffic_used_bytes(server)) }}</strong></div>
   <div><span>本周期总流量</span><strong>{% if traffic_quota_gb(server) > 0 %}{{ traffic_quota_gb(server) }} GB{% if traffic_bonus_gb(server) > 0 %} <small>+{{ traffic_bonus_gb(server) }} GB</small>{% endif %}{% else %}不限流量{% endif %}</strong></div>
@@ -162,7 +163,7 @@
     <span class="detail-summary-action">展开</span>
   </summary>
   <div class="client-detail-body">
-    <div class="client-danger-note">重装会清空容器内全部数据；永久删除实例后无法恢复。</div>
+    <div class="client-danger-note">重装会清空实例内全部数据；永久删除实例后无法恢复。</div>
     <div class="client-danger-grid">
       <form method="post" action="/servers/{{ server.id }}/reinstall">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

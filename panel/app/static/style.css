@@ -8070,3 +8070,215 @@ html[data-admin-theme="light"] body.admin-body .xnat-confirm-cancel:hover{border
   .xnat-confirm-money{grid-template-columns:1fr 1fr}.xnat-confirm-money>div:first-child{grid-column:1/-1}.xnat-confirm-actions{display:grid;grid-template-columns:1fr 1.45fr}.xnat-confirm-cancel,.xnat-confirm-submit{width:100%;min-width:0;padding:0 12px}
 }
 @media(prefers-reduced-motion:reduce){.xnat-confirm-backdrop,.xnat-confirm-card,.xnat-confirm-close,.xnat-confirm-cancel,.xnat-confirm-submit{transition:none!important}.xnat-confirm-card{opacity:1;transform:none}}
+
+/* ========================================================================== 
+   v1.3.0 release polish: responsive cards, visible coupon field, folded plans
+   ========================================================================== */
+
+/* Customer server cards use the standard left-aligned responsive grid.
+   Desktop: 3 columns; medium screens: 2 columns; mobile: 1 column.
+   Incomplete final rows stay in normal document order and are not centered or stretched. */
+body.client-body .client-server-grid{
+  display:grid!important;
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  align-items:stretch!important;
+  gap:14px!important;
+}
+body.client-body .client-server-grid>.client-server-card{
+  width:100%!important;
+  max-width:none!important;
+  min-width:0!important;
+}
+
+/* Plan cards use the same standard left-aligned grid rhythm as server cards.
+   Desktop: 3 columns; medium screens: 2 columns; mobile: 1 column.
+   Partial final rows stay left aligned and cards never stretch to fill empty space. */
+body.client-body .client-plan-grid{
+  display:grid!important;
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  align-items:stretch!important;
+  width:100%!important;
+  max-width:none!important;
+  gap:16px!important;
+}
+body.client-body .client-plan-grid>.client-plan-card.compact-plan-card{
+  width:100%!important;
+  max-width:none!important;
+  min-width:0!important;
+  height:auto!important;
+  min-height:406px!important;
+  max-height:none!important;
+}
+body.client-body .public-plan-grid,
+body.client-body .plan-notice{max-width:none!important;width:100%!important}
+
+/* Coupon is always visible. It is optional, but never hidden behind a fold. */
+body.client-body .plan-coupon-field{
+  display:block!important;
+  margin:0 0 10px!important;
+  color:#a9bad0!important;
+  font-size:9px!important;
+}
+body.client-body .plan-coupon-label-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  margin:0 0 5px;
+}
+body.client-body .plan-coupon-label-row>span{font-weight:650;color:#a9bad0}
+body.client-body .plan-coupon-label-row>small{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:18px;
+  margin:0!important;
+  padding:0 7px;
+  border:1px solid #355274;
+  border-radius:999px;
+  background:#14243a;
+  color:#9fb6cf!important;
+  font-size:8px!important;
+  font-weight:700;
+}
+body.client-body .plan-coupon-field>input{
+  width:100%!important;
+  height:36px!important;
+  min-height:36px!important;
+  margin:0!important;
+  padding:7px 10px!important;
+  border:1px solid #35506e!important;
+  border-radius:8px!important;
+  background:#0a1526!important;
+  color:#dce8f6!important;
+  font-size:10px!important;
+  box-sizing:border-box!important;
+}
+body.client-body .plan-coupon-field>input::placeholder{color:#71849a}
+html[data-client-theme="light"] body.client-body .plan-coupon-label-row>span{color:#536d86}
+html[data-client-theme="light"] body.client-body .plan-coupon-label-row>small{
+  background:#e3edf7;
+  border-color:#b5c8da;
+  color:#3d6388!important;
+}
+html[data-client-theme="light"] body.client-body .plan-coupon-field>input{
+  background:#f8fafc!important;
+  border-color:#b9cadb!important;
+  color:#1d2d40!important;
+}
+html[data-client-theme="light"] body.client-body .plan-coupon-field>input::placeholder{color:#718296}
+
+/* Admin plan list is collapsed by default. The closed row keeps the most
+   useful plan/inventory data visible; clicking anywhere on it opens editing. */
+body.admin-body .admin-plan-fold{
+  padding:0!important;
+  overflow:hidden!important;
+}
+body.admin-body .admin-plan-summary{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:20px!important;
+  min-height:82px!important;
+  padding:14px 18px!important;
+  cursor:pointer!important;
+  list-style:none!important;
+  user-select:none;
+}
+body.admin-body .admin-plan-summary::-webkit-details-marker{display:none}
+body.admin-body .admin-plan-summary::marker{content:""}
+body.admin-body .admin-plan-summary-main{min-width:0;flex:1 1 auto}
+body.admin-body .admin-plan-summary-title{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:7px;
+}
+body.admin-body .admin-plan-summary-title>strong{
+  margin-right:2px;
+  color:#eef5ff;
+  font-size:14px;
+  line-height:1.2;
+}
+body.admin-body .admin-plan-summary-specs{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:7px;
+  margin-top:9px;
+}
+body.admin-body .admin-plan-summary-specs>span{
+  display:inline-flex;
+  align-items:center;
+  min-height:25px;
+  padding:0 9px;
+  border:1px solid #293b54;
+  border-radius:7px;
+  background:#101929;
+  color:#9fb2c9;
+  font-size:10px;
+  white-space:nowrap;
+}
+body.admin-body .admin-plan-summary-side{
+  flex:0 0 auto;
+  display:flex;
+  align-items:flex-end;
+  flex-direction:column;
+  gap:8px;
+  text-align:right;
+}
+body.admin-body .admin-plan-expand-label{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  color:#78a9df;
+  font-size:10px;
+  font-weight:700;
+}
+body.admin-body .admin-plan-expand-label::after{
+  content:"";
+  width:7px;
+  height:7px;
+  border-right:1.5px solid currentColor;
+  border-bottom:1.5px solid currentColor;
+  transform:rotate(45deg) translateY(-2px);
+  transition:transform .16s ease;
+}
+body.admin-body .admin-plan-fold[open] .admin-plan-expand-label::after{
+  transform:rotate(225deg) translate(-1px,-1px);
+}
+body.admin-body .admin-plan-fold[open] .admin-plan-expand-label{font-size:0}
+body.admin-body .admin-plan-fold[open] .admin-plan-expand-label::before{
+  content:"收起编辑";
+  font-size:10px;
+}
+body.admin-body .admin-plan-fold-body{
+  padding:4px 18px 18px;
+  border-top:1px solid #26354a;
+}
+body.admin-body .admin-plan-fold-body .plan-edit-grid{margin-top:14px!important}
+
+html[data-admin-theme="light"] body.admin-body .admin-plan-summary-title>strong{color:#1d3045!important}
+html[data-admin-theme="light"] body.admin-body .admin-plan-summary-specs>span{
+  background:#f2f6fa!important;
+  border-color:#ced9e4!important;
+  color:#4d657d!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-plan-expand-label{color:#3975ae!important}
+html[data-admin-theme="light"] body.admin-body .admin-plan-fold-body{border-top-color:#d4dee8!important}
+
+@media(max-width:1180px){
+  body.client-body .client-server-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  body.client-body .client-plan-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+}
+@media(max-width:900px){
+  body.admin-body .admin-plan-summary{align-items:flex-start!important}
+  body.admin-body .admin-plan-summary-side{align-items:flex-start;text-align:left}
+}
+@media(max-width:760px){
+  body.client-body .client-server-grid{grid-template-columns:1fr!important}
+  body.client-body .client-plan-grid{grid-template-columns:1fr!important}
+  body.client-body .client-plan-grid>.client-plan-card.compact-plan-card{min-height:0!important}
+  body.admin-body .admin-plan-summary{flex-direction:column!important;gap:10px!important}
+  body.admin-body .admin-plan-summary-side{width:100%;flex-direction:row;justify-content:space-between;align-items:center}
+}

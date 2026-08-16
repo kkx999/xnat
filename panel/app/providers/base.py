@@ -20,13 +20,17 @@ class ProviderState:
     exists: bool = False
     status: str = "missing"
     bandwidth_mbps: int | None = None
+    cpu: int | None = None
+    memory_mb: int | None = None
+    disk_gb: int | None = None
+    virtualization_type: str | None = None
 
 class Provider(ABC):
     @abstractmethod
     def provision(
         self, server_id: int, instance_name: str, image_alias: str,
         memory_mb: int, disk_gb: int, cpu: int,
-        bandwidth_mbps: int, ssh_port: int
+        bandwidth_mbps: int, ssh_port: int, virtualization_type: str = "lxc"
     ) -> ProvisionResult:
         raise NotImplementedError
 
@@ -42,7 +46,7 @@ class Provider(ABC):
     def reinstall(
         self, instance_id: str, image_alias: str,
         memory_mb: int, disk_gb: int, cpu: int,
-        bandwidth_mbps: int, ssh_port: int
+        bandwidth_mbps: int, ssh_port: int, virtualization_type: str = "lxc"
     ) -> ProvisionResult:
         raise NotImplementedError
 

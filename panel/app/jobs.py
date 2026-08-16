@@ -75,6 +75,7 @@ def _run_provision(db, provider, server: Server, job: Job):
         server.cpu,
         server.bandwidth_mbps or 0,
         server.ssh_port,
+        server.virtualization_type or "lxc",
     )
     server.provider_instance_id = result.instance_id
     server.private_ip = result.private_ip
@@ -129,6 +130,7 @@ def _run_reinstall(db, provider, server: Server, job: Job):
         server.cpu,
         server.bandwidth_mbps or 0,
         server.ssh_port,
+        server.virtualization_type or "lxc",
     )
     # Reinstall removes custom NAT proxy devices; reflect that in DB.
     for mapping in list(server.ports):

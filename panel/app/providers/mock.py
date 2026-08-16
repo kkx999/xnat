@@ -10,7 +10,7 @@ class MockProvider(Provider):
     def provision(
         self, server_id: int, instance_name: str, image_alias: str,
         memory_mb: int, disk_gb: int, cpu: int,
-        bandwidth_mbps: int, ssh_port: int
+        bandwidth_mbps: int, ssh_port: int, virtualization_type: str = "lxc"
     ) -> ProvisionResult:
         host_octet = 100 + (server_id % 140)
         return ProvisionResult(
@@ -30,7 +30,7 @@ class MockProvider(Provider):
     def reinstall(
         self, instance_id: str, image_alias: str,
         memory_mb: int, disk_gb: int, cpu: int,
-        bandwidth_mbps: int, ssh_port: int
+        bandwidth_mbps: int, ssh_port: int, virtualization_type: str = "lxc"
     ) -> ProvisionResult:
         return ProvisionResult(
             instance_id=instance_id,

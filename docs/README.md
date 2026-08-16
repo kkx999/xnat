@@ -1,4 +1,4 @@
-# XNAT v1.2.0 详细使用文档
+# XNAT v1.3.0 详细使用文档
 
 > 本文档负责详细说明 XNAT 的安装和运维。  
 > 根目录 `README.md` 保持简洁，具体操作以这里为准。
@@ -13,11 +13,12 @@
 3. 记下 Panel Server 的真实公网 IPv4
 4. 全新 Debian 12 安装 Host
 5. Host 安装器输入 Panel 真实公网 IPv4
-6. Host 安装器确认 natpool 大小
-7. 登录 Panel 后台添加 Host Agent
-8. Agent 连接检测成功
-9. 在 Panel 后台配置该节点 NAT 端口池
-10. 创建测试 VPS 验证 SSH / NAT / 磁盘 / 流量
+6. Host 安装器检测并选择 LXC / KVM / LXC + KVM
+7. Host 安装器确认 natpool 大小
+8. 登录 Panel 后台添加 Host Agent
+9. Agent 连接检测成功
+10. 在 Panel 后台配置该节点 NAT 端口池
+11. 创建对应虚拟化类型的测试 VPS，验证 SSH / NAT / 磁盘 / 流量
 ```
 
 ---
@@ -71,15 +72,15 @@ bash <(...)
 # 3. 指定版本安装 Panel
 
 ```bash
-XNAT_VERSION=1.2.0 \
+XNAT_VERSION=1.3.0 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
 ```text
-XNAT_VERSION=1.2.0
+XNAT_VERSION=1.3.0
 ```
 
-表示固定安装 Release `v1.2.0`，不自动跟随以后发布的新版本。
+表示固定安装 Release `v1.3.0`，不自动跟随以后发布的新版本。
 
 ---
 
@@ -101,7 +102,7 @@ Host 不需要把 `PANEL_IP`、`NATPOOL_GB`、NAT 端口范围全部写进一条
 安装器会显示类似：
 
 ```text
-XNAT Host 安装 · 1/2
+XNAT Host 安装 · 1/3
 
 请输入 XNAT Panel Server 的【真实公网 IPv4】。
 
@@ -160,7 +161,30 @@ Panel 公网 IP → 29443 ✅
 
 ---
 
-# 6. Host 安装第 2 步：natpool
+# 6. Host 安装第 2 步：虚拟化模式
+
+安装器会先检测当前 Host 是否有可访问的 `/dev/kvm`：
+
+```text
+XNAT Host 安装 · 2/3
+
+虚拟化能力检测：
+  LXC：✓ 可用
+  KVM：✓ 可用（/dev/kvm 已开放）
+
+请选择此 Host 允许创建的实例类型：
+  1. LXC
+  2. KVM
+  3. LXC + KVM（推荐，可同时销售两类套餐）
+```
+
+如果 `/dev/kvm` 不可用，安装器会禁止选择 KVM，并继续以 LXC 模式安装。Host 自身运行在 KVM VPS 中并不代表一定能二次创建 KVM VM；上层宿主商还必须开放 **Nested Virtualization**。
+
+选择 `LXC + KVM` 后，同一个 Host 可以同时承载两种套餐，Panel 调度器会根据套餐的虚拟化类型自动匹配节点。
+
+---
+
+# 7. Host 安装第 3 步：natpool
 
 安装器会检测 Host 磁盘，例如：
 
@@ -553,6 +577,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/boo
 
 ```bash
 PANEL_IP=165.154.240.243 \
+VIRTUALIZATION_MODE=hybrid \
 NATPOOL_GB=60 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-host.sh)
 ```
@@ -569,28 +594,32 @@ Panel Server 的真实公网 IPv4。
 
 提前提供后安装器不会再询问。
 
+### `VIRTUALIZATION_MODE`
+
+可选 `lxc`、`kvm` 或 `hybrid`。其中 `kvm` / `hybrid` 要求当前 Host 内 `/dev/kvm` 可访问，否则安装器会拒绝继续。
+
 注意：
 
 > NAT 用户端口池仍然不通过 Host 环境变量设置，应在节点连接 Panel 后从后台配置。
 
 ---
 
-# 15. 指定 v1.2.0 安装 Host
+# 15. 指定 v1.3.0 安装 Host
 
 ```bash
-XNAT_VERSION=1.2.0 \
+XNAT_VERSION=1.3.0 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-host.sh)
 ```
 
-`XNAT_VERSION=1.2.0`：
+`XNAT_VERSION=1.3.0`：
 
 固定下载 Release tag：
 
 ```text
-v1.2.0
+v1.3.0
 ```
 
-然后仍然会进入正常的交互式 Panel IP + natpool 流程。
+然后仍然会进入正常的交互式 Panel IP + 虚拟化模式 + natpool 流程。
 
 ---
 

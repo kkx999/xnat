@@ -216,64 +216,83 @@
       <div class="plan-admin-list">
       {% for p in plans %}
         {% set stock = inventories.get(p.id) %}
-        <article class="card admin-plan-card">
-          <div class="admin-plan-head">
-            <div>
-              <strong>{{ p.name }}</strong>
-              <span class="tag {% if not p.is_active %}off-tag{% endif %}">{{ "已上架" if p.is_active else "已下架" }}</span>
-              {% if p.homepage_visible %}<span class="tag plan-home-tag">首页展示</span>{% endif %}
-              {% if p.is_recommended %}<span class="tag plan-recommend-tag">{{ p.recommendation_label or "推荐" }}</span>{% endif %}
+        <details class="card admin-plan-card admin-plan-fold">
+          <summary class="admin-plan-summary">
+            <div class="admin-plan-summary-main">
+              <div class="admin-plan-summary-title">
+                <strong>{{ p.name }}</strong>
+                <span class="tag {% if not p.is_active %}off-tag{% endif %}">{{ "已上架" if p.is_active else "已下架" }}</span>
+                <span class="tag">{{ (p.virtualization_type or "lxc")|upper }}</span>
+                {% if p.homepage_visible %}<span class="tag plan-home-tag">首页展示</span>{% endif %}
+                {% if p.is_recommended %}<span class="tag plan-recommend-tag">{{ p.recommendation_label or "推荐" }}</span>{% endif %}
+              </div>
+              <div class="admin-plan-summary-specs">
+                <span>{{ p.cpu }}C</span>
+                <span>{{ p.memory_mb }} MB</span>
+                <span>{{ p.disk_gb }} GB</span>
+                <span>{{ p.bandwidth_mbps }} Mbps</span>
+                <span>{{ p.traffic_gb }} GB 流量</span>
+                <span>{{ p.port_count }} NAT</span>
+                <span>{{ money(p.monthly_price_cents) }}/月</span>
+              </div>
             </div>
-            <div class="inventory-text">
-              {% if stock.limit == 0 %}
-                已售 {{ stock.used }} · 不限库存
-              {% else %}
-                已售 {{ stock.used }} / {{ stock.limit }} · 剩余 {{ stock.available }}
-              {% endif %}
+            <div class="admin-plan-summary-side">
+              <div class="inventory-text">
+                {% if stock.limit == 0 %}
+                  已售 {{ stock.used }} · 不限库存
+                {% else %}
+                  已售 {{ stock.used }} / {{ stock.limit }} · 剩余 {{ stock.available }}
+                {% endif %}
+              </div>
+              <span class="admin-plan-expand-label">展开编辑</span>
             </div>
-          </div>
+          </summary>
 
-          <form id="plan-update-{{ p.id }}" class="plan-edit-grid" method="post" action="/admin/plans/{{ p.id }}/update">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <label>套餐名称<input name="name" value="{{ p.name }}" required></label>
-            <label>CPU<input type="number" name="cpu" min="1" value="{{ p.cpu }}" required></label>
-            <label>内存 MB<input type="number" name="memory_mb" min="64" value="{{ p.memory_mb }}" required></label>
-            <label>磁盘 GB<input type="number" name="disk_gb" min="1" value="{{ p.disk_gb }}" required></label>
-            <label>带宽 Mbps<input type="number" name="bandwidth_mbps" min="0" value="{{ p.bandwidth_mbps }}" required></label>
-            <label>流量 GB<input type="number" name="traffic_gb" min="0" value="{{ p.traffic_gb }}" required></label>
-            <label>NAT 端口<input type="number" name="port_count" min="0" value="{{ p.port_count }}" required></label>
-            <label>月付价格 ¥<input name="monthly_price" value="{{ '%.2f'|format(p.monthly_price_cents / 100) }}" required></label>
-            <label>流量重置价 ¥<input name="traffic_reset_price" value="{{ '%.2f'|format(p.traffic_reset_price_cents / 100) }}" required><small>流量用尽后用户自助重置时扣除</small></label>
-            <label>库存上限<input type="number" name="stock_limit" min="0" value="{{ p.stock_limit }}" required><small>0 = 不限库存</small></label>
-            <label>套餐中心排序<input type="number" name="sort_order" min="0" value="{{ p.sort_order }}" required><small>数字越小越靠前</small></label>
-            <label>首页展示<select name="homepage_visible"><option value="true" {% if p.homepage_visible %}selected{% endif %}>显示</option><option value="false" {% if not p.homepage_visible %}selected{% endif %}>不显示</option></select><small>首页最多按排序展示前三个</small></label>
-            <label>首页排序<input type="number" name="homepage_sort_order" min="0" value="{{ p.homepage_sort_order }}" required><small>只影响首页</small></label>
-            <label>推荐套餐<select name="is_recommended"><option value="false" {% if not p.is_recommended %}selected{% endif %}>不推荐</option><option value="true" {% if p.is_recommended %}selected{% endif %}>推荐</option></select></label>
-            <label>推荐标签<input name="recommendation_label" maxlength="32" value="{{ p.recommendation_label or '推荐' }}" placeholder="例如 性价比推荐"></label>
-          </form>
-
-          <div class="admin-plan-actions-row">
-            <button class="primary-admin-action" type="submit" form="plan-update-{{ p.id }}">保存套餐</button>
-            <form class="inline" method="post" action="/admin/plans/{{ p.id }}/toggle">
+          <div class="admin-plan-fold-body">
+            <form id="plan-update-{{ p.id }}" class="plan-edit-grid" method="post" action="/admin/plans/{{ p.id }}/update" data-virtualization-form>
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <button class="secondary-admin-btn" type="submit">{{ "下架套餐" if p.is_active else "重新上架" }}</button>
+              <label>套餐名称<input name="name" value="{{ p.name }}" required></label>
+              <label>CPU<input type="number" name="cpu" min="1" value="{{ p.cpu }}" required></label>
+              <label>内存 MB<input type="number" name="memory_mb" min="{{ 512 if (p.virtualization_type or 'lxc') == 'kvm' else 64 }}" value="{{ p.memory_mb }}" required data-virt-memory></label>
+              <label>磁盘 GB<input type="number" name="disk_gb" min="{{ 4 if (p.virtualization_type or 'lxc') == 'kvm' else 1 }}" value="{{ p.disk_gb }}" required data-virt-disk></label>
+              <label>带宽 Mbps<input type="number" name="bandwidth_mbps" min="0" value="{{ p.bandwidth_mbps }}" required></label>
+              <label>流量 GB<input type="number" name="traffic_gb" min="0" value="{{ p.traffic_gb }}" required></label>
+              <label>NAT 端口<input type="number" name="port_count" min="0" value="{{ p.port_count }}" required></label>
+              <label>虚拟化类型<select name="virtualization_type" data-virt-select><option value="lxc" {% if (p.virtualization_type or "lxc") == "lxc" %}selected{% endif %}>LXC 容器</option><option value="kvm" {% if p.virtualization_type == "kvm" %}selected{% endif %}>KVM 虚拟机</option></select><small data-virt-hint>新购买实例按此类型调度；KVM 最低 512MB / 4GB；已售实例不变</small></label>
+              <label>月付价格 ¥<input name="monthly_price" value="{{ '%.2f'|format(p.monthly_price_cents / 100) }}" required></label>
+              <label>流量重置价 ¥<input name="traffic_reset_price" value="{{ '%.2f'|format(p.traffic_reset_price_cents / 100) }}" required><small>流量用尽后用户自助重置时扣除</small></label>
+              <label>库存上限<input type="number" name="stock_limit" min="0" value="{{ p.stock_limit }}" required><small>0 = 不限库存</small></label>
+              <label>套餐中心排序<input type="number" name="sort_order" min="0" value="{{ p.sort_order }}" required><small>数字越小越靠前</small></label>
+              <label>首页展示<select name="homepage_visible"><option value="true" {% if p.homepage_visible %}selected{% endif %}>显示</option><option value="false" {% if not p.homepage_visible %}selected{% endif %}>不显示</option></select><small>首页最多按排序展示前三个</small></label>
+              <label>首页排序<input type="number" name="homepage_sort_order" min="0" value="{{ p.homepage_sort_order }}" required><small>只影响首页</small></label>
+              <label>推荐套餐<select name="is_recommended"><option value="false" {% if not p.is_recommended %}selected{% endif %}>不推荐</option><option value="true" {% if p.is_recommended %}selected{% endif %}>推荐</option></select></label>
+              <label>推荐标签<input name="recommendation_label" maxlength="32" value="{{ p.recommendation_label or '推荐' }}" placeholder="例如 性价比推荐"></label>
             </form>
+
+            <div class="admin-plan-actions-row">
+              <button class="primary-admin-action" type="submit" form="plan-update-{{ p.id }}">保存套餐</button>
+              <form class="inline" method="post" action="/admin/plans/{{ p.id }}/toggle">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="secondary-admin-btn" type="submit">{{ "下架套餐" if p.is_active else "重新上架" }}</button>
+              </form>
+            </div>
           </div>
-        </article>
+        </details>
       {% endfor %}
       </div>
 
       <details class="admin-create-box">
         <summary>＋ 新建套餐</summary>
-        <form class="plan-edit-grid" method="post" action="/admin/plans">
+        <form class="plan-edit-grid" method="post" action="/admin/plans" data-virtualization-form>
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <label>套餐名称<input name="name" placeholder="例如 Hong Kong Nano" required></label>
           <label>CPU<input type="number" name="cpu" min="1" value="1" required></label>
-          <label>内存 MB<input type="number" name="memory_mb" min="64" value="128" required></label>
-          <label>磁盘 GB<input type="number" name="disk_gb" min="1" value="2" required></label>
+          <label>内存 MB<input type="number" name="memory_mb" min="64" value="128" required data-virt-memory></label>
+          <label>磁盘 GB<input type="number" name="disk_gb" min="1" value="2" required data-virt-disk></label>
           <label>带宽 Mbps<input type="number" name="bandwidth_mbps" min="0" value="100" required></label>
           <label>流量 GB<input type="number" name="traffic_gb" min="0" value="200" required></label>
           <label>NAT 端口<input type="number" name="port_count" min="0" value="5" required></label>
+          <label>虚拟化类型<select name="virtualization_type" data-virt-select><option value="lxc" selected>LXC 容器</option><option value="kvm">KVM 虚拟机</option></select><small data-virt-hint>KVM 套餐只会调度到已启用且当前可用 KVM 的 Host；KVM 最低 512MB / 4GB</small></label>
           <label>月付价格 ¥<input name="monthly_price" value="3.00" required></label>
           <label>流量重置价 ¥<input name="traffic_reset_price" value="3.00" required><small>必须大于 0</small></label>
           <label>库存上限<input type="number" name="stock_limit" min="0" value="0" required><small>0 = 不限库存</small></label>
@@ -442,7 +461,7 @@
         <label>套餐
           <select name="plan_id" required>
             {% for p in plans %}
-              <option value="{{ p.id }}">{{ p.name }}</option>
+              <option value="{{ p.id }}">{{ p.name }} · {{ (p.virtualization_type or "lxc")|upper }}</option>
             {% endfor %}
           </select>
         </label>
@@ -486,6 +505,7 @@
               <div class="v112-server-subline">
                 <span>{{ s.user.username }}</span>
                 <span>{{ s.os_name or "Debian 12" }}</span>
+                <span>{{ (s.virtualization_type or "lxc")|upper }}</span>
                 {% if s.host %}<span>{{ s.host.name }} · {{ s.host.region }}</span>{% else %}<span>未绑定节点</span>{% endif %}
               </div>
             </div>
@@ -513,9 +533,9 @@
               <form class="v112-resource-form" method="post" action="/admin/servers/{{ s.id }}/resources">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <label>vCPU<input type="number" name="cpu" min="1" max="128" value="{{ s.cpu or 1 }}" required></label>
-                <label>内存 MB<input type="number" name="memory_mb" min="64" max="1048576" step="64" value="{{ s.memory_mb or 128 }}" required></label>
+                <label>内存 MB<input type="number" name="memory_mb" min="{{ 512 if (s.virtualization_type or 'lxc') == 'kvm' else 64 }}" max="1048576" step="64" value="{{ s.memory_mb or 128 }}" required></label>
                 <label>磁盘 GB<input type="number" name="disk_gb" min="{{ s.disk_gb or 1 }}" max="65536" value="{{ s.disk_gb or 1 }}" required oninput="this.setCustomValidity('')" oninvalid="this.setCustomValidity('磁盘仅支持扩容，当前容量为 {{ s.disk_gb or 1 }} GB。请输入大于或等于 {{ s.disk_gb or 1 }} GB 的容量。')"></label>
-                <small>CPU / 内存可调整；磁盘只允许扩容。</small>
+                <small>CPU / 内存可调整；磁盘只允许扩容。{% if (s.virtualization_type or 'lxc') == 'kvm' %} KVM 最低 512MB / 4GB。{% endif %}</small>
                 <button type="submit">保存资源配置</button>
               </form>
             </details>
@@ -929,6 +949,7 @@
             <div><span>内存</span><strong>{{ h.memory_used_mb }} / {{ h.memory_total_mb }} MB</strong></div>
             <div><span>存储</span><strong>{{ '%.1f'|format(h.storage_used_gb or 0) }} / {{ '%.1f'|format(h.storage_total_gb or 0) }} GB</strong></div>
             <div><span>VPS</span><strong>{{ h.active_vps }}{% if h.max_vps %} / {{ h.max_vps }}{% endif %}</strong></div>
+            <div><span>虚拟化</span><strong>{% if "lxc" in (hs.get("virtualization_modes") or []) and "kvm" in (hs.get("virtualization_modes") or []) %}LXC + KVM{% elif "kvm" in (hs.get("virtualization_modes") or []) %}KVM{% else %}LXC{% endif %}</strong><small>{% if "kvm" in (hs.get("virtualization_modes") or []) %}KVM {{ "可用" if hs.get("kvm_available") else "当前不可用" }}{% else %}LXC Host{% endif %}</small></div>
           </div>
 
           {% set cap = sched.get('capacity', {}) %}
@@ -966,6 +987,7 @@
             <div class="node-meta-list">
               <div><span>Agent</span><code>{{ h.api_url }}</code></div>
               <div><span>公网 IP</span><code>{{ h.public_ip }}</code></div>
+              <div><span>虚拟化</span><code>{% if "lxc" in (hs.get("virtualization_modes") or []) and "kvm" in (hs.get("virtualization_modes") or []) %}LXC + KVM{% elif "kvm" in (hs.get("virtualization_modes") or []) %}KVM{% else %}LXC{% endif %}{% if "kvm" in (hs.get("virtualization_modes") or []) %} · /dev/kvm {{ "OK" if hs.get("kvm_available") else "不可用" }}{% endif %}</code></div>
               {% set hp = host_port_stats.get(h.id, {}) %}
               <div><span>NAT 端口池</span><code>{% if hp.get('configured') %}{{ hp.start }}-{{ hp.end }}{% else %}未配置{% endif %}</code></div>
               <div><span>Agent</span><code>{{ h.agent_version or '-' }} · API v{{ h.agent_api_version or '-' }} · {{ '兼容' if hs.get('api_compatible') else '不兼容' }}</code></div>
@@ -1020,14 +1042,17 @@
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <div class="node-plan-switches">
               {% for p in plans %}
+                {% set pmode = (p.virtualization_type or "lxc") %}
+                {% set host_modes = hs.get("virtualization_modes") or ["lxc"] %}
+                {% set incompatible = pmode not in host_modes or (pmode == "kvm" and not hs.get("kvm_available")) %}
                 <label class="node-plan-switch-row">
-                  <span class="node-plan-switch-name">{{ p.name }}</span>
+                  <span class="node-plan-switch-name">{{ p.name }} · {{ pmode|upper }}{% if incompatible %} · 当前不兼容{% endif %}</span>
                   <input class="node-plan-switch-input" type="checkbox" name="plan_ids" value="{{ p.id }}" {% if p.id in plan_host_map.get(h.id, []) %}checked{% endif %}>
                   <span class="node-plan-switch-ui" aria-hidden="true"></span>
                 </label>
               {% endfor %}
               </div>
-              <small>开启即允许该套餐调度到此节点；如果套餐未绑定任何节点，则默认允许调度到所有在线节点。</small>
+              <small>开启即允许该套餐调度到此节点；系统还会校验套餐的 LXC/KVM 类型，KVM 套餐绝不会调度到仅支持 LXC 或 /dev/kvm 不可用的节点。</small>
               <button class="node-plan-save">保存套餐绑定</button>
             </form>
           </details>

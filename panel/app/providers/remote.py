@@ -35,7 +35,7 @@ class RemoteHostProvider(Provider):
             db.expunge(host)
             return host
 
-    def provision(self, server_id, instance_name, image_alias, memory_mb, disk_gb, cpu, bandwidth_mbps, ssh_port):
+    def provision(self, server_id, instance_name, image_alias, memory_mb, disk_gb, cpu, bandwidth_mbps, ssh_port, virtualization_type="lxc"):
         host = self._host_for_server_id(server_id)
         data = host_request(host, "POST", "/v1/provision", payload={
             "server_id": server_id,
@@ -46,7 +46,8 @@ class RemoteHostProvider(Provider):
             "cpu": cpu,
             "bandwidth_mbps": bandwidth_mbps,
             "ssh_port": ssh_port,
-        }, timeout=210)
+            "virtualization_type": virtualization_type,
+        }, timeout=600 if str(virtualization_type).lower() == "kvm" else 260)
         return ProvisionResult(
             str(data["instance_id"]), str(data.get("private_ip") or ""), int(data["ssh_port"]),
             str(data.get("status") or "running"), data.get("root_password")
@@ -62,7 +63,7 @@ class RemoteHostProvider(Provider):
         data = host_request(host, "POST", f"/v1/instances/{instance_id}/reset-password", payload={}, timeout=45)
         return str(data["root_password"])
 
-    def reinstall(self, instance_id: str, image_alias: str, memory_mb: int, disk_gb: int, cpu: int, bandwidth_mbps: int, ssh_port: int) -> ProvisionResult:
+    def reinstall(self, instance_id: str, image_alias: str, memory_mb: int, disk_gb: int, cpu: int, bandwidth_mbps: int, ssh_port: int, virtualization_type: str = "lxc") -> ProvisionResult:
         host = self._host_for_instance(instance_id)
         data = host_request(host, "POST", f"/v1/instances/{instance_id}/reinstall", payload={
             "image_alias": image_alias,
@@ -71,7 +72,8 @@ class RemoteHostProvider(Provider):
             "cpu": cpu,
             "bandwidth_mbps": bandwidth_mbps,
             "ssh_port": ssh_port,
-        }, timeout=210)
+            "virtualization_type": virtualization_type,
+        }, timeout=600 if str(virtualization_type).lower() == "kvm" else 260)
         return ProvisionResult(str(data["instance_id"]), str(data.get("private_ip") or ""), int(data["ssh_port"]), str(data.get("status") or "running"), data.get("root_password"))
 
     def delete(self, instance_id: str) -> None:
@@ -114,7 +116,15 @@ class RemoteHostProvider(Provider):
     def inspect(self, instance_id: str) -> ProviderState:
         host = self._host_for_instance(instance_id)
         data = host_request(host, "GET", f"/v1/instances/{instance_id}/inspect", timeout=20)
-        return ProviderState(bool(data.get("exists")), str(data.get("status") or "unknown"), data.get("bandwidth_mbps"))
+        return ProviderState(
+            bool(data.get("exists")),
+            str(data.get("status") or "unknown"),
+            data.get("bandwidth_mbps"),
+            data.get("cpu"),
+            data.get("memory_mb"),
+            data.get("disk_gb"),
+            str(data.get("virtualization_type") or "").lower() or None,
+        )
 
     def port_device_exists(self, instance_id: str, device_name: str) -> bool:
         host = self._host_for_instance(instance_id)

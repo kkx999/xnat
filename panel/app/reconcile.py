@@ -31,6 +31,21 @@ def reconcile_server(db, provider, server: Server, *, repair: bool = True) -> di
         server.status = state.status
         changes.append(f"同步状态为 {state.status}")
 
+    expected_virtualization = str(server.virtualization_type or "lxc").strip().lower()
+    actual_virtualization = str(state.virtualization_type or "").strip().lower()
+    if actual_virtualization and actual_virtualization != expected_virtualization:
+        errors.append(f"虚拟化类型不一致：Panel={expected_virtualization.upper()} / Incus={actual_virtualization.upper()}")
+
+    resource_drift = []
+    if state.cpu is not None and int(state.cpu) != int(server.cpu or 0):
+        resource_drift.append(f"CPU {state.cpu}≠{server.cpu}")
+    if state.memory_mb is not None and int(state.memory_mb) != int(server.memory_mb or 0):
+        resource_drift.append(f"内存 {state.memory_mb}MB≠{server.memory_mb}MB")
+    if state.disk_gb is not None and int(state.disk_gb) != int(server.disk_gb or 0):
+        resource_drift.append(f"磁盘 {state.disk_gb}GB≠{server.disk_gb}GB")
+    if resource_drift:
+        errors.append("资源配置不一致：" + "，".join(resource_drift))
+
     expected_bw = effective_bandwidth_mbps(server)
     if repair and state.bandwidth_mbps is not None and int(state.bandwidth_mbps) != int(expected_bw):
         try:

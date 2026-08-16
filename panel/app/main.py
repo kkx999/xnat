@@ -402,6 +402,7 @@ def provision_service(db, request, user, plan, system_image, *, order_amount_cen
         traffic_cycle_mode=get_setting(db, "traffic_cycle_default_mode", "rolling30"),
         traffic_cycle_day=max(1, min(28, int(get_setting(db, "traffic_cycle_default_day", "1") or 1))),
         monthly_price_cents=plan.monthly_price_cents,
+        virtualization_type=(plan.virtualization_type or "lxc"),
         expires_at=datetime.utcnow() + timedelta(days=30),
     )
     db.add(server)
@@ -418,6 +419,7 @@ def provision_service(db, request, user, plan, system_image, *, order_amount_cen
         server.cpu,
         server.bandwidth_mbps or 0,
         ssh_port,
+        server.virtualization_type or "lxc",
     )
 
     server.provider_instance_id = result.instance_id
@@ -482,6 +484,7 @@ def queue_service_provision(db, user, plan, system_image, *, order_amount_cents:
         traffic_cycle_mode=get_setting(db, "traffic_cycle_default_mode", "rolling30"),
         traffic_cycle_day=max(1, min(28, int(get_setting(db, "traffic_cycle_default_day", "1") or 1))),
         monthly_price_cents=plan.monthly_price_cents,
+        virtualization_type=(plan.virtualization_type or "lxc"),
         expires_at=datetime.utcnow() + timedelta(days=30), reconcile_status="pending",
     )
     db.add(server)
@@ -2877,6 +2880,7 @@ def admin_create_plan(
     bandwidth_mbps: int = Form(...),
     traffic_gb: int = Form(...),
     port_count: int = Form(...),
+    virtualization_type: str = Form("lxc"),
     monthly_price: str = Form(...),
     traffic_reset_price: str = Form(...),
     stock_limit: int = Form(0),
@@ -2896,10 +2900,15 @@ def admin_create_plan(
         reset_price = -1
 
     clean_name = name.strip()
+    virtualization_type = (virtualization_type or "lxc").strip().lower()
     clean_label = (recommendation_label or "").strip()[:32] or "推荐"
+    if virtualization_type == "kvm" and (memory_mb < 512 or disk_gb < 4):
+        flash(request, "KVM 套餐最低需要 512 MB 内存和 4 GB 磁盘。", "error")
+        return RedirectResponse("/admin?section=plans", status_code=303)
     if (
         not clean_name or len(clean_name) > 80 or cpu < 1 or memory_mb < 64
-        or disk_gb < 1 or price < 0 or reset_price <= 0 or stock_limit < 0
+        or disk_gb < 1 or virtualization_type not in {"lxc", "kvm"}
+        or price < 0 or reset_price <= 0 or stock_limit < 0
         or not (0 <= sort_order <= 1000000)
         or not (0 <= homepage_sort_order <= 1000000)
     ):
@@ -2917,6 +2926,7 @@ def admin_create_plan(
             bandwidth_mbps=max(0, bandwidth_mbps),
             traffic_gb=max(0, traffic_gb),
             port_count=max(0, port_count),
+            virtualization_type=virtualization_type,
             monthly_price_cents=price,
             traffic_reset_price_cents=reset_price,
             stock_limit=stock_limit,
@@ -2933,6 +2943,7 @@ def admin_create_plan(
             db, actor=admin, request=request, action="admin.plan.create",
             target_type="plan", target_id=row.id, target_name=row.name,
             detail={
+                "virtualization_type": row.virtualization_type,
                 "homepage_visible": row.homepage_visible,
                 "homepage_sort_order": row.homepage_sort_order,
                 "catalog_sort_order": row.sort_order,
@@ -2956,6 +2967,7 @@ def admin_update_plan(
     bandwidth_mbps: int = Form(...),
     traffic_gb: int = Form(...),
     port_count: int = Form(...),
+    virtualization_type: str = Form("lxc"),
     monthly_price: str = Form(...),
     traffic_reset_price: str = Form(...),
     stock_limit: int = Form(...),
@@ -2975,6 +2987,7 @@ def admin_update_plan(
         reset_price = -1
 
     clean_name = name.strip()
+    virtualization_type = (virtualization_type or "lxc").strip().lower()
     clean_label = (recommendation_label or "").strip()[:32] or "推荐"
 
     with db_session() as db:
@@ -2983,9 +2996,12 @@ def admin_update_plan(
         if not row:
             raise HTTPException(404, "套餐不存在")
 
+        if virtualization_type == "kvm" and (memory_mb < 512 or disk_gb < 4):
+            flash(request, "KVM 套餐最低需要 512 MB 内存和 4 GB 磁盘。", "error")
+            return RedirectResponse("/admin?section=plans", status_code=303)
         if (
             not clean_name or len(clean_name) > 80 or price < 0 or reset_price <= 0 or cpu < 1
-            or memory_mb < 64 or disk_gb < 1 or stock_limit < 0
+            or memory_mb < 64 or disk_gb < 1 or virtualization_type not in {"lxc", "kvm"} or stock_limit < 0
             or not (0 <= sort_order <= 1000000)
             or not (0 <= homepage_sort_order <= 1000000)
         ):
@@ -3000,7 +3016,7 @@ def admin_update_plan(
         before = {
             "name": row.name, "cpu": row.cpu, "memory_mb": row.memory_mb,
             "disk_gb": row.disk_gb, "bandwidth": row.bandwidth_mbps,
-            "traffic": row.traffic_gb, "ports": row.port_count,
+            "traffic": row.traffic_gb, "ports": row.port_count, "virtualization_type": row.virtualization_type,
             "price": row.monthly_price_cents, "traffic_reset_price": row.traffic_reset_price_cents, "stock": row.stock_limit,
             "catalog_sort_order": row.sort_order,
             "homepage_visible": row.homepage_visible,
@@ -3016,6 +3032,7 @@ def admin_update_plan(
         row.bandwidth_mbps = max(0, bandwidth_mbps)
         row.traffic_gb = max(0, traffic_gb)
         row.port_count = max(0, port_count)
+        row.virtualization_type = virtualization_type
         row.monthly_price_cents = price
         row.traffic_reset_price_cents = reset_price
         row.stock_limit = stock_limit
@@ -3028,7 +3045,7 @@ def admin_update_plan(
         after = {
             "name": row.name, "cpu": row.cpu, "memory_mb": row.memory_mb,
             "disk_gb": row.disk_gb, "bandwidth": row.bandwidth_mbps,
-            "traffic": row.traffic_gb, "ports": row.port_count,
+            "traffic": row.traffic_gb, "ports": row.port_count, "virtualization_type": row.virtualization_type,
             "price": row.monthly_price_cents, "traffic_reset_price": row.traffic_reset_price_cents, "stock": row.stock_limit,
             "catalog_sort_order": row.sort_order,
             "homepage_visible": row.homepage_visible,
@@ -3088,6 +3105,11 @@ def admin_resize_server_resources(
             return RedirectResponse("/admin?section=servers", status_code=303)
         if server.status not in {"running", "stopped"}:
             flash(request, f"当前实例状态 {server.status} 不允许调整资源。", "error")
+            return RedirectResponse("/admin?section=servers", status_code=303)
+
+        virtualization_type = str(server.virtualization_type or "lxc").strip().lower()
+        if virtualization_type == "kvm" and (memory_mb < 512 or disk_gb < 4):
+            flash(request, "KVM 实例最低需要 512 MB 内存和 4 GB 磁盘。", "error")
             return RedirectResponse("/admin?section=servers", status_code=303)
 
         current_disk = int(server.disk_gb or 0)
@@ -4334,7 +4356,7 @@ def admin_backup_download(request:Request,backup_name:str):
 def health():
     return {
         "status": "ok",
-        "version": "1.2.0",
+        "version": "1.3.0",
         "provider": PROVIDER_NAME,
         "timezone": APP_TIMEZONE,
     }

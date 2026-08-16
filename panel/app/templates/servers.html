@@ -21,6 +21,7 @@
           <span class="client-status-dot {{ server_ui_status.get(s.id, s.status) }}"></span>
           <strong>{{ s.name }}</strong>
           <span class="client-tag os">{{ s.os_name or "Debian 12" }}</span>
+          <span class="client-tag">{{ (s.virtualization_type or "lxc")|upper }}</span>
           {% if traffic_level(s) in ["warning", "critical", "exhausted", "exempt"] %}
           <span class="traffic-state-badge {{ traffic_level(s) }}">{{ traffic_status_label(s) }}</span>
           {% endif %}

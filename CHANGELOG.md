@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.3.0
+
+- 发布前完整性补强：后台 KVM 套餐与实例资源限制采用 512MB / 4GB 前后端双校验。
+- KVM 重置 root 密码会等待 Guest Agent Ready，避免刚开机/重启后的瞬时失败。
+- 全量状态校验新增 LXC/KVM 类型与 CPU/内存/磁盘配置漂移检查。
+- 用户服务器列表/控制台补充 LXC/KVM 标签；后台手动开通与节点套餐绑定补充虚拟化类型提示。
+- 危险操作文案由“容器内数据”统一为“实例内数据”。
+
+
+- 发布前 UI 收尾：用户端服务器卡片与套餐卡片改为自适应占满可用宽度，减少宽屏右侧大面积留白。
+- 套餐购买恢复并改为始终显示“优惠码（可选）”输入框，不再藏在折叠区。
+- 管理后台“套餐与库存”改为逐套餐折叠编辑，收起状态直接展示规格、虚拟化类型、售价和库存，显著减少页面纵向占用。
+- 真实 Host KVM 链路验证：Incus VM、DHCP/出网、incus-agent、root SSH、proxy NAT 公网端口转发均通过。
+- 修正 KVM 客户机网卡名不一定为 `eth0` 的兼容问题，并强化 SSH 密码登录配置优先级校验。
+
+- 新增 Hybrid Virtualization Host：安装时可选择 LXC、KVM 或 LXC + KVM。
+- 自动检测 `/dev/kvm` 与 Nested Virtualization 可用性，并在 KVM 模式进行临时 VM 验证。
+- Host Agent 升级至 v1.1.0，状态接口上报虚拟化模式和 KVM 能力。
+- 套餐和 Server 新增虚拟化类型字段；调度器强制执行 LXC/KVM 能力匹配。
+- KVM 实例使用 Incus `--vm` 创建；LXC 创建路径保持兼容。
+- KVM 创建流程显式等待 Guest Agent 就绪，避免 VM 已 RUNNING 但 `incus exec` 尚不可用导致开通失败。
+- 修复 SSH 校验在 `set -o pipefail` 下因 `grep -q` 提前退出触发 SIGPIPE（exit 141）而误判开通失败。
+- Host Agent 命令错误改为保留 exit code、有效 stderr/stdout，并过滤 apt-utils 的无害 debconf 警告。
+- 用户端“我的服务器”和“套餐中心”统一为标准响应式网格：宽屏 3 列、中屏 2 列、移动端 1 列；最后一行保持左对齐，不再拉伸或居中。
+- 支持 v1.2.0 → v1.3.0 additive schema 原地升级。
+
 ## v1.2.0
 
 - 用户前端新增深色 / 柔和明亮主题切换，并在浏览器中记忆用户选择；全面修正明亮主题中的暗色残留与低对比文字。

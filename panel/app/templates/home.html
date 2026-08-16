@@ -66,6 +66,7 @@
           </div>
           <div class="home095-price"><strong>{{ money(plan.monthly_price_cents) }}</strong><span>/ 月</span></div>
           <div class="home095-spec-grid">
+            <div><span>虚拟化</span><strong>{{ (plan.virtualization_type or "lxc")|upper }}</strong></div>
             <div><span>CPU</span><strong>{{ plan.cpu }} vCPU</strong></div>
             <div><span>内存</span><strong>{{ plan.memory_mb }} MB</strong></div>
             <div><span>磁盘</span><strong>{{ plan.disk_gb }} GB</strong></div>

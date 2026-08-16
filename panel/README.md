@@ -1,3 +1,3 @@
-# XNAT Panel v1.0.0
+# XNAT Panel v1.3.0
 
 XNAT 控制平面组件。正式部署请使用仓库根目录的一键安装脚本。
