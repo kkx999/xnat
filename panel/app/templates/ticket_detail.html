@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}工单 #{{ ticket.id }} · {{ app_name }}{% endblock %}
+{% block client_header %}
+<div class="client-breadcrumb"><a href="/tickets">工单支持</a><span>/</span><span>#{{ ticket.id }}</span></div>
+<h1>{{ ticket.subject }}</h1>
+<p>{{ ticket_status_label(ticket.status) }} · 优先级 {{ {'low':'低','normal':'普通','high':'高'}.get(ticket.priority,ticket.priority) }}</p>
+{% endblock %}
+{% block content %}
+<section class="client-panel">
+  <div class="message-thread">
+    {% for m in ticket_messages %}
+    <article class="ticket-message {{ 'admin-message' if m.author_is_admin else 'customer-message' }}">
+      <div class="message-meta"><strong>{{ '管理员' if m.author_is_admin else (m.author.username if m.author else user.username) }}</strong><span>{{ local_dt(m.created_at).strftime('%Y-%m-%d %H:%M') }}</span></div>
+      <p>{{ m.body }}</p>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% if ticket.status != 'closed' %}
+<section class="client-panel reply-panel">
+  <form class="settings-form" method="post" action="/tickets/{{ ticket.id }}/reply">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>回复<textarea name="body" rows="6" maxlength="10000" required></textarea></label>
+    <button type="submit">发送回复</button>
+  </form>
+  <form class="ticket-close-form" method="post" action="/tickets/{{ ticket.id }}/close">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button class="danger-lite" type="submit">关闭工单</button>
+  </form>
+</section>
+{% else %}
+<div class="client-empty-inline">此工单已关闭。</div>
+{% endif %}
+{% endblock %}

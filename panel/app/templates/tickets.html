@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}工单支持 · {{ app_name }}{% endblock %}
+{% block client_header %}<span class="client-kicker">SUPPORT</span><h1>工单支持</h1><p>提交技术、账务或服务问题并跟踪回复。</p>{% endblock %}
+{% block content %}
+<div class="client-page-toolbar"><div><strong>{{ tickets|length }} 个工单</strong><span>技术问题请尽量提供实例名和错误现象。</span></div><a class="btn" href="/tickets/new">＋ 新建工单</a></div>
+<section class="client-panel"><div class="ticket-list">{% for t in tickets %}<a class="ticket-row" href="/tickets/{{ t.id }}"><div><strong>#{{ t.id }} · {{ t.subject }}</strong><span>{{ t.user.username }} · {{ local_dt(t.updated_at).strftime('%Y-%m-%d %H:%M') }}</span></div><div><span class="priority {{ t.priority }}">{{ {'low':'低','normal':'普通','high':'高'}.get(t.priority,t.priority) }}</span><span class="state-pill">{{ ticket_status_label(t.status) }}</span></div></a>{% else %}<div class="client-empty-state"><strong>还没有工单</strong><p>遇到问题可以创建一个新工单。</p><a class="btn" href="/tickets/new">新建工单</a></div>{% endfor %}</div></section>
+{% endblock %}

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}注册 · {{ app_name }}{% endblock %}
+{% block content %}
+<div class="authbox">
+  <h1>创建账号</h1>
+  <form method="post" action="/register">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>用户名<input name="username" minlength="3" maxlength="32" required></label>
+    <label>邮箱<input name="email" type="email" required></label>
+    <label>密码<input name="password" type="password" minlength="10" required></label>
+    <button class="btn wide" type="submit">注册</button>
+  </form>
+</div>
+{% endblock %}

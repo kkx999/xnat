@@ -1,0 +1,10 @@
+fastapi>=0.116,<1.0
+uvicorn[standard]>=0.35,<1.0
+jinja2>=3.1,<4
+sqlalchemy>=2.0,<2.1
+argon2-cffi>=25.1,<26
+python-multipart>=0.0.20,<1
+itsdangerous>=2.2,<3
+cryptography>=45,<46
+psutil>=7,<8
+httpx>=0.28,<1

@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}通知中心 · {{ app_name }}{% endblock %}
+{% block client_header %}<span class="client-kicker">NOTIFICATIONS</span><h1>通知中心</h1><p>服务器、流量、到期、支付和安全通知。</p>{% endblock %}
+{% block content %}
+<section class="client-panel"><div class="client-panel-head"><div><h2>全部通知</h2><p>共 {{ total_rows }} 条</p></div><form method="post" action="/notifications/read-all"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="small-action">全部标为已读</button></form></div>
+<div class="notification-list">{% for n in notifications %}<article class="notification-row {{ n.severity }} {% if not n.read_at %}unread{% endif %}"><div><strong>{{ n.title }}</strong><p>{{ n.body }}</p><small>{{ local_dt(n.created_at).strftime('%Y-%m-%d %H:%M') }} · 邮件 {{ n.email_status }} · Telegram {{ n.telegram_status }}</small></div><span>{{ '未读' if not n.read_at else '已读' }}</span></article>{% else %}<div class="client-empty-inline">暂无通知</div>{% endfor %}</div>
+{% if total_pages > 1 %}<div class="client-pagination">{% if page > 1 %}<a href="/notifications?page={{ page-1 }}">上一页</a>{% else %}<span>上一页</span>{% endif %}<strong>{{ page }} / {{ total_pages }}</strong>{% if page < total_pages %}<a href="/notifications?page={{ page+1 }}">下一页</a>{% else %}<span>下一页</span>{% endif %}</div>{% endif %}</section>
+{% endblock %}

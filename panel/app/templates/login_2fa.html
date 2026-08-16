@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}两步验证 · {{ app_name }}{% endblock %}
+{% block content %}
+<div class="auth-shell"><section class="auth-card compact-auth"><span class="eyebrow">SECURITY</span><h1>两步验证</h1><p>账号 {{ pending_username }} 已启用 2FA，请输入身份验证器中的 6 位验证码。</p>
+<form method="post" action="/login/2fa"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>验证码<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="000000" required autofocus></label><button class="btn wide" type="submit">继续登录</button></form>
+<a class="auth-back" href="/login">返回登录</a></section></div>
+{% endblock %}

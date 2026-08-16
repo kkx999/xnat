@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}{{ server.name }} · {{ app_name }}{% endblock %}
+{% block client_header %}
+<div class="client-breadcrumb"><a href="/servers">我的服务器</a><span>/</span><span>{{ server.name }}</span></div>
+<div class="client-server-title">
+  <span class="client-status-dot {{ server.status }}"></span>
+  <h1>{{ server.name }}</h1>
+  <span class="client-tag os">{{ server.os_name or "Debian 12" }}</span>
+  <span class="client-tag">{{ server_status_label(server.status) }}</span>
+</div>
+<p>{{ server.plan.name }} · {{ server.provider }}</p>
+{% endblock %}
+{% block content %}
+<div class="server-detail-page">
+<div class="server-detail-overview">
+  <div><span>公网主机</span><strong>{{ server.public_ip }}</strong></div>
+  <div><span>私网 IPv4</span><strong>{{ server.private_ip or "-" }}</strong></div>
+  <div><span>SSH</span><strong>{{ server.public_ip }}:{{ server.ssh_port or "-" }}</strong></div>
+  <div><span>配置</span><strong>{{ server.cpu }}C / {{ server.memory_mb }}M / {{ server.disk_gb }}G</strong></div>
+  <div><span>当前带宽</span><strong>{% if server.traffic_throttled %}1 Mbps · 流量限速{% elif (server.bandwidth_mbps or 0) == 0 %}不限速{% else %}{{ server.bandwidth_mbps }} Mbps{% endif %}</strong></div>
+  <div><span>本周期已用</span><strong>{{ human_bytes(traffic_used_bytes(server)) }}</strong></div>
+  <div><span>本周期总流量</span><strong>{% if traffic_quota_gb(server) > 0 %}{{ traffic_quota_gb(server) }} GB{% if traffic_bonus_gb(server) > 0 %} <small>+{{ traffic_bonus_gb(server) }} GB</small>{% endif %}{% else %}不限流量{% endif %}</strong></div>
+  <div><span>剩余流量</span><strong>{% if (server.traffic_gb or 0) > 0 %}{{ human_bytes(traffic_remaining_bytes(server)) }}{% else %}不限流量{% endif %}</strong></div>
+</div>
+
+<section class="traffic-usage-panel">
+  <div class="traffic-usage-head">
+    <div>
+      <span>本周期流量</span>
+      <strong>{{ human_bytes(traffic_used_bytes(server)) }} <em>/ {% if traffic_quota_gb(server) > 0 %}{{ traffic_quota_gb(server) }} GB{% else %}不限流量{% endif %}</em></strong>
+    </div>
+    <div class="traffic-reset-time">
+      <span>下次重置</span>
+      <strong>{{ traffic_cycle_label(server) }}</strong>
+    </div>
+  </div>
+  <div class="traffic-policy-status {{ traffic_level(server) }}">
+    <strong>{{ traffic_status_label(server) }}</strong>
+    {% if traffic_level(server) == "warning" %}<span>本周期已使用超过 80%，建议关注剩余流量。</span>{% endif %}
+    {% if traffic_level(server) == "critical" %}<span>本周期已使用超过 90%，达到 100% 后会自动降至 1 Mbps。</span>{% endif %}
+    {% if traffic_level(server) == "exhausted" %}<span>套餐流量已经用尽，当前自动限速 1 Mbps；新流量周期开始后自动恢复 {{ server.bandwidth_mbps or 0 }} Mbps。</span>{% endif %}
+    {% if traffic_level(server) == "exempt" %}<span>套餐流量已经用尽，但管理员已临时解除本周期限速。</span>{% endif %}
+  </div>
+  <div class="traffic-progress {{ traffic_level(server) }}"><span style="width: {{ '%.2f'|format(traffic_percent(server)) }}%"></span></div>
+  <div class="traffic-usage-meta">
+    <div><span>RX 下载</span><strong>{{ human_bytes(server.traffic_used_rx_bytes or 0) }}</strong></div>
+    <div><span>TX 上传</span><strong>{{ human_bytes(server.traffic_used_tx_bytes or 0) }}</strong></div>
+    <div><span>已用比例</span><strong>{{ '%.2f'|format(traffic_raw_percent(server)) }}%</strong></div>
+    <div><span>剩余</span><strong>{% if traffic_quota_gb(server) > 0 %}{{ human_bytes(traffic_remaining_bytes(server)) }}{% else %}不限流量{% endif %}</strong></div>
+  </div>
+</section>
+
+<section class="client-panel server-renew-panel">
+  <div>
+    <span>到期时间</span>
+    <strong class="{% if server.expires_at and server.expires_at <= now %}expired{% endif %}">{{ local_dt(server.expires_at).strftime("%Y-%m-%d %H:%M") if server.expires_at else "-" }}</strong>
+    <small>续费价格 {{ money(server.monthly_price_cents) }} / 30 天</small>
+  </div>
+  <form method="post" action="/servers/{{ server.id }}/renew">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit">续费 30 天 · {{ money(server.monthly_price_cents) }}</button>
+  </form>
+</section>
+
+<section class="client-panel">
+  <div class="client-panel-head"><div><h2>电源与密码</h2><p>常用实例操作</p></div></div>
+  <div class="server-action-grid">
+    {% for action, label, desc in [("start","开机","启动实例"),("stop","关机","正常停止实例"),("reboot","重启","重新启动实例")] %}
+    <form method="post" action="/servers/{{ server.id }}/action">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="action" value="{{ action }}">
+      <button type="submit"><strong>{{ label }}</strong><span>{{ desc }}</span></button>
+    </form>
+    {% endfor %}
+    <form method="post" action="/servers/{{ server.id }}/reset-password">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit"><strong>重置 root 密码</strong><span>生成并保存新密码</span></button>
+    </form>
+  </div>
+</section>
+
+<details class="client-detail-section password-section">
+  <summary>
+    <div class="detail-summary-main">
+      <div><strong>当前 root 密码</strong><span>查看面板最后保存的密码</span></div>
+    </div>
+    <span class="detail-summary-action">展开</span>
+  </summary>
+  <div class="client-detail-body">
+    {% set current_root_password = decrypt_secret(server.root_password_enc) %}
+    {% if current_root_password %}
+      <div class="client-password-display"><span>当前保存的 root 密码</span><code>{{ current_root_password }}</code></div>
+      <p class="client-help-text">如果你进入系统后手动执行 passwd 修改密码，这里不会自动同步。</p>
+    {% else %}
+      <div class="client-empty-inline">当前没有可显示的 root 密码，可使用上方“重置 root 密码”重新生成。</div>
+    {% endif %}
+  </div>
+</details>
+
+<details class="client-detail-section">
+  <summary>
+    <div class="detail-summary-main">
+      <div><strong>NAT 端口管理</strong><span>已使用 {{ server.ports|length }} / {{ server.port_limit }}</span></div>
+    </div>
+    <span class="detail-summary-action">展开</span>
+  </summary>
+  <div class="client-detail-body">
+    <div class="client-port-list">
+      <div class="client-port-row fixed"><span>TCP</span><strong>{{ server.ssh_port }}</strong><span>→ 22</span><em>SSH 固定端口</em></div>
+      {% for p in server.ports %}
+      <div class="client-port-row">
+        <span>{{ p.protocol.upper() }}</span><strong>{{ p.public_port }}</strong><span>→ {{ p.private_port }}</span>
+        <form method="post" action="/servers/{{ server.id }}/ports/{{ p.id }}/delete">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="danger-lite" type="submit">删除</button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+    <form class="client-port-add" method="post" action="/servers/{{ server.id }}/ports">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>内部端口<input type="number" min="1" max="65535" name="private_port" placeholder="例如 80" required></label>
+      <label>协议<select name="protocol"><option value="tcp">TCP</option><option value="udp">UDP</option></select></label>
+      <button type="submit">自动分配公网端口</button>
+    </form>
+  </div>
+</details>
+
+<details class="client-detail-section danger">
+  <summary>
+    <div class="detail-summary-main">
+      <div><strong>系统重装 / 删除实例</strong><span>高风险操作，需要实例名确认</span></div>
+    </div>
+    <span class="detail-summary-action">展开</span>
+  </summary>
+  <div class="client-detail-body">
+    <div class="client-danger-note">重装会清空容器内全部数据；永久删除实例后无法恢复。</div>
+    <div class="client-danger-grid">
+      <form method="post" action="/servers/{{ server.id }}/reinstall">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <h3>重装系统</h3>
+        <label>目标系统
+          <select name="os_image_id" required>
+          {% for image in system_images %}
+            <option value="{{ image.id }}" {% if server.os_image_id == image.id %}selected{% endif %}>{{ image.name }}</option>
+          {% endfor %}
+          </select>
+        </label>
+        <label>输入实例名确认<input name="confirm_name" placeholder="{{ server.name }}" required></label>
+        <button class="danger" type="submit">确认重装系统</button>
+      </form>
+
+      <form method="post" action="/servers/{{ server.id }}/delete">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <h3>永久删除实例</h3>
+        <p>删除后服务器、映射端口和数据都不可恢复。</p>
+        <label>输入实例名确认<input name="confirm_name" placeholder="{{ server.name }}" required></label>
+        <button class="danger" type="submit">永久删除实例</button>
+      </form>
+    </div>
+  </div>
+</details>
+
+{% if server_jobs %}
+<section class="client-panel server-order-history">
+  <div class="client-panel-head"><div><h2>操作任务</h2><p>开通、重装和删除均由后台任务队列执行</p></div></div>
+  <div class="client-order-list">
+  {% for j in server_jobs %}
+    <div class="client-order-row">
+      <div><strong>#{{ j.id }} · {{ j.job_type }}</strong><span>{{ local_dt(j.created_at).strftime("%Y-%m-%d %H:%M:%S") }}{% if j.error_text %} · {{ j.error_text[:120] }}{% endif %}</span></div>
+      <div><span class="order-state {{ j.status }}">{{ job_status_label(j.status) }}</span></div>
+    </div>
+  {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if service_orders %}
+<section class="client-panel server-order-history">
+  <div class="client-panel-head"><div><h2>此服务器的订单</h2><p>购买与续费记录</p></div></div>
+  <div class="client-order-list">
+  {% for o in service_orders %}
+    <div class="client-order-row">
+      <div><strong>#{{ o.id }} · {{ order_kind_label(o.kind) }}</strong><span>{{ local_dt(o.created_at).strftime("%Y-%m-%d %H:%M") }}</span></div>
+      <div><strong>{{ money(o.amount_cents) }}</strong><span class="order-state {{ o.status }}">{{ order_status_label(o.status) }}</span></div>
+    </div>
+  {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

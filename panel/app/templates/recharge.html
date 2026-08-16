@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}在线充值 · {{ app_name }}{% endblock %}
+{% block client_header %}<span class="client-kicker">WALLET</span><h1>在线充值</h1><p>使用 USDT 充值余额。当前固定汇率 {{ rate_text(payment_cfg.rate_micros) }}。</p>{% endblock %}
+{% block content %}
+<div class="recharge-layout"><section class="client-panel recharge-create"><div class="client-panel-head"><div><h2>创建充值订单</h2><p>面板只监测链上入账，不保存你的钱包私钥</p></div></div>
+{% if payment_cfg.enabled %}<form class="settings-form" method="post" action="/recharge"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>充值人民币金额<input type="number" step="0.01" min="{{ payment_cfg.min_cny }}" max="{{ payment_cfg.max_cny }}" name="amount" placeholder="例如 50.00" required><small>范围 ¥{{ payment_cfg.min_cny }} – ¥{{ payment_cfg.max_cny }}</small></label><label>支付网络<select name="chain" required>{% if payment_cfg.tron_enabled %}<option value="tron">USDT · TRON (TRC20)</option>{% endif %}{% if payment_cfg.polygon_enabled %}<option value="polygon">USDT · Polygon (USDT0)</option>{% endif %}</select></label><button type="submit">生成链上支付订单</button></form>{% else %}<div class="client-empty-inline">在线充值暂未开启，请联系管理员。</div>{% endif %}
+<div class="payment-safety"><strong>支付规则</strong><span>创建订单后必须使用所选网络，并转入页面显示的精确 USDT 数量。不要使用其他链或少付金额。</span></div></section>
+<section class="client-panel"><div class="client-panel-head"><div><h2>充值记录</h2><p>最近 20 笔</p></div></div><div class="client-order-list">{% for r in recharge_orders %}<a class="recharge-history-row" href="/recharge/{{ r.id }}"><div><strong>#{{ r.id }} · {{ 'TRON' if r.chain == 'tron' else 'Polygon' }}</strong><span>{{ local_dt(r.created_at).strftime('%Y-%m-%d %H:%M') }}</span></div><div><strong>{{ money(r.requested_cny_cents) }}</strong><span class="recharge-state {{ r.status }}">{{ recharge_status_label(r.status) }}</span></div></a>{% else %}<div class="client-empty-inline">暂无充值记录</div>{% endfor %}</div></section></div>
+{% endblock %}

@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{% block title %}{{ app_name }}{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+</head>
+{% set is_home_area = request.url.path == '/' %}
+{% set is_admin_area = request.url.path.startswith('/admin') %}
+{% set is_client_area = user and not is_admin_area and request.url.path != '/' and request.url.path not in ['/login', '/register'] %}
+<body class="{% if is_admin_area %}admin-body{% elif is_client_area %}client-body{% elif is_home_area %}home095-body{% endif %}">
+
+{% if is_admin_area %}
+  <main class="admin-wrap">
+    {% if flash %}<div class="flash {{ flash.kind }}">{{ flash.message }}</div>{% endif %}
+    {% if one_time_secret %}
+      <div class="secret-alert">
+        <strong>{{ one_time_secret.title }}</strong>
+        <code>{{ one_time_secret.value }}</code>
+        <span>离开或刷新本页后将不再显示，请立即保存。</span>
+      </div>
+    {% endif %}
+
+{% elif is_client_area %}
+  <div class="client-shell">
+    <aside class="client-sidebar">
+      <div class="client-brand">
+        <div class="client-brand-mark">N</div>
+        <div class="client-brand-copy">
+          <strong>NAT VPS</strong>
+          <small>Client Area</small>
+        </div>
+      </div>
+
+      <nav class="client-nav">
+        <div class="client-nav-label">概览</div>
+        <a class="{% if request.url.path == '/dashboard' %}active{% endif %}" href="/dashboard"><span class="client-nav-icon">⌂</span><span>仪表板</span></a>
+
+        <div class="client-nav-label">服务</div>
+        <a class="{% if request.url.path == '/servers' or request.url.path.startswith('/servers/') %}active{% endif %}" href="/servers"><span class="client-nav-icon">▣</span><span>我的服务器</span></a>
+        <a class="{% if request.url.path == '/plans' %}active{% endif %}" href="/plans"><span class="client-nav-icon">＋</span><span>套餐中心</span></a>
+
+        <div class="client-nav-label">账务</div>
+        <a class="{% if request.url.path.startswith('/recharge') %}active{% endif %}" href="/recharge"><span class="client-nav-icon">¥</span><span>在线充值</span></a>
+        <a class="{% if request.url.path == '/orders' %}active{% endif %}" href="/orders"><span class="client-nav-icon">≡</span><span>订单记录</span></a>
+
+        <div class="client-nav-label">支持</div>
+        <a class="{% if request.url.path == '/notifications' %}active{% endif %}" href="/notifications"><span class="client-nav-icon">·</span><span>通知中心{% if unread_notifications %}<em class="client-nav-count">{{ unread_notifications }}</em>{% endif %}</span></a>
+        <a class="{% if request.url.path.startswith('/tickets') %}active{% endif %}" href="/tickets"><span class="client-nav-icon">?</span><span>工单支持</span></a>
+
+        <div class="client-nav-label">账户</div>
+        <a class="{% if request.url.path == '/account' %}active{% endif %}" href="/account"><span class="client-nav-icon">○</span><span>账户设置</span></a>
+
+        {% if user.is_admin %}
+        <div class="client-nav-label">管理</div>
+        <a href="/admin"><span class="client-nav-icon">⚙</span><span>管理后台</span></a>
+        {% endif %}
+      </nav>
+
+      <div class="client-sidebar-bottom">
+        <div class="client-account-card">
+          <div class="client-account-avatar">{{ user.username[:1]|upper }}</div>
+          <div class="client-account-copy">
+            <strong>{{ user.username }}</strong>
+            <span>{{ user.email }}</span>
+          </div>
+        </div>
+
+        <div class="client-account-balance">
+          <span>账户余额</span>
+          <strong>{{ money(user.balance_cents) }}</strong>
+        </div>
+
+        <div class="client-bottom-actions">
+          <a href="/">首页</a>
+          <form action="/logout" method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit">退出</button>
+          </form>
+        </div>
+      </div>
+    </aside>
+
+    <section class="client-main">
+      <header class="client-topbar">
+        <div class="client-heading">
+          {% block client_header %}
+          <span class="client-kicker">CLIENT AREA</span>
+          <h1>用户中心</h1>
+          {% endblock %}
+        </div>
+        <div class="client-top-actions">
+          <a class="client-balance-pill" href="/plans">
+            <span>余额</span><strong>{{ money(user.balance_cents) }}</strong>
+          </a>
+          <a class="client-round-avatar" href="/account" title="账户设置">{{ user.username[:1]|upper }}</a>
+        </div>
+      </header>
+
+      <main class="client-content">
+        {% if flash %}<div class="flash {{ flash.kind }}">{{ flash.message }}</div>{% endif %}
+        {% if one_time_secret %}
+          <div class="secret-alert">
+            <strong>{{ one_time_secret.title }}</strong>
+            <code>{{ one_time_secret.value }}</code>
+            <span>离开或刷新本页后将不再显示，请立即保存。</span>
+          </div>
+        {% endif %}
+
+{% else %}
+  <header class="topbar">
+    <div class="wrap nav">
+      <a class="brand" href="/">NAT VPS</a>
+      <nav>
+        <a href="/plans">套餐</a>
+        {% if user %}
+          <a href="/dashboard">控制台</a>
+          {% if user.is_admin %}<a href="/admin">后台</a>{% endif %}
+          <form class="inline" action="/logout" method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="linkbtn" type="submit">退出</button>
+          </form>
+        {% else %}
+          <a href="/login">登录</a>
+          {% if registration_enabled %}<a class="btn small" href="/register">注册</a>{% endif %}
+        {% endif %}
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    {% if flash %}<div class="flash {{ flash.kind }}">{{ flash.message }}</div>{% endif %}
+    {% if one_time_secret %}
+      <div class="secret-alert">
+        <strong>{{ one_time_secret.title }}</strong>
+        <code>{{ one_time_secret.value }}</code>
+        <span>离开或刷新本页后将不再显示，请立即保存。</span>
+      </div>
+    {% endif %}
+{% endif %}
+
+{% block content %}{% endblock %}
+
+{% if is_admin_area %}
+  </main>
+{% elif is_client_area %}
+      </main>
+    </section>
+  </div>
+{% else %}
+  </main>
+  <footer class="wrap footer">
+    XNAT v1.0.0 Multi-Node · Provider: {{ provider_name }}
+  </footer>
+{% endif %}
+
+{% if login_announcement %}
+<div class="modal-backdrop" id="loginAnnouncement">
+  <div class="modal-card">
+    <div class="modal-icon">i</div>
+    <h2>站点公告</h2>
+    <div class="modal-message">{{ login_announcement }}</div>
+    <button type="button" class="btn wide" onclick="document.getElementById('loginAnnouncement').remove()">我知道了</button>
+  </div>
+</div>
+{% endif %}
+</body>
+</html>

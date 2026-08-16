@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}账户设置 · {{ app_name }}{% endblock %}
+{% block client_header %}<span class="client-kicker">ACCOUNT</span><h1>账户设置</h1><p>管理联系方式、通知、安全和已登录设备。</p>{% endblock %}
+{% block content %}
+{% if force_2fa_setup %}<div class="security-banner"><strong>管理员安全提醒</strong><span>后台已要求管理员启用两步验证，请完成下面的 2FA 设置。</span></div>{% endif %}
+<div class="settings-grid">
+<section class="client-panel"><div class="client-panel-head"><div><h2>个人资料与通知</h2><p>邮件和 Telegram 通知可分别开关</p></div></div>
+<form class="settings-form" method="post" action="/account/profile"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label>用户名<input value="{{ user.username }}" disabled></label><label>邮箱<input type="email" name="email" value="{{ user.email }}" required></label><label>Telegram Chat ID<input name="telegram_chat_id" value="{{ user.telegram_chat_id or '' }}" placeholder="例如 123456789"></label>
+<div class="check-row"><label><input type="checkbox" name="notify_email" {% if user.notify_email %}checked{% endif %}> 邮件通知</label><label><input type="checkbox" name="notify_telegram" {% if user.notify_telegram %}checked{% endif %}> Telegram 通知</label></div><button type="submit">保存资料</button></form></section>
+
+<section class="client-panel"><div class="client-panel-head"><div><h2>修改登录密码</h2><p>修改后会自动退出其他设备</p></div></div>
+<form class="settings-form" method="post" action="/account/password"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>当前密码<input type="password" name="current_password" required></label><label>新密码<input type="password" name="new_password" minlength="10" required></label><button type="submit">修改密码</button></form></section>
+</div>
+
+<section class="client-panel security-panel"><div class="client-panel-head"><div><h2>两步验证（2FA）</h2><p>TOTP 身份验证器保护登录安全</p></div><span class="state-pill {{ 'ok' if user.totp_enabled else '' }}">{{ '已启用' if user.totp_enabled else '未启用' }}</span></div>
+{% if user.totp_enabled %}<form method="post" action="/account/2fa/disable" class="inline-sec-form two-inputs"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>当前密码<input type="password" name="password" required></label><label>6 位验证码<input name="code" inputmode="numeric" required></label><button class="danger-lite" type="submit">关闭 2FA</button></form>
+{% elif pending_totp_secret %}<div class="totp-setup"><div><span>密钥</span><code>{{ pending_totp_secret }}</code><small>在 Google Authenticator、1Password、Aegis 等 TOTP 应用中手动添加。Issuer：{{ app_name }}</small></div><form method="post" action="/account/2fa/confirm"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>验证 6 位验证码<input name="code" inputmode="numeric" required></label><button type="submit">确认并启用</button></form></div>
+{% else %}<form method="post" action="/account/2fa/start"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">开始设置 2FA</button></form>{% endif %}
+</section>
+
+<div class="settings-grid lower-settings">
+<section class="client-panel"><div class="client-panel-head"><div><h2>登录会话</h2><p>可撤销其他浏览器和设备</p></div><form method="post" action="/account/sessions/revoke-others"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="small-action" type="submit">退出其他设备</button></form></div><div class="session-list">{% for s in sessions %}<div><strong>{{ s.ip }} {% if s.id == current_login_session_id %}<em>当前设备</em>{% endif %}</strong><span>{{ s.user_agent or '未知客户端' }}</span><small>{{ local_dt(s.last_seen_at).strftime('%Y-%m-%d %H:%M') }} · {{ '已撤销' if s.revoked_at else '有效' }}</small></div>{% else %}<p class="muted">暂无会话记录</p>{% endfor %}</div></section>
+<section class="client-panel"><div class="client-panel-head"><div><h2>最近登录</h2><p>最近 20 条安全记录</p></div></div><div class="session-list">{% for e in login_events %}<div><strong>{{ e.ip }} <em class="{{ 'success-text' if e.success else 'danger-text' }}">{{ '成功' if e.success else '失败' }}</em></strong><span>{{ e.reason or '-' }} · {{ e.user_agent or '未知客户端' }}</span><small>{{ local_dt(e.created_at).strftime('%Y-%m-%d %H:%M') }}</small></div>{% else %}<p class="muted">暂无登录记录</p>{% endfor %}</div></section>
+</div>
+{% endblock %}

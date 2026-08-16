@@ -1,0 +1,222 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+
+CONFIG_DIR="/etc/xnat"
+CONFIG_FILE="${CONFIG_DIR}/firewall.env"
+RULES_FILE="${CONFIG_DIR}/firewall.nft"
+SERVICE_FILE="/etc/systemd/system/xnat-firewall.service"
+TABLE_FAMILY="inet"
+TABLE_NAME="xnat_guard"
+
+die(){ echo "[ERROR] $*" >&2; exit 1; }
+info(){ echo "[XNAT Firewall] $*"; }
+
+need_root(){
+  [[ $EUID -eq 0 ]] || die "请使用 root 运行"
+}
+
+need_nft(){
+  command -v nft >/dev/null 2>&1 || die "未安装 nftables"
+}
+
+validate_ipv4_cidr(){
+  python3 - "$1" <<'PY'
+import ipaddress, sys
+try:
+    n = ipaddress.ip_network(sys.argv[1], strict=False)
+except Exception:
+    raise SystemExit(1)
+if n.version != 4:
+    raise SystemExit(1)
+print(str(n))
+PY
+}
+
+write_service(){
+  cat > "${SERVICE_FILE}" <<'EOF'
+[Unit]
+Description=XNAT Sensitive Port Firewall
+After=network-pre.target
+Before=xnat-panel.service xnat-host-agent.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/xnat-firewall apply
+ExecReload=/usr/local/sbin/xnat-firewall apply
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+load_config(){
+  [[ -f "${CONFIG_FILE}" ]] || die "未找到 ${CONFIG_FILE}"
+  # shellcheck disable=SC1090
+  source "${CONFIG_FILE}"
+}
+
+write_panel_rules(){
+  load_config
+  cat > "${RULES_FILE}" <<EOF
+table inet ${TABLE_NAME} {
+  chain input {
+    type filter hook input priority -10; policy accept;
+
+    # XNAT Panel 内部端口只允许本机访问。
+    iifname "lo" tcp dport ${PANEL_PORT} accept
+    tcp dport ${PANEL_PORT} drop
+  }
+}
+EOF
+}
+
+write_host_rules(){
+  load_config
+  cat > "${RULES_FILE}" <<EOF
+table inet ${TABLE_NAME} {
+  chain input {
+    type filter hook input priority -10; policy accept;
+
+    # Host Agent 仅允许本机和指定 Panel 公网出口 IPv4/CIDR。
+    iifname "lo" tcp dport ${AGENT_PORT} accept
+    ip saddr ${PANEL_CIDR} tcp dport ${AGENT_PORT} accept
+
+    # 其他 IPv4/IPv6 来源全部拒绝访问 Agent。
+    tcp dport ${AGENT_PORT} drop
+  }
+}
+EOF
+}
+
+cmd_apply(){
+  need_root
+  need_nft
+  load_config
+
+  case "${MODE}" in
+    panel) write_panel_rules ;;
+    host) write_host_rules ;;
+    *) die "未知防火墙模式：${MODE}" ;;
+  esac
+
+  # 先校验新规则，避免语法错误时先删除旧规则。
+  nft -c -f "${RULES_FILE}"
+
+  if nft list table "${TABLE_FAMILY}" "${TABLE_NAME}" >/dev/null 2>&1; then
+    nft delete table "${TABLE_FAMILY}" "${TABLE_NAME}"
+  fi
+  nft -f "${RULES_FILE}"
+}
+
+cmd_install_panel(){
+  need_root
+  need_nft
+  local panel_port="${1:-8000}"
+
+  [[ "${panel_port}" =~ ^[0-9]+$ ]] || die "Panel 端口无效"
+
+  install -d -m 0755 "${CONFIG_DIR}"
+  cat > "${CONFIG_FILE}" <<EOF
+MODE=panel
+PANEL_PORT=${panel_port}
+EOF
+  chmod 600 "${CONFIG_FILE}"
+  write_service
+  systemctl daemon-reload
+  cmd_apply
+  systemctl enable xnat-firewall.service >/dev/null
+  systemctl restart xnat-firewall.service
+
+  info "Panel 敏感端口保护已启用：${panel_port}/TCP 仅允许本机访问。"
+}
+
+cmd_install_host(){
+  need_root
+  need_nft
+  local panel_cidr="${1:-}"
+  local agent_port="${2:-29443}"
+
+  [[ -n "${panel_cidr}" ]] || die "缺少 Panel 公网 IPv4/CIDR"
+  panel_cidr="$(validate_ipv4_cidr "${panel_cidr}")" ||
+    die "Panel IPv4/CIDR 无效：${panel_cidr}"
+  [[ "${agent_port}" =~ ^[0-9]+$ ]] || die "Agent 端口无效"
+
+  install -d -m 0755 "${CONFIG_DIR}"
+  cat > "${CONFIG_FILE}" <<EOF
+MODE=host
+PANEL_CIDR=${panel_cidr}
+AGENT_PORT=${agent_port}
+EOF
+  chmod 600 "${CONFIG_FILE}"
+  write_service
+  systemctl daemon-reload
+  cmd_apply
+  systemctl enable xnat-firewall.service >/dev/null
+  systemctl restart xnat-firewall.service
+
+  info "Host Agent ${agent_port}/TCP 仅允许：${panel_cidr}"
+}
+
+cmd_set_panel(){
+  need_root
+  load_config
+  [[ "${MODE}" == "host" ]] || die "此命令只适用于 Host Node"
+
+  local panel_cidr="${1:-}"
+  [[ -n "${panel_cidr}" ]] || die "用法：xnat-firewall set-panel 203.0.113.10"
+  panel_cidr="$(validate_ipv4_cidr "${panel_cidr}")" ||
+    die "Panel IPv4/CIDR 无效：${panel_cidr}"
+
+  cat > "${CONFIG_FILE}" <<EOF
+MODE=host
+PANEL_CIDR=${panel_cidr}
+AGENT_PORT=${AGENT_PORT}
+EOF
+  chmod 600 "${CONFIG_FILE}"
+  cmd_apply
+  systemctl restart xnat-firewall.service
+  info "Panel 允许来源已更新为：${panel_cidr}"
+}
+
+cmd_status(){
+  need_root
+  echo "XNAT Firewall"
+  if [[ ! -f "${CONFIG_FILE}" ]]; then
+    echo "Status: 未配置"
+    exit 1
+  fi
+  load_config
+  echo "Mode:   ${MODE}"
+  if [[ "${MODE}" == "panel" ]]; then
+    echo "Protect: TCP ${PANEL_PORT} → loopback only"
+  else
+    echo "Protect: TCP ${AGENT_PORT}"
+    echo "Allow:   ${PANEL_CIDR}"
+  fi
+  echo "Service: $(systemctl is-active xnat-firewall.service 2>/dev/null || true)"
+  echo
+  nft list table "${TABLE_FAMILY}" "${TABLE_NAME}" 2>/dev/null || true
+}
+
+cmd_disable(){
+  need_root
+  systemctl disable --now xnat-firewall.service >/dev/null 2>&1 || true
+  if command -v nft >/dev/null 2>&1 &&
+     nft list table "${TABLE_FAMILY}" "${TABLE_NAME}" >/dev/null 2>&1; then
+    nft delete table "${TABLE_FAMILY}" "${TABLE_NAME}"
+  fi
+  info "XNAT 防火墙已停用。注意：敏感端口可能重新暴露。"
+}
+
+case "${1:-status}" in
+  install-panel) shift; cmd_install_panel "$@" ;;
+  install-host) shift; cmd_install_host "$@" ;;
+  set-panel) shift; cmd_set_panel "$@" ;;
+  apply) shift; cmd_apply "$@" ;;
+  reload) shift; cmd_apply "$@" ;;
+  status) shift; cmd_status "$@" ;;
+  disable) shift; cmd_disable "$@" ;;
+  *) die "用法：xnat-firewall [status|apply|install-panel|install-host|set-panel|disable]" ;;
+esac

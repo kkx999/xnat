@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}控制台 · {{ app_name }}{% endblock %}
+{% block client_header %}
+<span class="client-kicker">DASHBOARD</span>
+<h1>控制台</h1>
+<p>欢迎回来，{{ user.username }}。快速查看你的服务和账务状态。</p>
+{% endblock %}
+{% block content %}
+<div class="client-metrics">
+  <div class="client-metric"><span>账户余额</span><strong>{{ money(user.balance_cents) }}</strong><small>购买与续费可直接使用</small></div>
+  <div class="client-metric"><span>我的服务器</span><strong>{{ dashboard_stats.server_count }}</strong><small>运行 {{ dashboard_stats.running_count }} · 关机 {{ dashboard_stats.stopped_count }}</small></div>
+  <div class="client-metric {% if dashboard_stats.expiring_7d %}warning{% endif %}"><span>7 天内到期</span><strong>{{ dashboard_stats.expiring_7d }}</strong><small>建议提前续费避免中断</small></div>
+  <div class="client-metric"><span>订单总数</span><strong>{{ dashboard_stats.order_count }}</strong><small>全部购买和续费记录</small></div>
+</div>
+
+{% if traffic_attention_servers %}
+<div class="traffic-dashboard-alert {{ 'exhausted' if dashboard_stats.traffic_attention else '' }}">
+  <div>
+    <strong>有 {{ dashboard_stats.traffic_attention }} 台服务器需要关注流量</strong>
+    <span>达到 80% 会提示；达到 100% 后自动降至 1 Mbps，新周期自动恢复。</span>
+  </div>
+  <a href="/servers">查看服务器</a>
+</div>
+{% endif %}
+
+<div class="client-dashboard-grid">
+  <section class="client-panel client-panel-wide">
+    <div class="client-panel-head">
+      <div><h2>我的服务器</h2><p>最近的服务实例</p></div>
+      <a href="/servers">查看全部</a>
+    </div>
+    {% if servers %}
+    <div class="client-service-list">
+      {% for s in servers %}
+      <article class="client-service-row">
+        <div class="service-primary">
+          <div class="service-title">
+            <span class="client-status-dot {{ s.status }}"></span>
+            <strong>{{ s.name }}</strong>
+            <span class="client-tag os">{{ s.os_name or "Debian 12" }}</span>
+          </div>
+          <span>{{ s.plan.name }} · {{ server_status_label(s.status) }}</span>
+        </div>
+        <div class="service-field"><span>公网 IP</span><strong>{{ s.public_ip }}</strong></div>
+        <div class="service-field"><span>SSH</span><strong>{{ s.public_ip }}:{{ s.ssh_port or "-" }}</strong></div>
+        <div class="service-field"><span>到期时间</span><strong class="{% if s.expires_at and s.expires_at <= now %}expired{% endif %}">{{ local_dt(s.expires_at).strftime("%Y-%m-%d") if s.expires_at else "-" }}</strong></div>
+        <a class="client-manage-btn" href="/servers/{{ s.id }}">管理</a>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="client-empty-state">
+      <strong>还没有服务器</strong><p>购买第一台 NAT VPS 后，会在这里显示。</p><a class="btn" href="/plans">前往套餐中心</a>
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="client-panel">
+    <div class="client-panel-head"><div><h2>最近订单</h2><p>最新 4 条记录</p></div><a href="/orders">查看全部</a></div>
+    <div class="client-order-list">
+    {% for o in recent_orders %}
+      <div class="client-order-row">
+        <div><strong>#{{ o.id }} · {{ o.plan.name }}</strong><span>{{ order_kind_label(o.kind) }} · {{ local_dt(o.created_at).strftime("%m-%d %H:%M") }}</span></div>
+        <div><strong>{{ money(o.amount_cents) }}</strong><span class="order-state {{ o.status }}">{{ order_status_label(o.status) }}</span></div>
+      </div>
+    {% else %}
+      <div class="client-empty-inline">暂无订单</div>
+    {% endfor %}
+    </div>
+  </section>
+</div>
+
+<section class="client-panel client-quick-panel">
+  <div class="client-panel-head"><div><h2>快捷操作</h2><p>常用功能入口</p></div></div>
+  <div class="client-quick-actions">
+    <a href="/plans"><span>＋</span><strong>购买新服务器</strong><small>选择套餐与系统</small></a>
+    <a href="/servers"><span>▣</span><strong>管理服务器</strong><small>电源、端口与重装</small></a>
+    <a href="/recharge"><span>¥</span><strong>在线充值</strong><small>USDT · TRON / Polygon</small></a>
+    <a href="/tickets"><span>?</span><strong>工单支持</strong><small>提交服务与账务问题</small></a>
+  </div>
+</section>
+{% endblock %}

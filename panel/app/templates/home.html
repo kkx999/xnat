@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}首页 · {{ app_name }}{% endblock %}
+{% block content %}
+<div class="home095">
+  <section class="home095-hero">
+    <div class="home095-hero-copy">
+      <div class="home095-eyebrow">{{ home_content.home_eyebrow }}</div>
+      <h1>{{ home_content.home_title }}<span>{{ home_content.home_highlight }}</span></h1>
+      <p class="home095-lead">{{ home_content.home_description }}</p>
+      <div class="home095-actions">
+        {% if user %}
+          <a class="home095-primary" href="/dashboard">{{ home_content.home_user_primary_label }}</a>
+          <a class="home095-secondary" href="/plans">{{ home_content.home_user_secondary_label }}</a>
+        {% else %}
+          <a class="home095-primary" href="/plans">{{ home_content.home_guest_primary_label }}</a>
+          <a class="home095-secondary" href="/login">{{ home_content.home_guest_secondary_label }}</a>
+        {% endif %}
+      </div>
+      <div class="home095-feature-line">
+        {% for item in home_content.feature_tags %}<span>{{ item }}</span>{% endfor %}
+      </div>
+    </div>
+
+    <aside class="home095-overview">
+      <div class="home095-overview-top">
+        <div><span class="home095-overline">SERVICE OVERVIEW</span><h2>{{ home_content.home_overview_title }}</h2></div>
+        <span class="home095-status">READY</span>
+      </div>
+      <p class="home095-overview-text">{{ home_content.home_overview_description }}</p>
+      <div class="home095-capability-grid">
+        <div><span>Provisioning</span><strong>{{ home_content.home_capability_1_title }}</strong><small>{{ home_content.home_capability_1_description }}</small></div>
+        <div><span>Network</span><strong>{{ home_content.home_capability_2_title }}</strong><small>{{ home_content.home_capability_2_description }}</small></div>
+        <div><span>Traffic</span><strong>{{ home_content.home_capability_3_title }}</strong><small>{{ home_content.home_capability_3_description }}</small></div>
+        <div><span>System</span><strong>{{ home_content.home_capability_4_title }}</strong><small>{{ home_content.home_capability_4_description }}</small></div>
+      </div>
+      <div class="home095-overview-bottom"><span>购买</span><i></i><span>部署</span><i></i><span>管理</span><i></i><span>续费</span></div>
+    </aside>
+  </section>
+
+  <section class="home095-signal">
+    <div><span>CONTROL</span><strong>{{ home_content.home_signal_1_title }}</strong><small>{{ home_content.home_signal_1_description }}</small></div>
+    <div><span>RESOURCE</span><strong>{{ home_content.home_signal_2_title }}</strong><small>{{ home_content.home_signal_2_description }}</small></div>
+    <div><span>SECURITY</span><strong>{{ home_content.home_signal_3_title }}</strong><small>{{ home_content.home_signal_3_description }}</small></div>
+    <div><span>BILLING</span><strong>{{ home_content.home_signal_4_title }}</strong><small>{{ home_content.home_signal_4_description }}</small></div>
+  </section>
+
+  <section class="home095-plans">
+    <div class="home095-section-head">
+      <div><span class="home095-overline">PLANS</span><h2>{{ home_content.home_plans_title }}</h2><p>{{ home_content.home_plans_description }}</p></div>
+      <a href="/plans">查看全部套餐</a>
+    </div>
+
+    <div class="home095-plan-grid">
+      {% for plan in plans %}
+        {% set stock = inventories.get(plan.id) %}
+        <article class="home095-plan {% if plan.is_recommended %}featured{% endif %}">
+          <div class="home095-plan-head">
+            <div>
+              <span class="home095-plan-index">0{{ loop.index }}</span>
+              {% if plan.is_recommended %}<span class="home095-recommend">{{ plan.recommendation_label or '推荐' }}</span>{% endif %}
+              <h3>{{ plan.name }}</h3>
+            </div>
+            {% if stock.limit == 0 %}<span class="home095-stock">不限库存</span>
+            {% elif stock.sold_out %}<span class="home095-stock sold">已售罄</span>
+            {% else %}<span class="home095-stock">剩余 {{ stock.available }}</span>{% endif %}
+          </div>
+          <div class="home095-price"><strong>{{ money(plan.monthly_price_cents) }}</strong><span>/ 月</span></div>
+          <div class="home095-spec-grid">
+            <div><span>CPU</span><strong>{{ plan.cpu }} vCPU</strong></div>
+            <div><span>内存</span><strong>{{ plan.memory_mb }} MB</strong></div>
+            <div><span>磁盘</span><strong>{{ plan.disk_gb }} GB</strong></div>
+            <div><span>带宽</span><strong>{{ plan.bandwidth_mbps }} Mbps</strong></div>
+            <div><span>月流量</span><strong>{{ plan.traffic_gb }} GB</strong></div>
+            <div><span>NAT 端口</span><strong>{{ plan.port_count }} 个</strong></div>
+          </div>
+          <div class="home095-plan-footer">
+            {% if stock.sold_out %}<span class="home095-plan-disabled">当前已售罄</span>
+            {% else %}<a href="/plans">查看套餐</a>{% endif %}
+          </div>
+        </article>
+      {% else %}
+        <div class="home095-empty">暂无选择用于首页展示的在售套餐。</div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="home095-bottom">
+    <div><span class="home095-overline">NAT VPS</span><h2>{{ home_content.home_bottom_title }}</h2></div>
+    <p>{{ home_content.home_bottom_description }}</p>
+    <a href="/plans">开始选择套餐</a>
+  </section>
+</div>
+{% endblock %}

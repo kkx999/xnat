@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}订单记录 · {{ app_name }}{% endblock %}
+{% block client_header %}
+<span class="client-kicker">BILLING</span>
+<h1>订单记录</h1>
+<p>查看新购、续费和管理员开通记录。</p>
+{% endblock %}
+{% block content %}
+<div class="client-metrics order-metrics">
+  <div class="client-metric"><span>订单总数</span><strong>{{ total_rows }}</strong><small>全部历史订单</small></div>
+  <div class="client-metric"><span>累计消费</span><strong>{{ money(total_spend) }}</strong><small>已完成订单金额</small></div>
+  <div class="client-metric"><span>当前余额</span><strong>{{ money(user.balance_cents) }}</strong><small>可用于购买与续费</small></div>
+</div>
+
+<section class="client-panel">
+  <div class="client-panel-head"><div><h2>全部订单</h2><p>每页 {{ per_page }} 条</p></div><a href="/plans">购买新服务器</a></div>
+  <div class="client-table-wrap">
+    <table class="client-table">
+      <thead><tr><th>订单</th><th>类型</th><th>套餐</th><th>金额</th><th>优惠码</th><th>状态</th><th>时间</th></tr></thead>
+      <tbody>
+      {% for o in orders %}
+        <tr>
+          <td><strong>#{{ o.id }}</strong></td><td>{{ order_kind_label(o.kind) }}</td><td>{{ o.plan.name }}</td>
+          <td>{{ money(o.amount_cents) }}</td><td>{% if o.coupon_code %}{{ o.coupon_code }}{% else %}-{% endif %}</td>
+          <td><span class="order-state {{ o.status }}">{{ order_status_label(o.status) }}</span></td>
+          <td>{{ local_dt(o.created_at).strftime("%Y-%m-%d %H:%M") }}</td>
+        </tr>
+      {% else %}<tr><td colspan="7" class="muted">暂无订单</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if total_pages > 1 %}
+  <div class="client-pagination">
+    {% if page > 1 %}<a href="/orders?page={{ page - 1 }}">上一页</a>{% else %}<span>上一页</span>{% endif %}
+    <strong>{{ page }} / {{ total_pages }}</strong>
+    {% if page < total_pages %}<a href="/orders?page={{ page + 1 }}">下一页</a>{% else %}<span>下一页</span>{% endif %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

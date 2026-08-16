@@ -1,0 +1,1468 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+
+XNAT_REPO="${XNAT_REPO:-kkx999/xnat}"
+PANEL_DIR="${XNAT_PANEL_DIR:-/opt/xnat/panel}"
+PANEL_ENV="${PANEL_DIR}/.env"
+PANEL_DB="${PANEL_DIR}/data/panel.db"
+PANEL_SERVICE="${XNAT_PANEL_SERVICE:-xnat-panel.service}"
+PANEL_BIND="${XNAT_PANEL_BIND:-127.0.0.1}"
+PANEL_PORT="${XNAT_PANEL_PORT:-8000}"
+XNAT_ETC_DIR="${XNAT_ETC_DIR:-/etc/xnat}"
+STATE_FILE="${XNAT_STATE_FILE:-${XNAT_ETC_DIR}/deployment.json}"
+NGINX_SITE="${XNAT_NGINX_SITE:-/etc/nginx/sites-available/xnat-panel.conf}"
+NGINX_LINK="${XNAT_NGINX_LINK:-/etc/nginx/sites-enabled/xnat-panel.conf}"
+NGINX_DEFAULT_SITE="${XNAT_NGINX_DEFAULT_SITE:-/etc/nginx/sites-enabled/default}"
+LETSENCRYPT_LIVE_DIR="${XNAT_LETSENCRYPT_LIVE_DIR:-/etc/letsencrypt/live}"
+CF_SNIPPET="${XNAT_CF_SNIPPET:-/etc/nginx/snippets/xnat-cloudflare-realip.conf}"
+CF_ORIGIN_MAP="${XNAT_CF_ORIGIN_MAP:-/etc/nginx/conf.d/xnat-cloudflare-origin-map.conf}"
+WS_MAP="${XNAT_WS_MAP:-/etc/nginx/conf.d/xnat-websocket-map.conf}"
+ACME_WEBROOT="${XNAT_ACME_WEBROOT:-/var/www/xnat-acme}"
+CERTBOT_DEPLOY_HOOK="${XNAT_CERTBOT_DEPLOY_HOOK:-/etc/letsencrypt/renewal-hooks/deploy/xnat-nginx-reload.sh}"
+CF_TIMER_SERVICE="${XNAT_CF_TIMER_SERVICE:-/etc/systemd/system/xnat-cloudflare-refresh.service}"
+CF_TIMER="${XNAT_CF_TIMER:-/etc/systemd/system/xnat-cloudflare-refresh.timer}"
+
+AGENT_DIR="${XNAT_AGENT_DIR:-/opt/xnat/agent}"
+AGENT_ENV="${AGENT_DIR}/.env"
+AGENT_SERVICE="${XNAT_AGENT_SERVICE:-xnat-host-agent.service}"
+AGENT_API_VERSION_FILE="${XNAT_AGENT_API_VERSION_FILE:-${AGENT_DIR}/API_VERSION}"
+COMPONENT_FILE="${XNAT_COMPONENT_FILE:-${XNAT_ETC_DIR}/component}"
+VERSION_FILE="${XNAT_VERSION_FILE:-${XNAT_ETC_DIR}/version}"
+RELEASE_FILE="${XNAT_RELEASE_FILE:-${XNAT_ETC_DIR}/release}"
+
+info(){ echo; echo "==== $* ===="; }
+warn(){ echo "[WARN] $*" >&2; }
+die(){ echo "[ERROR] $*" >&2; exit 1; }
+need_root(){ [[ ${EUID:-$(id -u)} -eq 0 ]] || die "请使用 root 运行 xnat 管理命令"; }
+
+have(){ command -v "$1" >/dev/null 2>&1; }
+
+ensure_packages(){
+  local missing=()
+  for cmd in nginx certbot curl python3 sqlite3 getent openssl; do
+    have "$cmd" || missing+=("$cmd")
+  done
+  if ((${#missing[@]})); then
+    info "安装域名与 HTTPS 依赖"
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+      ca-certificates curl openssl nginx certbot dnsutils python3 sqlite3
+  fi
+}
+
+ensure_layout(){
+  install -d -m 0755 "$XNAT_ETC_DIR" "$(dirname "$NGINX_SITE")" "$(dirname "$NGINX_LINK")" "$(dirname "$CF_SNIPPET")" "$(dirname "$CF_ORIGIN_MAP")" "$(dirname "$WS_MAP")"
+  install -d -m 0755 "$ACME_WEBROOT/.well-known/acme-challenge"
+}
+
+env_set(){
+  local key="$1" value="$2"
+  [[ -f "$PANEL_ENV" ]] || return 0
+  python3 - "$PANEL_ENV" "$key" "$value" <<'PY'
+from pathlib import Path
+import sys
+path=Path(sys.argv[1]); key=sys.argv[2]; value=sys.argv[3]
+lines=path.read_text(encoding='utf-8').splitlines()
+out=[]; found=False
+for line in lines:
+    if line.startswith(key+'='):
+        out.append(f"{key}={value}"); found=True
+    else:
+        out.append(line)
+if not found:
+    out.append(f"{key}={value}")
+path.write_text("\n".join(out)+"\n", encoding='utf-8')
+PY
+  chmod 600 "$PANEL_ENV"
+}
+
+db_set_public_base_url(){
+  local value="$1"
+  [[ -f "$PANEL_DB" ]] || return 0
+  python3 - "$PANEL_DB" "$value" <<'PY'
+import sqlite3, sys
+path, value = sys.argv[1], sys.argv[2]
+con = sqlite3.connect(path)
+try:
+    con.execute("INSERT INTO site_settings(key,value) VALUES('public_base_url', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (value,))
+    con.commit()
+finally:
+    con.close()
+PY
+}
+
+state_write(){
+  local domain="$1" https="$2" cloudflare="$3" cert="$4" origin_lock="${5:-false}"
+  install -d -m 0755 "$XNAT_ETC_DIR"
+  python3 - "$STATE_FILE" "$domain" "$https" "$cloudflare" "$cert" "$origin_lock" "$PANEL_BIND" "$PANEL_PORT" <<'PY'
+from pathlib import Path
+from datetime import datetime, timezone
+import json, sys
+path=Path(sys.argv[1])
+state={
+  "managed_by":"XNAT",
+  "domain":sys.argv[2],
+  "https_enabled":sys.argv[3].lower()=="true",
+  "cloudflare_detected":sys.argv[4].lower()=="true",
+  "certificate":sys.argv[5],
+  "certificate_type":"Let's Encrypt" if sys.argv[5] else "",
+  "origin_lock_enabled":sys.argv[6].lower()=="true",
+  "origin_host":sys.argv[7],
+  "origin_port":int(sys.argv[8]),
+  "nginx_managed":True,
+  "updated_at":datetime.now(timezone.utc).isoformat(),
+}
+path.write_text(json.dumps(state, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
+PY
+  chmod 0644 "$STATE_FILE"
+}
+state_get(){
+  local key="$1"
+  [[ -f "$STATE_FILE" ]] || return 0
+  python3 - "$STATE_FILE" "$key" <<'PY'
+import json, sys
+try:
+    data=json.load(open(sys.argv[1], encoding='utf-8'))
+    value=data.get(sys.argv[2], "")
+    if isinstance(value, bool): print("true" if value else "false")
+    elif value is not None: print(value)
+except Exception:
+    pass
+PY
+}
+
+write_ws_map(){
+  cat > "$WS_MAP" <<'EOF_MAP'
+# Managed by XNAT. Used for safe WebSocket upgrade forwarding.
+map $http_upgrade $xnat_connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+EOF_MAP
+  chmod 0644 "$WS_MAP"
+}
+
+update_cloudflare_realip(){
+  local quiet="${1:-false}"
+  local tmp4 tmp6 tmp_real tmp_map
+  tmp4="$(mktemp)"; tmp6="$(mktemp)"; tmp_real="$(mktemp)"; tmp_map="$(mktemp)"
+
+  write_fallback(){
+    cat > "$CF_SNIPPET" <<'EOF_CF_FALLBACK'
+# Managed by XNAT. Bundled Cloudflare fallback ranges.
+# The weekly XNAT timer replaces this snapshot with Cloudflare's current list.
+set_real_ip_from 173.245.48.0/20;
+set_real_ip_from 103.21.244.0/22;
+set_real_ip_from 103.22.200.0/22;
+set_real_ip_from 103.31.4.0/22;
+set_real_ip_from 141.101.64.0/18;
+set_real_ip_from 108.162.192.0/18;
+set_real_ip_from 190.93.240.0/20;
+set_real_ip_from 188.114.96.0/20;
+set_real_ip_from 197.234.240.0/22;
+set_real_ip_from 198.41.128.0/17;
+set_real_ip_from 162.158.0.0/15;
+set_real_ip_from 104.16.0.0/13;
+set_real_ip_from 104.24.0.0/14;
+set_real_ip_from 172.64.0.0/13;
+set_real_ip_from 131.0.72.0/22;
+set_real_ip_from 2400:cb00::/32;
+set_real_ip_from 2606:4700::/32;
+set_real_ip_from 2803:f800::/32;
+set_real_ip_from 2405:b500::/32;
+set_real_ip_from 2405:8100::/32;
+set_real_ip_from 2a06:98c0::/29;
+set_real_ip_from 2c0f:f248::/32;
+real_ip_header CF-Connecting-IP;
+real_ip_recursive on;
+EOF_CF_FALLBACK
+
+    cat > "$CF_ORIGIN_MAP" <<'EOF_CF_MAP_FALLBACK'
+# Managed by XNAT. Cloudflare origin-lock fallback ranges.
+# $realip_remote_addr keeps the TCP peer address before CF-Connecting-IP is applied.
+geo $realip_remote_addr $xnat_from_cloudflare {
+    default 0;
+    173.245.48.0/20 1;
+    103.21.244.0/22 1;
+    103.22.200.0/22 1;
+    103.31.4.0/22 1;
+    141.101.64.0/18 1;
+    108.162.192.0/18 1;
+    190.93.240.0/20 1;
+    188.114.96.0/20 1;
+    197.234.240.0/22 1;
+    198.41.128.0/17 1;
+    162.158.0.0/15 1;
+    104.16.0.0/13 1;
+    104.24.0.0/14 1;
+    172.64.0.0/13 1;
+    131.0.72.0/22 1;
+    2400:cb00::/32 1;
+    2606:4700::/32 1;
+    2803:f800::/32 1;
+    2405:b500::/32 1;
+    2405:8100::/32 1;
+    2a06:98c0::/29 1;
+    2c0f:f248::/32 1;
+}
+EOF_CF_MAP_FALLBACK
+    chmod 0644 "$CF_SNIPPET" "$CF_ORIGIN_MAP"
+  }
+
+  if ! curl -fsSL --retry 2 --connect-timeout 10 https://www.cloudflare.com/ips-v4 -o "$tmp4" || \
+     ! curl -fsSL --retry 2 --connect-timeout 10 https://www.cloudflare.com/ips-v6 -o "$tmp6"; then
+    if [[ -s "$CF_SNIPPET" && -s "$CF_ORIGIN_MAP" ]]; then
+      [[ "$quiet" == "true" ]] || warn "无法获取 Cloudflare IP 段，保留现有真实 IP / 源站保护配置。"
+      rm -f "$tmp4" "$tmp6" "$tmp_real" "$tmp_map"
+      return 0
+    fi
+    [[ "$quiet" == "true" ]] || warn "无法获取 Cloudflare IP 段，使用内置备用列表；定时任务会继续刷新。"
+    write_fallback
+    rm -f "$tmp4" "$tmp6" "$tmp_real" "$tmp_map"
+    return 0
+  fi
+
+  if ! python3 - "$tmp4" "$tmp6" <<'PY'
+import ipaddress, sys
+for path in sys.argv[1:]:
+    for raw in open(path, encoding='utf-8'):
+        raw=raw.strip()
+        if raw:
+            ipaddress.ip_network(raw, strict=False)
+PY
+  then
+    [[ "$quiet" == "true" ]] || warn "Cloudflare IP 段校验失败，保留现有配置。"
+    rm -f "$tmp4" "$tmp6" "$tmp_real" "$tmp_map"
+    return 1
+  fi
+
+  {
+    echo "# Managed by XNAT. Cloudflare trusted proxy ranges."
+    echo "# Refreshed: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+    while IFS= read -r cidr; do [[ -n "$cidr" ]] && echo "set_real_ip_from $cidr;"; done < "$tmp4"
+    while IFS= read -r cidr; do [[ -n "$cidr" ]] && echo "set_real_ip_from $cidr;"; done < "$tmp6"
+    echo "real_ip_header CF-Connecting-IP;"
+    echo "real_ip_recursive on;"
+  } > "$tmp_real"
+
+  {
+    echo "# Managed by XNAT. Cloudflare origin-lock ranges."
+    echo "# Refreshed: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+    echo 'geo $realip_remote_addr $xnat_from_cloudflare {'
+    echo "    default 0;"
+    while IFS= read -r cidr; do [[ -n "$cidr" ]] && echo "    $cidr 1;"; done < "$tmp4"
+    while IFS= read -r cidr; do [[ -n "$cidr" ]] && echo "    $cidr 1;"; done < "$tmp6"
+    echo "}"
+  } > "$tmp_map"
+
+  install -m 0644 "$tmp_real" "$CF_SNIPPET"
+  install -m 0644 "$tmp_map" "$CF_ORIGIN_MAP"
+  rm -f "$tmp4" "$tmp6" "$tmp_real" "$tmp_map"
+  [[ "$quiet" == "true" ]] || echo "Cloudflare 真实 IP / 源站保护 IP 段已更新。"
+}
+proxy_locations(){
+  local hsts="${1:-false}"
+  local hsts_line=""
+  if [[ "$hsts" == "true" ]]; then
+    hsts_line='        add_header Strict-Transport-Security "max-age=31536000" always;'
+  fi
+  cat <<EOF_PROXY
+    client_max_body_size 16m;
+
+    location /static/ {
+        proxy_pass http://${PANEL_BIND}:${PANEL_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Host \$host;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$xnat_connection_upgrade;
+        add_header Cache-Control "public, max-age=86400" always;
+${hsts_line}
+    }
+
+    location / {
+        proxy_pass http://${PANEL_BIND}:${PANEL_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Host \$host;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$xnat_connection_upgrade;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        add_header Cache-Control "no-store, private" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+${hsts_line}
+    }
+EOF_PROXY
+}
+write_ip_nginx(){
+  ensure_layout
+  cat > "$NGINX_SITE" <<EOF_NGINX
+# Managed by XNAT
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    include ${CF_SNIPPET};
+$(proxy_locations false)
+}
+EOF_NGINX
+  ln -sfn "$NGINX_SITE" "$NGINX_LINK"
+  rm -f "$NGINX_DEFAULT_SITE"
+}
+
+write_domain_http_nginx(){
+  local domain="$1"
+  ensure_layout
+  cat > "$NGINX_SITE" <<EOF_NGINX
+# Managed by XNAT - ACME bootstrap
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    return 444;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${domain};
+    include ${CF_SNIPPET};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root ${ACME_WEBROOT};
+        default_type text/plain;
+        try_files \$uri =404;
+    }
+
+$(proxy_locations false)
+}
+EOF_NGINX
+  ln -sfn "$NGINX_SITE" "$NGINX_LINK"
+  rm -f "$NGINX_DEFAULT_SITE"
+}
+
+write_domain_https_nginx(){
+  local domain="$1" origin_lock="${2:-false}"
+  local cert_dir="${LETSENCRYPT_LIVE_DIR}/${domain}"
+  local origin_guard=""
+  if [[ "$origin_lock" == "true" ]]; then
+    origin_guard='    # Reject direct-to-origin HTTPS connections that do not come from Cloudflare.
+    if ($xnat_from_cloudflare = 0) { return 444; }'
+  fi
+  cat > "$NGINX_SITE" <<EOF_NGINX
+# Managed by XNAT
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    return 444;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${domain};
+    include ${CF_SNIPPET};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root ${ACME_WEBROOT};
+        default_type text/plain;
+        try_files \$uri =404;
+    }
+
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name _;
+    ssl_certificate ${cert_dir}/fullchain.pem;
+    ssl_certificate_key ${cert_dir}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    return 444;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name ${domain};
+    include ${CF_SNIPPET};
+${origin_guard}
+
+    ssl_certificate ${cert_dir}/fullchain.pem;
+    ssl_certificate_key ${cert_dir}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:XNATSSL:10m;
+    ssl_session_timeout 1d;
+
+$(proxy_locations true)
+}
+EOF_NGINX
+}
+nginx_apply(){
+  nginx -t
+  systemctl enable nginx >/dev/null 2>&1 || true
+  systemctl restart nginx
+}
+
+install_certbot_hook(){
+  install -d -m 0755 "$(dirname "$CERTBOT_DEPLOY_HOOK")"
+  cat > "$CERTBOT_DEPLOY_HOOK" <<'EOF_HOOK'
+#!/usr/bin/env bash
+set -e
+nginx -t >/dev/null
+systemctl reload nginx
+EOF_HOOK
+  chmod 0755 "$CERTBOT_DEPLOY_HOOK"
+  systemctl enable --now certbot.timer >/dev/null 2>&1 || true
+}
+
+install_cf_refresh_timer(){
+  cat > "$CF_TIMER_SERVICE" <<EOF_SERVICE
+[Unit]
+Description=XNAT Cloudflare real IP refresh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/xnat cloudflare refresh --quiet
+EOF_SERVICE
+
+  cat > "$CF_TIMER" <<'EOF_TIMER'
+[Unit]
+Description=Refresh Cloudflare IP ranges for XNAT
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=7d
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF_TIMER
+
+  systemctl daemon-reload
+  systemctl enable --now xnat-cloudflare-refresh.timer >/dev/null 2>&1 || true
+}
+
+validate_domain(){
+  local domain="$1"
+  [[ "$domain" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$ ]] || \
+    die "域名格式无效：${domain}。请输入类似 panel.example.com 的完整域名。"
+  [[ ${#domain} -le 253 ]] || die "域名过长"
+}
+
+check_dns(){
+  local domain="$1"
+  local resolved
+  resolved="$(getent ahosts "$domain" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ' || true)"
+  [[ -n "${resolved// }" ]] || die "${domain} 当前没有可用 DNS 解析，请先添加 DNS 记录。"
+  echo "DNS: ${resolved}"
+}
+
+detect_cloudflare(){
+  local domain="$1" headers
+  for _ in 1 2 3 4 5; do
+    headers="$(curl -ksS --max-time 12 -D - -o /dev/null "https://${domain}/health" 2>/dev/null || true)"
+    if grep -qiE '^(cf-ray:|server:[[:space:]]*cloudflare)' <<<"$headers"; then
+      echo true
+      return 0
+    fi
+    [[ -n "$headers" ]] && break
+    sleep 1
+  done
+  echo false
+}
+
+set_panel_https_runtime(){
+  local domain="$1"
+  local base="https://${domain}"
+  env_set PUBLIC_BASE_URL "$base"
+  env_set SESSION_HTTPS_ONLY true
+  env_set PANEL_BIND_HOST "$PANEL_BIND"
+  env_set PANEL_PORT "$PANEL_PORT"
+  db_set_public_base_url "$base"
+  systemctl restart "$PANEL_SERVICE"
+}
+
+set_panel_http_runtime(){
+  env_set PUBLIC_BASE_URL ""
+  env_set SESSION_HTTPS_ONLY false
+  env_set PANEL_BIND_HOST "$PANEL_BIND"
+  env_set PANEL_PORT "$PANEL_PORT"
+  db_set_public_base_url ""
+  systemctl restart "$PANEL_SERVICE"
+}
+
+cmd_init(){
+  need_root
+  ensure_packages
+  ensure_layout
+  write_ws_map
+  update_cloudflare_realip false || true
+  write_ip_nginx
+  nginx_apply
+  install_certbot_hook
+  install_cf_refresh_timer
+  state_write "" false false "" false
+  echo "XNAT Nginx 已初始化：公网 HTTP :80 → ${PANEL_BIND}:${PANEL_PORT}"
+}
+
+cmd_domain_set(){
+  need_root
+  local domain="${1:-}" email="${2:-${LETSENCRYPT_EMAIL:-}}"
+  [[ -n "$domain" ]] || {
+    [[ -t 0 ]] || die "请指定域名：xnat domain set panel.example.com"
+    read -r -p "请输入 Panel 域名: " domain
+  }
+  domain="${domain,,}"
+  validate_domain "$domain"
+  ensure_packages
+  ensure_layout
+  check_dns "$domain"
+  write_ws_map
+  update_cloudflare_realip false || true
+
+  if [[ -z "$email" && -t 0 ]]; then
+    read -r -p "Let's Encrypt 通知邮箱（可留空）: " email
+  fi
+
+  local backup="" had_old=false
+  if [[ -f "$NGINX_SITE" ]]; then
+    backup="$(mktemp)"
+    cp -a "$NGINX_SITE" "$backup"
+    had_old=true
+  fi
+
+  rollback(){
+    warn "域名配置未完成，正在恢复原 Nginx 配置。"
+    if [[ "$had_old" == true && -n "$backup" && -f "$backup" ]]; then
+      cp -a "$backup" "$NGINX_SITE"
+      nginx -t >/dev/null 2>&1 && systemctl restart nginx || true
+    else
+      write_ip_nginx
+      nginx -t >/dev/null 2>&1 && systemctl restart nginx || true
+    fi
+    [[ -n "$backup" ]] && rm -f "$backup"
+  }
+
+  write_domain_http_nginx "$domain"
+  if ! nginx -t; then rollback; die "Nginx 域名配置校验失败"; fi
+  systemctl restart nginx
+
+  local cert_args=(certonly --webroot --webroot-path "$ACME_WEBROOT" -d "$domain" --cert-name "$domain" --non-interactive --agree-tos --preferred-challenges http --keep-until-expiring)
+  if [[ -n "$email" ]]; then
+    cert_args+=(--email "$email")
+  else
+    cert_args+=(--register-unsafely-without-email)
+  fi
+
+  info "申请 Let's Encrypt 证书"
+  if ! certbot "${cert_args[@]}"; then
+    rollback
+    die "证书申请失败。请检查域名解析、Cloudflare、80/TCP 和源站防火墙。Panel 本身仍然可用。"
+  fi
+
+  [[ -s "${LETSENCRYPT_LIVE_DIR}/${domain}/fullchain.pem" ]] || { rollback; die "证书文件不存在"; }
+  # First bring HTTPS online without origin lock, then detect Cloudflare through
+  # the public hostname. If Cloudflare is confirmed, enable origin lock.
+  write_domain_https_nginx "$domain" false
+  if ! nginx -t; then rollback; die "HTTPS Nginx 配置校验失败"; fi
+  systemctl restart nginx
+  install_certbot_hook
+  install_cf_refresh_timer
+
+  set_panel_https_runtime "$domain"
+  local cf="$(detect_cloudflare "$domain")"
+  local origin_lock=false
+  if [[ "$cf" == true ]]; then
+    info "启用 Cloudflare 源站保护"
+    write_domain_https_nginx "$domain" true
+    if nginx -t; then
+      systemctl restart nginx
+      origin_lock=true
+    else
+      warn "源站保护配置校验失败，保留 HTTPS 但暂不锁定源站。"
+      write_domain_https_nginx "$domain" false
+      nginx -t >/dev/null 2>&1 && systemctl restart nginx || true
+    fi
+  fi
+  state_write "$domain" true "$cf" "${LETSENCRYPT_LIVE_DIR}/${domain}/fullchain.pem" "$origin_lock"
+  [[ -n "$backup" ]] && rm -f "$backup"
+
+  echo
+  echo "域名配置完成：https://${domain}"
+  echo "源站：${PANEL_BIND}:${PANEL_PORT}"
+  echo "HTTPS：Let's Encrypt"
+  if [[ "$cf" == true ]]; then
+    echo "Cloudflare：已检测到 CDN"
+    echo "源站保护：$([[ "$origin_lock" == true ]] && echo 已启用 || echo 未启用)"
+    echo "建议 Cloudflare SSL/TLS 使用 Full (strict)"
+  else
+    echo "Cloudflare：当前未检测到代理（仍可正常使用 HTTPS）"
+    echo "源站保护：未启用"
+  fi
+}
+
+cmd_domain_status(){
+  local domain https cf cert lock
+  domain="$(state_get domain)"; https="$(state_get https_enabled)"; cf="$(state_get cloudflare_detected)"; cert="$(state_get certificate)"; lock="$(state_get origin_lock_enabled)"
+  echo "XNAT Domain & HTTPS"
+  echo "Domain:       ${domain:-未配置}"
+  echo "HTTPS:        ${https:-false}"
+  echo "Cloudflare:   ${cf:-false}"
+  echo "Origin lock:  ${lock:-false}"
+  echo "Origin:       ${PANEL_BIND}:${PANEL_PORT}"
+  if [[ -n "$cert" && -f "$cert" ]]; then
+    echo "Certificate: Let's Encrypt"
+    echo "Expires:     $(openssl x509 -enddate -noout -in "$cert" 2>/dev/null | cut -d= -f2- || echo unknown)"
+  else
+    echo "Certificate: 未配置"
+  fi
+}
+
+cmd_domain_renew(){
+  need_root
+  local domain force="${1:-}"
+  domain="$(state_get domain)"
+  [[ -n "$domain" ]] || die "尚未配置 XNAT 域名"
+  if [[ "$force" == "--force" ]]; then
+    certbot renew --cert-name "$domain" --force-renewal
+  else
+    certbot renew --cert-name "$domain"
+  fi
+  nginx -t
+  systemctl reload nginx
+  local cf="$(detect_cloudflare "$domain")"
+  local lock="$(state_get origin_lock_enabled)"
+  state_write "$domain" true "$cf" "${LETSENCRYPT_LIVE_DIR}/${domain}/fullchain.pem" "${lock:-false}"
+}
+
+cmd_domain_remove(){
+  need_root
+  ensure_packages
+  write_ws_map
+  update_cloudflare_realip true || true
+  write_ip_nginx
+  nginx_apply
+  set_panel_http_runtime
+  state_write "" false false "" false
+  echo "已取消 XNAT 托管域名。Panel 现在通过 HTTP :80 反向代理到 ${PANEL_BIND}:${PANEL_PORT}。"
+  echo "已有 Let's Encrypt 证书未删除，避免误操作。"
+}
+
+cmd_cloudflare_refresh(){
+  need_root
+  local quiet=false
+  [[ "${1:-}" == "--quiet" ]] && quiet=true
+  ensure_packages
+  ensure_layout
+  if update_cloudflare_realip "$quiet"; then
+    if nginx -t >/dev/null 2>&1; then
+      systemctl reload nginx >/dev/null 2>&1 || true
+    fi
+  fi
+  local domain="$(state_get domain)"
+  if [[ -n "$domain" ]]; then
+    local cf="$(detect_cloudflare "$domain")"
+    local lock="$(state_get origin_lock_enabled)"
+    state_write "$domain" true "$cf" "${LETSENCRYPT_LIVE_DIR}/${domain}/fullchain.pem" "${lock:-false}"
+  fi
+}
+
+cmd_cloudflare_protect(){
+  need_root
+  local action="${1:-status}"
+  local domain https cf cert lock
+  domain="$(state_get domain)"
+  https="$(state_get https_enabled)"
+  cf="$(state_get cloudflare_detected)"
+  cert="$(state_get certificate)"
+  lock="$(state_get origin_lock_enabled)"
+
+  case "$action" in
+    status)
+      echo "Cloudflare origin protection: ${lock:-false}"
+      echo "Cloudflare detected:          ${cf:-false}"
+      echo "Domain:                       ${domain:-未配置}"
+      ;;
+    enable)
+      [[ -n "$domain" ]] || die "尚未配置域名"
+      [[ "$https" == "true" ]] || die "尚未启用 HTTPS"
+      ensure_packages
+      ensure_layout
+      update_cloudflare_realip false
+      cf="$(detect_cloudflare "$domain")"
+      [[ "$cf" == "true" ]] || die "当前没有检测到 Cloudflare CDN。请先开启橙色云，再重试。"
+      write_domain_https_nginx "$domain" true
+      nginx_apply
+      state_write "$domain" true true "${cert:-${LETSENCRYPT_LIVE_DIR}/${domain}/fullchain.pem}" true
+      echo "Cloudflare 源站保护已启用。直连源站 HTTPS 将被 Nginx 拒绝。"
+      ;;
+    disable)
+      [[ -n "$domain" ]] || die "尚未配置域名"
+      [[ "$https" == "true" ]] || die "尚未启用 HTTPS"
+      write_domain_https_nginx "$domain" false
+      nginx_apply
+      cf="$(detect_cloudflare "$domain")"
+      state_write "$domain" true "$cf" "${cert:-${LETSENCRYPT_LIVE_DIR}/${domain}/fullchain.pem}" false
+      echo "Cloudflare 源站保护已关闭。"
+      ;;
+    *)
+      die "用法：xnat cloudflare protect [status|enable|disable]"
+      ;;
+  esac
+}
+detect_role(){
+  local meta=""
+  [[ -f "$COMPONENT_FILE" ]] && meta="$(tr -d '[:space:]' < "$COMPONENT_FILE" 2>/dev/null || true)"
+  case "$meta" in
+    panel|host) echo "$meta"; return 0 ;;
+  esac
+
+  if [[ -f "$PANEL_ENV" && ! -f "$AGENT_ENV" ]]; then
+    echo panel
+  elif [[ -f "$AGENT_ENV" && ! -f "$PANEL_ENV" ]]; then
+    echo host
+  elif [[ -f "$PANEL_ENV" && -f "$AGENT_ENV" ]]; then
+    die "同时检测到 Panel 和 Host Agent。请检查 /etc/xnat/component。"
+  else
+    die "没有检测到 XNAT Panel 或 Host Agent"
+  fi
+}
+
+current_version(){
+  local role="${1:-$(detect_role)}" v="" file=""
+  case "$role" in
+    panel) file="$PANEL_DIR/app/__init__.py" ;;
+    host) file="$AGENT_DIR/natvps_agent/__init__.py" ;;
+  esac
+  if [[ -f "$file" ]]; then
+    v="$(grep -E '^__version__[[:space:]]*=' "$file" | head -n1 | cut -d'"' -f2 || true)"
+  fi
+  [[ -z "$v" && -f "$VERSION_FILE" ]] && v="$(tr -d '[:space:]' < "$VERSION_FILE" 2>/dev/null || true)"
+  echo "${v:-unknown}"
+}
+
+component_label(){
+  case "${1:-$(detect_role)}" in
+    panel) echo "Panel" ;;
+    host) echo "Host Agent" ;;
+  esac
+}
+
+current_agent_api_version(){
+  local v=""
+  [[ -f "$AGENT_API_VERSION_FILE" ]] && v="$(tr -d '[:space:]' < "$AGENT_API_VERSION_FILE" 2>/dev/null || true)"
+  if [[ -z "$v" && -f "$AGENT_DIR/natvps_agent/__init__.py" ]]; then
+    v="$(grep -E '^__api_version__[[:space:]]*=' "$AGENT_DIR/natvps_agent/__init__.py" | head -n1 | cut -d'"' -f2 || true)"
+  fi
+  echo "${v:-unknown}"
+}
+
+write_runtime_meta(){
+  local role="$1" version="$2" release="${3:-}"
+  install -d -m 0755 "$XNAT_ETC_DIR"
+  printf '%s\n' "$role" > "$COMPONENT_FILE"
+  printf '%s\n' "$version" > "$VERSION_FILE"
+  [[ -n "$release" ]] && printf '%s\n' "$release" > "$RELEASE_FILE"
+  chmod 0644 "$COMPONENT_FILE" "$VERSION_FILE" "$RELEASE_FILE" 2>/dev/null || true
+}
+
+cmd_version(){
+  local role version
+  role="$(detect_role)"
+  version="$(current_version "$role")"
+  echo "XNAT $(component_label "$role") v${version}"
+}
+
+cmd_panel_status(){
+  local svc="inactive" health="failed"
+  systemctl is-active --quiet "$PANEL_SERVICE" && svc="running"
+  curl -fsS --max-time 3 "http://${PANEL_BIND}:${PANEL_PORT}/health" >/tmp/xnat-health.$$ 2>/dev/null && health="ok" || true
+  echo "XNAT Panel v$(current_version panel)"
+  echo "Service:    $svc"
+  echo "Health:     $health"
+  [[ -s /tmp/xnat-health.$$ ]] && cat /tmp/xnat-health.$$ && echo
+  rm -f /tmp/xnat-health.$$
+  cmd_domain_status
+}
+
+agent_port(){
+  local p=""
+  [[ -f "$AGENT_ENV" ]] && p="$(grep -E '^AGENT_PORT=' "$AGENT_ENV" | tail -n1 | cut -d= -f2- || true)"
+  echo "${p:-29443}"
+}
+
+cmd_host_status(){
+  local svc="inactive" health="failed" port
+  port="$(agent_port)"
+  systemctl is-active --quiet "$AGENT_SERVICE" && svc="running"
+  curl -kfsS --max-time 3 "https://127.0.0.1:${port}/health" >/tmp/xnat-agent-health.$$ 2>/dev/null && health="ok" || true
+  echo "XNAT Host Agent v$(current_version host)"
+  echo "API:        v$(current_agent_api_version)"
+  echo "Service:    $svc"
+  echo "Health:     $health"
+  echo "Port:       ${port}/TCP"
+  if [[ -f /etc/xnat/node.json ]] && command -v python3 >/dev/null 2>&1; then
+    pool="$(python3 - <<'PYPOOL' 2>/dev/null || true
+import json
+try:
+    d=json.load(open('/etc/xnat/node.json'))
+    a=int(d.get('nat_port_start')); b=int(d.get('nat_port_end'))
+    print(f"{a}-{b}" if 1024 <= a <= b <= 65535 else "未配置")
+except Exception:
+    print("未配置")
+PYPOOL
+)"
+    echo "NAT Pool:   ${pool:-未配置}"
+  else
+    echo "NAT Pool:   未配置"
+  fi
+  [[ -s /tmp/xnat-agent-health.$$ ]] && cat /tmp/xnat-agent-health.$$ && echo
+  rm -f /tmp/xnat-agent-health.$$
+  if have xnat-firewall; then
+    echo
+    xnat-firewall status || true
+  fi
+}
+
+cmd_status(){
+  case "$(detect_role)" in
+    panel) cmd_panel_status ;;
+    host) cmd_host_status ;;
+  esac
+}
+
+cmd_restart(){
+  need_root
+  case "$(detect_role)" in
+    panel)
+      systemctl restart "$PANEL_SERVICE"
+      systemctl --no-pager --full status "$PANEL_SERVICE" | sed -n '1,12p'
+      ;;
+    host)
+      systemctl restart "$AGENT_SERVICE"
+      systemctl --no-pager --full status "$AGENT_SERVICE" | sed -n '1,12p'
+      ;;
+  esac
+}
+
+cmd_logs(){
+  need_root
+  case "$(detect_role)" in
+    panel) journalctl -u "$PANEL_SERVICE" -f ;;
+    host) journalctl -u "$AGENT_SERVICE" -f ;;
+  esac
+}
+
+cmd_backup(){
+  need_root
+  [[ "$(detect_role)" == panel ]] || die "数据库备份仅适用于 Panel"
+  [[ -f "$PANEL_DB" ]] || die "未找到数据库：$PANEL_DB"
+  local ts root db env
+  ts="$(date +'%Y%m%d-%H%M%S')"
+  root="${PANEL_DIR}/data/backups"
+  db="${root}/panel-cli-${ts}.db"
+  env="${root}/panel-cli-${ts}.env"
+  install -d -m 0700 "$root"
+  sqlite3 "$PANEL_DB" ".backup '${db}'"
+  [[ -f "$PANEL_ENV" ]] && cp -a "$PANEL_ENV" "$env"
+  chmod 600 "$db" "$env" 2>/dev/null || true
+  echo "备份完成：$db"
+}
+
+resolve_latest_release(){
+  local url tag
+  url="$(curl -fsSL --retry 3 --connect-timeout 15 -o /dev/null -w '%{url_effective}' "https://github.com/${XNAT_REPO}/releases/latest")"
+  tag="${url##*/}"
+  [[ "$tag" == v* ]] || die "无法解析 GitHub 最新正式 Release"
+  echo "${tag#v}"
+}
+
+valid_version(){
+  [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+}
+
+release_meta_value(){
+  local release="$1" key="$2" url
+  url="https://raw.githubusercontent.com/${XNAT_REPO}/v${release}/release.json"
+  curl -fsSL --retry 3 --connect-timeout 15 "$url" | python3 -c 'import json,sys; d=json.load(sys.stdin); v=d.get(sys.argv[1], ""); print(v if not isinstance(v,list) else ",".join(map(str,v)))' "$key"
+}
+
+target_component_version(){
+  local release="$1" role="$2"
+  case "$role" in
+    panel) release_meta_value "$release" panel_version ;;
+    host) release_meta_value "$release" agent_version ;;
+  esac
+}
+
+show_update_check(){
+  local role current release target api
+  role="$(detect_role)"
+  current="$(current_version "$role")"
+  release="$(resolve_latest_release)"
+  target="$(target_component_version "$release" "$role")"
+  [[ -n "$target" ]] || die "Release v${release} 缺少组件版本信息"
+
+  echo "组件：$(component_label "$role")"
+  echo "当前组件版本：v${current}"
+  echo "最新 XNAT Release：v${release}"
+  echo "该 Release 中的组件版本：v${target}"
+  if [[ "$role" == host ]]; then
+    api="$(release_meta_value "$release" agent_api_version)"
+    echo "Agent API：v${api:-?}"
+  fi
+
+  if [[ "$current" == "$target" ]]; then
+    echo "状态：当前组件无需更新"
+  elif [[ "$current" != unknown ]] && dpkg --compare-versions "$target" lt "$current"; then
+    echo "状态：当前组件版本高于该 Release"
+  else
+    echo "状态：发现组件更新"
+  fi
+}
+
+cmd_update(){
+  need_root
+  local arg="${1:-}" role current release target script tmp top answer installed
+  role="$(detect_role)"
+  current="$(current_version "$role")"
+
+  if [[ "$arg" == check ]]; then
+    show_update_check
+    return 0
+  fi
+
+  if [[ -n "$arg" ]]; then
+    release="${arg#v}"
+    valid_version "$release" || die "Release 版本格式无效：$release"
+  else
+    release="$(resolve_latest_release)"
+  fi
+
+  target="$(target_component_version "$release" "$role")"
+  [[ -n "$target" ]] || die "Release v${release} 缺少组件版本信息"
+  valid_version "$target" || die "Release v${release} 的组件版本无效：$target"
+
+  echo "XNAT 更新"
+  echo "组件：$(component_label "$role")"
+  echo "当前组件：v${current}"
+  echo "目标 Release：v${release}"
+  echo "目标组件：v${target}"
+
+  if [[ "$current" == "$target" ]]; then
+    echo "该 Release 不包含当前组件的新版本，无需更新。"
+    return 0
+  fi
+
+  if [[ "$current" != unknown ]] && dpkg --compare-versions "$target" lt "$current" && [[ "${XNAT_ALLOW_DOWNGRADE:-0}" != 1 ]]; then
+    die "目标组件版本低于当前版本。若确需降级，请设置 XNAT_ALLOW_DOWNGRADE=1。"
+  fi
+
+  if [[ "${XNAT_UPDATE_ASSUME_YES:-0}" != 1 ]]; then
+    if [[ -t 0 ]]; then
+      read -r -p "确认更新 $(component_label "$role") 到 v${target}？[y/N]: " answer
+      [[ "$answer" =~ ^[Yy]$ ]] || { echo "已取消。"; return 0; }
+    else
+      die "非交互更新请设置 XNAT_UPDATE_ASSUME_YES=1"
+    fi
+  fi
+
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' RETURN
+  echo "正在下载 XNAT Release v${release}..."
+  curl -fL --retry 3 --connect-timeout 15 \
+    "https://github.com/${XNAT_REPO}/archive/refs/tags/v${release}.tar.gz" \
+    -o "$tmp/xnat.tar.gz"
+  top="$(tar -tzf "$tmp/xnat.tar.gz" | head -n1 | cut -d/ -f1)"
+  [[ -n "$top" ]] || die "无法解析 XNAT 源码包"
+  tar -xzf "$tmp/xnat.tar.gz" -C "$tmp"
+
+  case "$role" in
+    panel) script="scripts/upgrade-panel.sh" ;;
+    host) script="scripts/upgrade-host-agent.sh" ;;
+  esac
+  [[ -f "$tmp/$top/$script" ]] || die "目标 Release 缺少更新脚本：$script"
+
+  XNAT_UPDATE_TARGET_RELEASE="$release" bash "$tmp/$top/$script"
+  rm -rf "$tmp"
+  trap - RETURN
+
+  installed="$(current_version "$role")"
+  write_runtime_meta "$role" "$installed" "$release"
+  echo
+  echo "更新完成：$(component_label "$role") v${installed}"
+}
+
+cmd_firewall(){
+  need_root
+  have xnat-firewall || die "未安装 xnat-firewall"
+  if (($#)); then
+    xnat-firewall "$@"
+  else
+    xnat-firewall status
+  fi
+}
+
+doctor_ok(){ printf '  [OK]   %s\n' "$*"; }
+doctor_fail(){ printf '  [FAIL] %s\n' "$*"; return 1; }
+doctor_warn(){ printf '  [WARN] %s\n' "$*"; }
+
+cmd_doctor(){
+  need_root
+  local role fails=0 port pool bridge
+  role="$(detect_role)"
+  echo "XNAT 系统诊断"
+  echo "组件：$(component_label "$role") v$(current_version "$role")"
+
+  if [[ -r /etc/os-release ]] && grep -q '^VERSION_CODENAME=bookworm' /etc/os-release; then
+    doctor_ok "Debian 12 Bookworm"
+  else
+    doctor_warn "当前系统不是 Debian 12 Bookworm"
+  fi
+
+  if [[ "$role" == panel ]]; then
+    systemctl is-active --quiet "$PANEL_SERVICE" && doctor_ok "Panel service 运行中" || { doctor_fail "Panel service 未运行" || true; ((fails+=1)); }
+    curl -fsS --max-time 3 "http://${PANEL_BIND}:${PANEL_PORT}/health" >/dev/null 2>&1 && doctor_ok "Panel /health 正常" || { doctor_fail "Panel /health 失败" || true; ((fails+=1)); }
+    if ss -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)127\\.0\\.0\\.1:${PANEL_PORT}$|^127\\.0\\.0\\.1:${PANEL_PORT}$"; then
+      doctor_ok "Panel 仅监听 ${PANEL_BIND}:${PANEL_PORT}"
+    elif ss -lnt 2>/dev/null | grep -q ":${PANEL_PORT} "; then
+      doctor_fail "Panel ${PANEL_PORT} 不是 loopback-only，请立即检查" || true; ((fails+=1))
+    else
+      doctor_fail "未发现 Panel ${PANEL_PORT} 监听" || true; ((fails+=1))
+    fi
+    nginx -t >/dev/null 2>&1 && doctor_ok "Nginx 配置正常" || { doctor_fail "Nginx 配置校验失败" || true; ((fails+=1)); }
+    [[ -f "$PANEL_DB" ]] && sqlite3 "$PANEL_DB" 'PRAGMA quick_check;' 2>/dev/null | grep -qx 'ok' && doctor_ok "SQLite quick_check 正常" || { doctor_fail "SQLite 检查失败" || true; ((fails+=1)); }
+    systemctl is-active --quiet xnat-firewall.service && doctor_ok "XNAT 敏感端口防火墙运行中" || { doctor_fail "XNAT 防火墙未运行" || true; ((fails+=1)); }
+    if [[ -f "$STATE_FILE" ]]; then
+      local domain https cert
+      domain="$(state_get domain)"; https="$(state_get https_enabled)"; cert="$(state_get certificate)"
+      [[ -n "$domain" ]] && doctor_ok "域名：${domain}" || doctor_warn "尚未配置域名"
+      if [[ "$https" == true ]]; then
+        [[ -n "$cert" && -s "$cert" ]] && doctor_ok "HTTPS 证书存在" || { doctor_fail "HTTPS 已启用但证书文件异常" || true; ((fails+=1)); }
+      fi
+    fi
+  else
+    port="$(agent_port)"
+    systemctl is-active --quiet "$AGENT_SERVICE" && doctor_ok "Host Agent service 运行中" || { doctor_fail "Host Agent service 未运行" || true; ((fails+=1)); }
+    curl -kfsS --max-time 3 "https://127.0.0.1:${port}/health" >/dev/null 2>&1 && doctor_ok "Host Agent /health 正常" || { doctor_fail "Host Agent /health 失败" || true; ((fails+=1)); }
+    have incus && incus version >/dev/null 2>&1 && doctor_ok "Incus 正常" || { doctor_fail "Incus 不可用" || true; ((fails+=1)); }
+    pool="$(grep -E '^INCUS_STORAGE_POOL=' "$AGENT_ENV" | tail -n1 | cut -d= -f2- || true)"; pool="${pool:-natpool}"
+    bridge="$(grep -E '^INCUS_BRIDGE=' "$AGENT_ENV" | tail -n1 | cut -d= -f2- || true)"; bridge="${bridge:-incusbr0}"
+    incus storage show "$pool" >/dev/null 2>&1 && doctor_ok "Storage：${pool}" || { doctor_fail "Storage ${pool} 不可用" || true; ((fails+=1)); }
+    incus network show "$bridge" >/dev/null 2>&1 && doctor_ok "Bridge：${bridge}" || { doctor_fail "Bridge ${bridge} 不可用" || true; ((fails+=1)); }
+    systemctl is-active --quiet xnat-firewall.service && doctor_ok "Agent 敏感端口防火墙运行中" || { doctor_fail "XNAT 防火墙未运行" || true; ((fails+=1)); }
+  fi
+
+  echo
+  if ((fails == 0)); then
+    echo "诊断结果：通过"
+  else
+    echo "诊断结果：发现 ${fails} 个需要处理的问题"
+    return 1
+  fi
+}
+
+backup_root(){ echo "${PANEL_DIR}/data/backups"; }
+
+cmd_backup_list(){
+  [[ "$(detect_role)" == panel ]] || die "数据库备份仅适用于 Panel"
+  local root
+  root="$(backup_root)"
+  echo "XNAT Panel 备份"
+  [[ -d "$root" ]] || { echo "暂无备份。"; return 0; }
+  find "$root" -mindepth 1 -maxdepth 1 -type f -name 'panel-*.db' -printf '%f\n' | sort -r || true
+}
+
+cmd_restore(){
+  need_root
+  [[ "$(detect_role)" == panel ]] || die "数据库恢复仅适用于 Panel"
+  local name="${1:-}" root src envsrc answer ts safety_db safety_env
+  root="$(backup_root)"
+  if [[ -z "$name" ]]; then
+    cmd_backup_list
+    [[ -t 0 ]] || die "请指定备份名称：xnat restore panel-xxx.db"
+    read -r -p "请输入要恢复的备份文件名: " name
+  fi
+  [[ "$name" != */* && "$name" != *'..'* && "$name" == panel-*.db ]] || die "备份名称无效"
+  src="${root}/${name}"
+  [[ -f "$src" ]] || die "备份不存在：${src}"
+  sqlite3 "$src" 'PRAGMA quick_check;' | grep -qx 'ok' || die "备份数据库校验失败"
+  envsrc="${src%.db}.env"
+
+  if [[ "${XNAT_RESTORE_ASSUME_YES:-0}" != 1 ]]; then
+    [[ -t 0 ]] || die "非交互恢复请设置 XNAT_RESTORE_ASSUME_YES=1"
+    read -r -p "将恢复数据库并重启 Panel。确认？[y/N]: " answer
+    [[ "$answer" =~ ^[Yy]$ ]] || { echo "已取消。"; return 0; }
+  fi
+
+  ts="$(date +'%Y%m%d-%H%M%S')"
+  safety_db="${root}/panel-pre-restore-${ts}.db"
+  safety_env="${root}/panel-pre-restore-${ts}.env"
+  sqlite3 "$PANEL_DB" ".backup '${safety_db}'"
+  cp -a "$PANEL_ENV" "$safety_env"
+  chmod 600 "$safety_db" "$safety_env"
+
+  systemctl stop "$PANEL_SERVICE"
+  cp -a "$src" "$PANEL_DB"
+  [[ -f "$envsrc" ]] && cp -a "$envsrc" "$PANEL_ENV"
+  chmod 600 "$PANEL_DB" "$PANEL_ENV"
+  systemctl start "$PANEL_SERVICE"
+  sleep 2
+  if ! curl -fsS --max-time 5 "http://${PANEL_BIND}:${PANEL_PORT}/health" >/dev/null; then
+    warn "恢复后的 Panel 健康检查失败，正在回滚到恢复前状态。"
+    systemctl stop "$PANEL_SERVICE" || true
+    cp -a "$safety_db" "$PANEL_DB"
+    cp -a "$safety_env" "$PANEL_ENV"
+    systemctl start "$PANEL_SERVICE" || true
+    die "恢复失败，已尝试回滚"
+  fi
+  echo "恢复完成：${name}"
+  echo "恢复前自动备份：${safety_db}"
+}
+
+agent_env_set(){
+  local key="$1" value="$2"
+  [[ -f "$AGENT_ENV" ]] || die "未找到 Agent .env"
+  python3 - "$AGENT_ENV" "$key" "$value" <<'PY_AGENT_ENV'
+from pathlib import Path
+import sys
+path=Path(sys.argv[1]); key=sys.argv[2]; value=sys.argv[3]
+lines=path.read_text(encoding='utf-8').splitlines(); out=[]; found=False
+for line in lines:
+    if line.startswith(key+'='):
+        out.append(f'{key}={value}'); found=True
+    else:
+        out.append(line)
+if not found: out.append(f'{key}={value}')
+path.write_text('\n'.join(out)+'\n', encoding='utf-8')
+PY_AGENT_ENV
+  chmod 600 "$AGENT_ENV"
+}
+
+cmd_token_rotate(){
+  need_root
+  [[ "$(detect_role)" == host ]] || die "Token 轮换仅适用于 Host Agent"
+  local token backup port cred
+  token="$(openssl rand -hex 32)"
+  backup="/root/xnat-backups/agent-token-$(date +'%Y%m%d-%H%M%S')"
+  install -d -m 0700 "$backup"
+  cp -a "$AGENT_ENV" "$backup/.env"
+  agent_env_set AGENT_TOKEN "$token"
+  systemctl restart "$AGENT_SERVICE"
+  port="$(agent_port)"
+  for _ in $(seq 1 20); do
+    curl -kfsS --max-time 2 "https://127.0.0.1:${port}/health" >/dev/null 2>&1 && break
+    sleep 1
+  done
+  curl -kfsS --max-time 3 "https://127.0.0.1:${port}/health" >/dev/null || {
+    cp -a "$backup/.env" "$AGENT_ENV"
+    systemctl restart "$AGENT_SERVICE" || true
+    die "新 Token 生效后 Agent 健康检查失败，已回滚"
+  }
+  cred="/root/xnat-host-agent-credentials.txt"
+  if [[ -f "$cred" ]]; then
+    python3 - "$cred" "$token" <<'PY_CRED'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); token=sys.argv[2]
+lines=p.read_text(encoding='utf-8').splitlines(); out=[]; found=False
+for line in lines:
+    if line.startswith('Agent Token:'):
+        out.append('Agent Token: '+token); found=True
+    else: out.append(line)
+if not found: out.append('Agent Token: '+token)
+p.write_text('\n'.join(out)+'\n', encoding='utf-8')
+PY_CRED
+    chmod 600 "$cred"
+  fi
+  echo "Agent Token 已轮换。"
+  echo "新 Token：${token}"
+  echo "请立即到 Panel 后台更新该宿主机的 Agent Token。"
+  echo "旧配置备份：${backup}"
+}
+
+cmd_set_panel_ip(){
+  need_root
+  [[ "$(detect_role)" == host ]] || die "仅 Host Agent 需要设置 Panel IP"
+  local ip="${1:-}"
+  [[ -n "$ip" ]] || { [[ -t 0 ]] || die "请指定 Panel IP"; read -r -p "新的 Panel 公网 IPv4: " ip; }
+  xnat-firewall set-panel "$ip"
+  local normalized
+  normalized="$(grep -E '^PANEL_CIDR=' /etc/xnat/firewall.env | tail -n1 | cut -d= -f2-)"
+  agent_env_set PANEL_CIDR "$normalized"
+  echo "Host Agent 允许的 Panel 来源已更新为：${normalized}"
+}
+
+cmd_uninstall(){
+  need_root
+  local role phrase expected backup
+  role="$(detect_role)"
+  if [[ "$role" == panel ]]; then
+    expected="REMOVE PANEL"
+    echo "此操作会卸载 XNAT Panel、Nginx 的 XNAT 站点和 XNAT systemd 服务。"
+    echo "数据库与 .env 会先备份到 /root/xnat-backups。"
+  else
+    expected="REMOVE AGENT"
+    echo "此操作只卸载 XNAT Host Agent。"
+    echo "Incus、natpool、Bridge 和现有 VPS 不会删除。"
+  fi
+  [[ -t 0 ]] || die "卸载必须在交互终端中执行"
+  read -r -p "请输入 ${expected} 确认: " phrase
+  [[ "$phrase" == "$expected" ]] || { echo "确认内容不匹配，已取消。"; return 0; }
+
+  backup="/root/xnat-backups/uninstall-${role}-$(date +'%Y%m%d-%H%M%S')"
+  install -d -m 0700 "$backup"
+  if [[ "$role" == panel ]]; then
+    [[ -f "$PANEL_DB" ]] && sqlite3 "$PANEL_DB" ".backup '${backup}/panel.db'" || true
+    [[ -f "$PANEL_ENV" ]] && cp -a "$PANEL_ENV" "$backup/.env" || true
+    systemctl disable --now xnat-panel.service xnat-maintenance.timer >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/xnat-panel.service /etc/systemd/system/xnat-maintenance.service /etc/systemd/system/xnat-maintenance.timer
+    rm -f "$NGINX_LINK" "$NGINX_SITE" "$CF_SNIPPET" "$CF_ORIGIN_MAP" "$WS_MAP"
+    rm -f "$CF_TIMER_SERVICE" "$CF_TIMER" "$CERTBOT_DEPLOY_HOOK"
+    nginx -t >/dev/null 2>&1 && systemctl reload nginx || true
+    rm -rf "$PANEL_DIR"
+  else
+    [[ -f "$AGENT_ENV" ]] && cp -a "$AGENT_ENV" "$backup/.env" || true
+    [[ -d "$AGENT_DIR/tls" ]] && cp -a "$AGENT_DIR/tls" "$backup/tls" || true
+    systemctl disable --now xnat-host-agent.service >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/xnat-host-agent.service
+    rm -rf "$AGENT_DIR"
+  fi
+  have xnat-firewall && xnat-firewall disable || true
+  rm -f /etc/systemd/system/xnat-firewall.service
+  systemctl daemon-reload
+  rm -rf "$XNAT_ETC_DIR"
+  rm -f /usr/local/sbin/xnat-firewall
+  echo "XNAT $(component_label "$role") 已卸载。"
+  echo "备份：${backup}"
+  rm -f /usr/local/sbin/xnat
+}
+
+interactive_domain(){
+  while true; do
+    echo
+    cmd_domain_status
+    echo
+    echo "1. 设置 / 更换域名"
+    echo "2. 续期证书"
+    echo "3. 强制重新申请证书"
+    echo "4. 取消托管域名"
+    echo "5. 刷新 Cloudflare IP 段"
+    echo "6. Cloudflare 源站保护"
+    echo "0. 返回"
+    read -r -p "请选择: " n
+    case "$n" in
+      1) read -r -p "域名: " d; cmd_domain_set "$d" ;;
+      2) cmd_domain_renew ;;
+      3) cmd_domain_renew --force ;;
+      4) read -r -p "确认取消域名配置？[y/N]: " y; [[ "$y" =~ ^[Yy]$ ]] && cmd_domain_remove ;;
+      5) cmd_cloudflare_refresh ;;
+      6)
+        echo "1. 查看状态"
+        echo "2. 启用源站保护"
+        echo "3. 关闭源站保护"
+        read -r -p "请选择: " c
+        case "$c" in
+          1) cmd_cloudflare_protect status ;;
+          2) cmd_cloudflare_protect enable ;;
+          3) cmd_cloudflare_protect disable ;;
+          *) echo "无效选择" ;;
+        esac
+        ;;
+      0) return ;;
+      *) echo "无效选择" ;;
+    esac
+  done
+}
+
+interactive_update(){
+  local current v n
+  current="$(current_version)"
+  echo
+  echo "当前组件版本：v${current}"
+  echo "1. 检查最新正式 Release"
+  echo "2. 更新当前组件"
+  echo "3. 指定 XNAT Release 更新"
+  echo "0. 返回"
+  read -r -p "请选择: " n
+  case "$n" in
+    1) show_update_check ;;
+    2) cmd_update ;;
+    3) read -r -p "目标 XNAT Release（例如 1.1.0）: " v; cmd_update "$v" ;;
+    0) return ;;
+    *) echo "无效选择" ;;
+  esac
+}
+
+interactive_backup(){
+  local n name
+  while true; do
+    echo
+    echo "XNAT Panel 数据库"
+    echo "1. 创建备份"
+    echo "2. 查看备份"
+    echo "3. 恢复备份"
+    echo "0. 返回"
+    read -r -p "请选择: " n
+    case "$n" in
+      1) cmd_backup ;;
+      2) cmd_backup_list ;;
+      3) read -r -p "备份名称（留空后查看列表）: " name; cmd_restore "$name" ;;
+      0) return ;;
+      *) echo "无效选择" ;;
+    esac
+  done
+}
+
+interactive_panel_menu(){
+  while true; do
+    echo
+    echo "================================"
+    echo "        XNAT 管理脚本"
+    echo "================================"
+    echo "当前组件：Panel"
+    echo "当前版本：v$(current_version panel)"
+    echo
+    echo "1. 查看运行状态"
+    echo "2. 重启 Panel"
+    echo "3. 查看实时日志"
+    echo "4. 域名与 HTTPS"
+    echo "5. 数据库备份 / 恢复"
+    echo "6. 检查 / 更新 Panel"
+    echo "7. 查看 XNAT 防火墙"
+    echo "8. 系统诊断"
+    echo "9. 卸载 Panel"
+    echo "0. 退出"
+    read -r -p "请选择: " n
+    case "$n" in
+      1) cmd_panel_status ;;
+      2) cmd_restart ;;
+      3) cmd_logs ;;
+      4) interactive_domain ;;
+      5) interactive_backup ;;
+      6) interactive_update ;;
+      7) cmd_firewall status ;;
+      8) cmd_doctor ;;
+      9) cmd_uninstall ;;
+      0) exit 0 ;;
+      *) echo "无效选择" ;;
+    esac
+  done
+}
+
+interactive_host_menu(){
+  while true; do
+    echo
+    echo "================================"
+    echo "        XNAT 管理脚本"
+    echo "================================"
+    echo "当前组件：Host Agent"
+    echo "当前版本：v$(current_version host)"
+    echo "Agent API：v$(current_agent_api_version)"
+    echo
+    echo "1. 查看运行状态"
+    echo "2. 重启 Host Agent"
+    echo "3. 查看实时日志"
+    echo "4. 查看 XNAT 防火墙"
+    echo "5. 修改允许的 Panel IP"
+    echo "6. 轮换 Agent Token"
+    echo "7. 检查 / 更新 Host Agent"
+    echo "8. 系统诊断"
+    echo "9. 卸载 Host Agent"
+    echo "0. 退出"
+    read -r -p "请选择: " n
+    case "$n" in
+      1) cmd_host_status ;;
+      2) cmd_restart ;;
+      3) cmd_logs ;;
+      4) cmd_firewall status ;;
+      5) cmd_set_panel_ip ;;
+      6) cmd_token_rotate ;;
+      7) interactive_update ;;
+      8) cmd_doctor ;;
+      9) cmd_uninstall ;;
+      0) exit 0 ;;
+      *) echo "无效选择" ;;
+    esac
+  done
+}
+
+interactive_menu(){
+  case "$(detect_role)" in
+    panel) interactive_panel_menu ;;
+    host) interactive_host_menu ;;
+  esac
+}
+
+case "${1:-}" in
+  "") need_root; interactive_menu ;;
+  init) shift; cmd_init "$@" ;;
+  version) shift; cmd_version ;;
+  status) shift; cmd_status "$@" ;;
+  restart) shift; cmd_restart "$@" ;;
+  logs) shift; cmd_logs "$@" ;;
+  doctor) shift; cmd_doctor "$@" ;;
+  backup)
+    shift
+    case "${1:-}" in
+      "") cmd_backup ;;
+      list) shift; cmd_backup_list "$@" ;;
+      *) die "用法：xnat backup [list]" ;;
+    esac
+    ;;
+  restore) shift; cmd_restore "$@" ;;
+  update) shift; cmd_update "$@" ;;
+  uninstall) shift; cmd_uninstall "$@" ;;
+  token)
+    [[ "$(detect_role)" == host ]] || die "token 命令仅适用于 Host Agent"
+    shift
+    case "${1:-}" in
+      rotate) shift; cmd_token_rotate "$@" ;;
+      *) die "用法：xnat token rotate" ;;
+    esac
+    ;;
+  panel-ip)
+    [[ "$(detect_role)" == host ]] || die "panel-ip 命令仅适用于 Host Agent"
+    shift; cmd_set_panel_ip "$@"
+    ;;
+  firewall) shift; cmd_firewall "$@" ;;
+  domain)
+    [[ "$(detect_role)" == panel ]] || die "domain 命令仅适用于 Panel"
+    shift
+    case "${1:-}" in
+      "") need_root; interactive_domain ;;
+      set) shift; cmd_domain_set "$@" ;;
+      status) shift; cmd_domain_status "$@" ;;
+      renew) shift; cmd_domain_renew "$@" ;;
+      remove) shift; cmd_domain_remove "$@" ;;
+      *) die "用法：xnat domain [set|status|renew|remove]" ;;
+    esac
+    ;;
+  cloudflare)
+    [[ "$(detect_role)" == panel ]] || die "cloudflare 命令仅适用于 Panel"
+    shift
+    case "${1:-}" in
+      refresh) shift; cmd_cloudflare_refresh "$@" ;;
+      protect) shift; cmd_cloudflare_protect "$@" ;;
+      *) die "用法：xnat cloudflare [refresh|protect]" ;;
+    esac
+    ;;
+  *) die "用法：xnat [version|status|restart|logs|doctor|backup|restore|update|token|panel-ip|firewall|domain|cloudflare|uninstall]" ;;
+esac

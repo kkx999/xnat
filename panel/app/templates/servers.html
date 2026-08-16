@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}我的服务器 · {{ app_name }}{% endblock %}
+{% block client_header %}
+<span class="client-kicker">SERVICES</span>
+<h1>我的服务器</h1>
+<p>查看所有实例状态、连接信息、流量和到期时间。</p>
+{% endblock %}
+{% block content %}
+<div class="client-page-toolbar">
+  <div><strong>{{ servers|length }} 台服务器</strong><span>点击“管理服务器”进入完整操作页面。</span></div>
+  <a class="btn" href="/plans">＋ 购买新服务器</a>
+</div>
+
+{% if servers %}
+<div class="client-server-grid">
+{% for s in servers %}
+  <article class="client-server-card">
+    <div class="client-server-card-head">
+      <div>
+        <div class="service-title">
+          <span class="client-status-dot {{ s.status }}"></span>
+          <strong>{{ s.name }}</strong>
+          <span class="client-tag os">{{ s.os_name or "Debian 12" }}</span>
+          {% if traffic_level(s) in ["warning", "critical", "exhausted", "exempt"] %}
+          <span class="traffic-state-badge {{ traffic_level(s) }}">{{ traffic_status_label(s) }}</span>
+          {% endif %}
+        </div>
+        <span>{{ s.plan.name }} · {{ server_status_label(s.status) }}</span>
+      </div>
+      <a class="client-detail-link" href="/servers/{{ s.id }}">管理服务器 →</a>
+    </div>
+
+    <div class="client-server-info-grid">
+      <div><span>公网主机</span><strong>{{ s.public_ip }}</strong></div>
+      <div><span>SSH</span><strong>{{ s.public_ip }}:{{ s.ssh_port or "-" }}</strong></div>
+      <div><span>配置</span><strong>{{ s.cpu }}C / {{ s.memory_mb }}M / {{ s.disk_gb }}G</strong></div>
+      <div><span>当前带宽</span><strong>{% if s.traffic_throttled %}1 Mbps · 流量限速{% elif (s.bandwidth_mbps or 0) == 0 %}不限速{% else %}{{ s.bandwidth_mbps }} Mbps{% endif %}</strong></div>
+      <div><span>流量使用</span><strong>{{ human_bytes(traffic_used_bytes(s)) }} / {% if traffic_quota_gb(s) > 0 %}{{ traffic_quota_gb(s) }} GB{% else %}不限{% endif %}</strong></div>
+      <div><span>RX / TX</span><strong>{{ human_bytes(s.traffic_used_rx_bytes or 0) }} / {{ human_bytes(s.traffic_used_tx_bytes or 0) }}</strong></div>
+    </div>
+
+    <div class="client-server-card-foot">
+      <div><span>到期时间</span><strong class="{% if s.expires_at and s.expires_at <= now %}expired{% endif %}">{{ local_dt(s.expires_at).strftime("%Y-%m-%d %H:%M") if s.expires_at else "-" }}</strong></div>
+      <div><span>NAT 端口</span><strong>{{ s.ports|length }} / {{ s.port_limit }}</strong></div>
+    </div>
+  </article>
+{% endfor %}
+</div>
+{% else %}
+<div class="client-empty-state large"><strong>暂无服务器</strong><p>你还没有任何有效 VPS。</p><a class="btn" href="/plans">购买第一台 VPS</a></div>
+{% endif %}
+{% endblock %}
