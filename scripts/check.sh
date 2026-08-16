@@ -74,7 +74,7 @@ grep -q '保存并同步到 Agent' panel/app/templates/admin.html
 grep -q '/admin/servers/{server_id}/traffic/quota' panel/app/main.py
 grep -q '/admin/servers/{server_id}/expiry' panel/app/main.py
 grep -q '磁盘仅支持扩容' panel/app/templates/admin.html
-grep -q 'USDT 自动充值' panel/app/templates/admin.html
+grep -q 'USDT 充值' panel/app/templates/admin.html
 grep -q 'section == "notifications"' panel/app/templates/admin.html
 grep -q '发送 Telegram 测试' panel/app/templates/admin.html
 ! grep -q 'UniqueConstraint("public_port", "protocol"' panel/app/models.py

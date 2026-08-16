@@ -1,4 +1,4 @@
-# XNAT v1.0.1 详细使用文档
+# XNAT v1.0.2 详细使用文档
 
 > 本文档负责详细说明 XNAT 的安装和运维。  
 > 根目录 `README.md` 保持简洁，具体操作以这里为准。
@@ -71,15 +71,15 @@ bash <(...)
 # 3. 指定版本安装 Panel
 
 ```bash
-XNAT_VERSION=1.0.1 \
+XNAT_VERSION=1.0.2 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
 ```text
-XNAT_VERSION=1.0.1
+XNAT_VERSION=1.0.2
 ```
 
-表示固定安装 Release `v1.0.1`，不自动跟随以后发布的新版本。
+表示固定安装 Release `v1.0.2`，不自动跟随以后发布的新版本。
 
 ---
 
@@ -575,19 +575,19 @@ Panel Server 的真实公网 IPv4。
 
 ---
 
-# 15. 指定 v1.0.1 安装 Host
+# 15. 指定 v1.0.2 安装 Host
 
 ```bash
-XNAT_VERSION=1.0.1 \
+XNAT_VERSION=1.0.2 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-host.sh)
 ```
 
-`XNAT_VERSION=1.0.1`：
+`XNAT_VERSION=1.0.2`：
 
 固定下载 Release tag：
 
 ```text
-v1.0.1
+v1.0.2
 ```
 
 然后仍然会进入正常的交互式 Panel IP + natpool 流程。
@@ -1122,67 +1122,64 @@ CPU：可以增加，也可以减少
 
 ---
 
-# 28. USDT 自动充值独立设置
+# 28. USDT 充值独立设置
 
-USDT 配置已经从“站点设置”独立出来。
-
-后台：
+USDT 配置已经从“站点设置”独立出来：
 
 ```text
-业务
-→ USDT 自动充值
+后台 → 业务 → USDT 充值
 ```
 
-页面同时提供：
+每个网络可以选择两种充值模式：
 
 ```text
-自动充值配置
-充值订单 / 链上记录
-立即扫描链上订单
+自动充值
+→ 用户创建订单
+→ XNAT 查询链上交易
+→ 达到校验条件后自动增加余额
+
+人工充值
+→ 用户创建订单
+→ 用户转入精确 USDT 数量
+→ 用户提交 TxHash
+→ 管理员核对后人工确认入账
 ```
 
-可以配置：
+TRON 人工模式只需要：
 
 ```text
-支付总开关
-CNY / USDT 汇率
-最低 / 最高充值金额
-支付订单超时时间
-超时后继续扫描时间
-TRON 网络
 TRON 收款地址
-TRON USDT 合约
+```
+
+TRON 自动模式还需要：
+
+```text
 TronGrid API Key
-Polygon 网络
-Polygon 收款地址
-Polygon RPC
-Polygon Token 合约
-确认数
 ```
 
-### 钱包安全
+TronGrid API Key 只用于读取 TRON 主网交易，不是钱包私钥，也不具备转账权限。
 
-XNAT 自动充值只需要：
+Polygon 人工模式只需要 Polygon 收款地址；自动模式还需要可用的 Polygon RPC。
+
+## Token 合约地址
+
+TRON USDT 与 Polygon USDT0 合约地址会继续显示在后台，但属于 **系统只读字段**。
+
+它们用于判断链上转账是否确实来自 XNAT 支持的官方 USDT Token。管理员不需要填写，也不能修改。后端始终使用 XNAT 内置常量，不接受浏览器提交的自定义合约地址。
+
+## 通道测试
+
+保存配置后可以使用：
 
 ```text
-公开收款地址
-公开 Token 合约地址
-只读 RPC / API Key
+测试 TRON 配置
+测试 Polygon 配置
 ```
 
-**不要把以下信息输入 XNAT：**
+人工模式只校验收款地址；自动模式会额外检查 TronGrid API Key 或 Polygon RPC。测试不会发送 USDT，也不会操作钱包。
 
-```text
-钱包私钥
-助记词
-Keystore 私钥密码
-```
+> XNAT 永远不需要钱包私钥、助记词、Keystore 私钥或钱包密码。
 
-TronGrid API Key 属于敏感配置，会使用 `APP_SECRET` 加密后保存在数据库中，页面不会回显明文。
-
-“立即扫描链上订单”可以用于检查当前链上扫描链路是否可以正常工作。
-
----
 
 # 29. 通知服务独立设置
 
@@ -1328,3 +1325,22 @@ SMTP / Telegram → 独立通知服务页面
 **由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**
 
 </div>
+
+
+## USDT 无 TxHash 强制补单
+
+当链上 API/RPC 不可用、或管理员已经通过其他可信凭证人工确认到账时，可以在充值订单的“手动补单”面板中展开“高级危险操作”。
+
+无 TxHash 补单：
+
+- 不要求交易哈希；
+- 不执行链上自动校验；
+- 不伪造 TxHash；
+- 不写入 `chain_transactions`；
+- 始终按订单创建时的人民币金额入账；
+- 同一订单只允许入账一次；
+- 必须填写补单原因；
+- 必须输入 `FORCE CREDIT`；
+- 余额流水和审计日志会明确标记为“无链上凭证人工补单”。
+
+该功能仅用于最后兜底，不建议替代正常的 TxHash 校验补单。

@@ -35,18 +35,18 @@ AGENT_API_VERSION="$(python3 -c 'import json; print(json.load(open("release.json
 cat > "$DIST/RELEASE_NOTES.md" <<EOF_NOTES
 # XNAT v${RELEASE_VERSION}
 
-XNAT v${RELEASE_VERSION} 稳定修复版本。
+XNAT v${RELEASE_VERSION} 支付与运营修复版本。
 
 - Panel：v${PANEL_VERSION}
 - Host Agent：v${AGENT_VERSION}
 - Agent API：v${AGENT_API_VERSION}
-- 管理后台侧边栏改为折叠分类并统一深蓝灰视觉
-- 后台卡片、表格、输入框、按钮与文字对比度统一优化
-- 数据库备份支持本地 .db 上传校验与后台直接恢复
-- 恢复前自动创建安全快照，失败自动回滚
-- 数据库备份 / 下载 / 上传 / 恢复操作写入审计日志
-- 修复 xnat update 在 pipefail 环境下可能下载后提前退出的问题
-- 保持 v1.0.0 已验证的 Host、NAT、VPS 生命周期逻辑不变
+- 用户 USDT 支付页面重构，隐藏用户端 Token 合约地址
+- 新充值订单金额统一为 3 位小数，旧未支付订单保留原精确金额
+- 后台新增 TxHash 校验补单与全局防重复保护
+- 新增无 TxHash 强制补单，要求补单原因与 FORCE CREDIT 二次确认
+- 补单按订单原人民币金额入账，并写入余额流水与审计日志
+- 保留 v1.0.1 的折叠侧栏、统一 UI 与数据库上传/恢复能力
+- Host、NAT、VPS 核心逻辑保持不变
 
 详细介绍请查看项目 README，完整部署与运维说明请查看 docs/README.md。
 EOF_NOTES

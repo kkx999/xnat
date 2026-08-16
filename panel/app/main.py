@@ -1,4 +1,5 @@
 import os
+import re
 import asyncio
 import contextlib
 import json
@@ -31,7 +32,7 @@ from .backups import BACKUP_DIR, create_backup, create_scheduled_backup_if_due, 
 from .jobs import enqueue_job, process_jobs
 from .notifications import process_pending_notifications, queue_notification, send_email_address, send_telegram_chat
 from .runtime_config import notification_runtime_config, runtime_plain, runtime_secret
-from .payments import (POLYGON_USDT0_CONTRACT, TRON_USDT_CONTRACT, create_recharge_order, payment_config, poll_pending_payments, rate_text, usdt_units_to_text, valid_evm_address, valid_tron_address)
+from .payments import (POLYGON_USDT0_CONTRACT, TRON_USDT_CONTRACT, create_recharge_order, manual_credit_order, normalize_tx_hash, payment_config, poll_pending_payments, rate_text, repair_credit_order, force_credit_order_without_tx, test_polygon_configuration, test_tron_configuration, usdt_units_to_text, valid_evm_address, valid_tron_address, verify_recharge_transaction)
 from .reconcile import reconcile_all, reconcile_server as reconcile_one_server
 from .security import (client_ip, consume_password_reset_token, create_login_session, create_password_reset_token, get_login_session, login_block_remaining_seconds, new_totp_secret, record_login_event, revoke_current_session, revoke_other_sessions, totp_uri, verify_totp)
 from .db import Base, SessionLocal, engine
@@ -523,9 +524,11 @@ def seed():
             "payment_expire_minutes": "30",
             "payment_late_grace_hours": "24",
             "payment_tron_enabled": "true",
+            "payment_tron_mode": "auto",
             "payment_tron_wallet": "",
             "payment_tron_contract": TRON_USDT_CONTRACT,
             "payment_polygon_enabled": "true",
+            "payment_polygon_mode": "auto",
             "payment_polygon_wallet": "",
             "payment_polygon_rpc": os.getenv("POLYGON_RPC_URL", "https://polygon.drpc.org"),
             "payment_polygon_contract": POLYGON_USDT0_CONTRACT,
@@ -1351,6 +1354,29 @@ def recharge_detail(request: Request, recharge_id: int):
         return render(request, "recharge_detail.html", db, recharge=order, payment_cfg=payment_config(db), now=datetime.utcnow())
 
 
+@app.post("/recharge/{recharge_id}/txid")
+def recharge_submit_txid(request: Request, recharge_id: int, tx_hash: str = Form(...), csrf_token: str = Form(...)):
+    validate_csrf(request, csrf_token)
+    tx_hash = (tx_hash or "").strip()
+    normalized = tx_hash[2:] if tx_hash.lower().startswith("0x") else tx_hash
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", normalized):
+        flash(request, "交易哈希格式不正确，应为 64 位十六进制 TxID。", "error")
+        return RedirectResponse(f"/recharge/{recharge_id}", status_code=303)
+    with db_session() as db:
+        user = login_required(request, db)
+        order = db.get(RechargeOrder, recharge_id)
+        if not order or order.user_id != user.id:
+            raise HTTPException(404, "充值订单不存在")
+        if order.status != "manual":
+            flash(request, "只有人工充值订单需要提交交易哈希。", "warning")
+            return RedirectResponse(f"/recharge/{recharge_id}", status_code=303)
+        order.tx_hash = tx_hash[:128]
+        write_audit(db, actor=user, request=request, action="payment.recharge.txid", target_type="recharge_order", target_id=order.id, detail={"chain": order.chain})
+        db.commit()
+        flash(request, "交易哈希已提交，请等待管理员核对并确认入账。", "success")
+    return RedirectResponse(f"/recharge/{recharge_id}", status_code=303)
+
+
 @app.get("/tickets", response_class=HTMLResponse)
 def tickets_page(request: Request):
     with db_session() as db:
@@ -1962,7 +1988,7 @@ def admin_page(
             "traffic_throttled": traffic_throttled_count,
             "pending_jobs": db.scalar(select(func.count()).select_from(Job).where(Job.status.in_(["pending", "running"]))) or 0,
             "open_tickets": db.scalar(select(func.count()).select_from(Ticket).where(Ticket.status != "closed")) or 0,
-            "pending_recharges": db.scalar(select(func.count()).select_from(RechargeOrder).where(RechargeOrder.status.in_(["pending", "detected"]))) or 0,
+            "pending_recharges": db.scalar(select(func.count()).select_from(RechargeOrder).where(RechargeOrder.status.in_(["pending", "detected", "manual"]))) or 0,
             "reconcile_attention": db.scalar(select(func.count()).select_from(Server).where(Server.deleted_at.is_(None), Server.reconcile_status.in_(["warning", "error", "missing"]))) or 0,
             "hosts_total": db.scalar(select(func.count()).select_from(HostNode)) or 0,
             "hosts_online": db.scalar(select(func.count()).select_from(HostNode).where(HostNode.enabled == True, HostNode.status == "online")) or 0,
@@ -1972,6 +1998,7 @@ def admin_page(
         recharge_orders=[]; tickets=[]; jobs=[]; audit_logs=[]; balance_ledger=[]; hosts=[]; notification_rows=[]
         dashboard_recent_orders=[]; dashboard_recent_servers=[]; dashboard_stock=[]
         inventories={}; user_stats={}; site_settings={}; backup_rows=[]; backup_preview=None; plan_host_map={}; host_port_stats={}
+        repair_order=None; repair_preview=None; repair_error=None; repair_tx=""
         total_rows=0; total_pages=1
 
         def finish_page(stmt, *, order_by):
@@ -2027,6 +2054,18 @@ def admin_page(
                 if q.lstrip("#").isdigit(): cond.append(RechargeOrder.id==int(q.lstrip("#")))
                 stmt=stmt.where(or_(*cond))
             recharge_orders=finish_page(stmt, order_by=RechargeOrder.id.desc())
+
+            repair_order_id=(request.query_params.get("repair_order_id") or "").strip()
+            repair_tx=(request.query_params.get("repair_tx") or "").strip()
+            if repair_order_id.isdigit():
+                repair_order=db.get(RechargeOrder,int(repair_order_id))
+                if repair_order and repair_order.status=="paid":
+                    repair_error="该订单已经入账，无需补单。"
+                elif repair_order and repair_tx:
+                    try:
+                        repair_preview=verify_recharge_transaction(db,repair_order,repair_tx)
+                    except Exception as exc:
+                        repair_error=str(exc)[:300]
         elif section == "notifications":
             stmt=select(Notification).join(User, Notification.user_id==User.id)
             if q:
@@ -2087,8 +2126,8 @@ def admin_page(
         elif section == "payments":
             setting_keys=[
                 "payment_enabled","usdt_cny_rate","recharge_min_cny","recharge_max_cny","payment_expire_minutes","payment_late_grace_hours",
-                "payment_tron_enabled","payment_tron_wallet","payment_tron_contract",
-                "payment_polygon_enabled","payment_polygon_wallet","payment_polygon_rpc","payment_polygon_contract","payment_polygon_confirmations",
+                "payment_tron_enabled","payment_tron_mode","payment_tron_wallet",
+                "payment_polygon_enabled","payment_polygon_mode","payment_polygon_wallet","payment_polygon_rpc","payment_polygon_confirmations",
             ]
             bool_setting_keys=["payment_enabled","payment_tron_enabled","payment_polygon_enabled"]
         elif section == "notifications":
@@ -2124,6 +2163,7 @@ def admin_page(
             stats=stats,node=node,business=business,plans=plans,system_images=system_images,coupons=coupons,users=users,servers=servers,orders=orders,
             recharge_orders=recharge_orders,tickets=tickets,jobs=jobs,audit_logs=audit_logs,balance_ledger=balance_ledger,backup_rows=backup_rows,backup_preview=backup_preview,hosts=hosts,notification_rows=notification_rows,
             inventories=inventories,user_stats=user_stats,site_settings=site_settings,payment_cfg=payment_cfg,env_status=env_status,deployment=deployment,plan_host_map=plan_host_map,host_port_stats=host_port_stats,
+            repair_order=repair_order,repair_preview=repair_preview,repair_error=repair_error,repair_tx=repair_tx,
             dashboard_recent_orders=dashboard_recent_orders,dashboard_recent_servers=dashboard_recent_servers,dashboard_stock=dashboard_stock,
         )
 
@@ -3071,24 +3111,21 @@ async def admin_update_settings(request: Request):
                     raise ValueError("Polygon 确认数应在 1-1000 之间")
 
                 tron_wallet = str(form.get("payment_tron_wallet") or "").strip()
-                tron_contract = str(form.get("payment_tron_contract") or "").strip() or TRON_USDT_CONTRACT
                 polygon_wallet = str(form.get("payment_polygon_wallet") or "").strip()
-                polygon_contract = str(form.get("payment_polygon_contract") or "").strip() or POLYGON_USDT0_CONTRACT
                 polygon_rpc = str(form.get("payment_polygon_rpc") or "").strip()
                 tron_enabled = str(form.get("payment_tron_enabled")) == "true"
                 polygon_enabled = str(form.get("payment_polygon_enabled")) == "true"
                 payment_enabled = str(form.get("payment_enabled")) == "true"
+                tron_mode = str(form.get("payment_tron_mode") or "auto").strip().lower()
+                polygon_mode = str(form.get("payment_polygon_mode") or "auto").strip().lower()
+                if tron_mode not in {"auto", "manual"} or polygon_mode not in {"auto", "manual"}:
+                    raise ValueError("充值模式参数不正确")
 
-                # Save incomplete channel configuration instead of blocking unrelated admin edits.
-                # Non-empty addresses still get a helpful warning if their format looks wrong.
+                # Contracts are security constants owned by XNAT and are never accepted from the browser.
                 if tron_wallet and not valid_tron_address(tron_wallet):
                     warnings.append("TRON 收款地址格式看起来不正确")
-                if tron_contract and not valid_tron_address(tron_contract):
-                    warnings.append("TRON USDT 合约地址格式看起来不正确")
                 if polygon_wallet and not valid_evm_address(polygon_wallet):
                     warnings.append("Polygon 收款地址格式看起来不正确")
-                if polygon_contract and not valid_evm_address(polygon_contract):
-                    warnings.append("Polygon Token 合约地址格式看起来不正确")
 
                 values = {
                     "payment_enabled": "true" if payment_enabled else "false",
@@ -3098,12 +3135,14 @@ async def admin_update_settings(request: Request):
                     "payment_expire_minutes": str(expire_minutes),
                     "payment_late_grace_hours": str(grace_hours),
                     "payment_tron_enabled": "true" if tron_enabled else "false",
+                    "payment_tron_mode": tron_mode,
                     "payment_tron_wallet": tron_wallet,
-                    "payment_tron_contract": tron_contract,
+                    "payment_tron_contract": TRON_USDT_CONTRACT,
                     "payment_polygon_enabled": "true" if polygon_enabled else "false",
+                    "payment_polygon_mode": polygon_mode,
                     "payment_polygon_wallet": polygon_wallet,
                     "payment_polygon_rpc": polygon_rpc,
-                    "payment_polygon_contract": polygon_contract,
+                    "payment_polygon_contract": POLYGON_USDT0_CONTRACT,
                     "payment_polygon_confirmations": str(polygon_confirmations),
                 }
 
@@ -3117,10 +3156,14 @@ async def admin_update_settings(request: Request):
 
                 current_trongrid_key = new_trongrid_key or runtime_secret(db, "trongrid_api_key_enc", env_name="TRONGRID_API_KEY", default="")
                 if payment_enabled:
-                    if tron_enabled and (not tron_wallet or not current_trongrid_key):
-                        warnings.append("TRON 通道配置尚未完整")
-                    if polygon_enabled and (not polygon_wallet or not polygon_rpc):
-                        warnings.append("Polygon 通道配置尚未完整")
+                    if tron_enabled and not tron_wallet:
+                        warnings.append("TRON 收款地址尚未配置")
+                    elif tron_enabled and tron_mode == "auto" and not current_trongrid_key:
+                        warnings.append("TRON 自动模式尚未配置 TronGrid API Key")
+                    if polygon_enabled and not polygon_wallet:
+                        warnings.append("Polygon 收款地址尚未配置")
+                    elif polygon_enabled and polygon_mode == "auto" and not polygon_rpc:
+                        warnings.append("Polygon 自动模式尚未配置 RPC")
                     if not tron_enabled and not polygon_enabled:
                         warnings.append("支付总开关已开启，但当前没有启用任何网络")
                 success_text = "USDT 支付设置已保存。"
@@ -3304,6 +3347,223 @@ def admin_provision_server(request:Request,user_identifier:str=Form(...),plan_id
             write_audit(db,actor=admin,request=request,action="admin.server.provision.queue",target_type="server",target_id=server.id,target_name=server.name,detail={"user":user.username,"job_id":job.id}); db.commit(); flash(request,f"已为 {user.username} 创建 {server.name}，开通任务 #{job.id} 已进入队列。","success")
         except Exception as exc: db.rollback(); flash(request,f"管理员开通失败：{str(exc)[:180]}","error")
     return RedirectResponse("/admin?section=provision",status_code=303)
+
+
+@app.post("/admin/payments/test-tron")
+def admin_payment_test_tron(request: Request, csrf_token: str = Form(...)):
+    validate_csrf(request, csrf_token)
+    with db_session() as db:
+        admin = admin_required(request, db)
+        try:
+            result = test_tron_configuration(db)
+            write_audit(db, actor=admin, request=request, action="admin.payment.test_tron", target_type="payment", detail={"mode": result.get("mode")})
+            db.commit()
+            flash(request, result["message"], "success")
+        except Exception as exc:
+            db.rollback()
+            flash(request, f"TRON 配置测试失败：{str(exc)[:180]}", "error")
+    return RedirectResponse("/admin?section=payments", status_code=303)
+
+
+@app.post("/admin/payments/test-polygon")
+def admin_payment_test_polygon(request: Request, csrf_token: str = Form(...)):
+    validate_csrf(request, csrf_token)
+    with db_session() as db:
+        admin = admin_required(request, db)
+        try:
+            result = test_polygon_configuration(db)
+            write_audit(db, actor=admin, request=request, action="admin.payment.test_polygon", target_type="payment", detail={"mode": result.get("mode")})
+            db.commit()
+            flash(request, result["message"], "success")
+        except Exception as exc:
+            db.rollback()
+            flash(request, f"Polygon 配置测试失败：{str(exc)[:180]}", "error")
+    return RedirectResponse("/admin?section=payments", status_code=303)
+
+
+@app.post("/admin/payments/{recharge_id}/manual-confirm")
+def admin_payment_manual_confirm(request: Request, recharge_id: int, confirm_text: str = Form(...), tx_hash: str = Form(""), csrf_token: str = Form(...)):
+    validate_csrf(request, csrf_token)
+    if (confirm_text or "").strip().upper() != "PAID":
+        flash(request, "请输入 PAID 确认人工入账。", "error")
+        return RedirectResponse("/admin?section=payments", status_code=303)
+    tx_hash = (tx_hash or "").strip()
+    if tx_hash:
+        normalized = tx_hash[2:] if tx_hash.lower().startswith("0x") else tx_hash
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", normalized):
+            flash(request, "交易哈希格式不正确。", "error")
+            return RedirectResponse("/admin?section=payments", status_code=303)
+    with db_session() as db:
+        admin = admin_required(request, db)
+        order = db.get(RechargeOrder, recharge_id)
+        if not order:
+            raise HTTPException(404, "充值订单不存在")
+        try:
+            credited = manual_credit_order(db, order, tx_hash=tx_hash or order.tx_hash)
+            write_audit(db, actor=admin, request=request, action="admin.payment.manual_confirm", target_type="recharge_order", target_id=order.id, detail={"credited": credited, "chain": order.chain})
+            db.commit()
+            flash(request, f"充值订单 #{order.id} 已人工确认入账。" if credited else "该充值订单已经入账。", "success")
+        except Exception as exc:
+            db.rollback()
+            flash(request, f"人工确认失败：{str(exc)[:180]}", "error")
+    return RedirectResponse("/admin?section=payments", status_code=303)
+
+
+@app.post("/admin/payments/{recharge_id}/repair-confirm")
+def admin_payment_repair_confirm(
+    request: Request,
+    recharge_id: int,
+    tx_hash: str = Form(...),
+    confirm_text: str = Form(...),
+    csrf_token: str = Form(...),
+):
+    validate_csrf(request, csrf_token)
+    if (confirm_text or "").strip().upper() != "PAID":
+        flash(request, "请输入 PAID 确认补单。", "error")
+        return RedirectResponse(f"/admin?section=payments&repair_order_id={recharge_id}", status_code=303)
+
+    with db_session() as db:
+        admin = admin_required(request, db)
+        order = db.get(RechargeOrder, recharge_id)
+        if not order:
+            raise HTTPException(404, "充值订单不存在")
+        try:
+            verified = verify_recharge_transaction(db, order, tx_hash)
+            credited = repair_credit_order(db, order, tx_hash=tx_hash, verified=verified)
+            write_audit(
+                db,
+                actor=admin,
+                request=request,
+                action="admin.payment.repair_verified",
+                target_type="recharge_order",
+                target_id=order.id,
+                detail={
+                    "credited": credited,
+                    "chain": order.chain,
+                    "tx_hash": normalize_tx_hash(order.chain, tx_hash),
+                    "expected_usdt": usdt_units_to_text(order.expected_usdt_units),
+                    "requested_cny_cents": order.requested_cny_cents,
+                },
+            )
+            db.commit()
+            flash(request, f"充值订单 #{order.id} 已完成链上校验并补单入账。" if credited else "该订单已经入账。", "success")
+        except Exception as exc:
+            db.rollback()
+            flash(request, f"补单失败：{str(exc)[:220]}", "error")
+    return RedirectResponse("/admin?section=payments", status_code=303)
+
+
+@app.post("/admin/payments/{recharge_id}/repair-force")
+def admin_payment_repair_force(
+    request: Request,
+    recharge_id: int,
+    tx_hash: str = Form(...),
+    confirm_text: str = Form(...),
+    csrf_token: str = Form(...),
+):
+    validate_csrf(request, csrf_token)
+    if (confirm_text or "").strip().upper() != "FORCE PAID":
+        flash(request, "请输入 FORCE PAID 确认强制补单。", "error")
+        return RedirectResponse(f"/admin?section=payments&repair_order_id={recharge_id}&repair_tx={tx_hash}", status_code=303)
+
+    with db_session() as db:
+        admin = admin_required(request, db)
+        order = db.get(RechargeOrder, recharge_id)
+        if not order:
+            raise HTTPException(404, "充值订单不存在")
+        try:
+            credited = repair_credit_order(db, order, tx_hash=tx_hash, force=True)
+            write_audit(
+                db,
+                actor=admin,
+                request=request,
+                action="admin.payment.repair_force",
+                target_type="recharge_order",
+                target_id=order.id,
+                detail={
+                    "credited": credited,
+                    "chain": order.chain,
+                    "tx_hash": normalize_tx_hash(order.chain, tx_hash),
+                    "expected_usdt": usdt_units_to_text(order.expected_usdt_units),
+                    "requested_cny_cents": order.requested_cny_cents,
+                    "warning": "force repair without chain verification",
+                },
+            )
+            db.commit()
+            flash(request, f"充值订单 #{order.id} 已强制补单入账。" if credited else "该订单已经入账。", "success")
+        except Exception as exc:
+            db.rollback()
+            flash(request, f"强制补单失败：{str(exc)[:220]}", "error")
+    return RedirectResponse("/admin?section=payments", status_code=303)
+
+
+@app.post("/admin/payments/{recharge_id}/repair-no-tx")
+def admin_payment_repair_no_tx(
+    request: Request,
+    recharge_id: int,
+    reason: str = Form(...),
+    confirm_text: str = Form(...),
+    csrf_token: str = Form(...),
+):
+    validate_csrf(request, csrf_token)
+    if (confirm_text or "").strip().upper() != "FORCE CREDIT":
+        flash(request, "请输入 FORCE CREDIT 确认无 TxHash 强制补单。", "error")
+        return RedirectResponse(
+            f"/admin?section=payments&repair_order_id={recharge_id}#payment-repair",
+            status_code=303,
+        )
+
+    reason = re.sub(r"\s+", " ", (reason or "").strip())
+    if len(reason) < 5:
+        flash(request, "请填写至少 5 个字符的补单原因。", "error")
+        return RedirectResponse(
+            f"/admin?section=payments&repair_order_id={recharge_id}#payment-repair",
+            status_code=303,
+        )
+    if len(reason) > 300:
+        flash(request, "补单原因最多 300 个字符。", "error")
+        return RedirectResponse(
+            f"/admin?section=payments&repair_order_id={recharge_id}#payment-repair",
+            status_code=303,
+        )
+
+    with db_session() as db:
+        admin = admin_required(request, db)
+        order = db.get(RechargeOrder, recharge_id)
+        if not order:
+            raise HTTPException(404, "充值订单不存在")
+        try:
+            credited = force_credit_order_without_tx(db, order, reason=reason)
+            write_audit(
+                db,
+                actor=admin,
+                request=request,
+                action="admin.payment.repair_no_tx",
+                target_type="recharge_order",
+                target_id=order.id,
+                detail={
+                    "credited": credited,
+                    "chain": order.chain,
+                    "tx_hash": None,
+                    "chain_verified": False,
+                    "expected_usdt": usdt_units_to_text(order.expected_usdt_units),
+                    "requested_cny_cents": order.requested_cny_cents,
+                    "reason": reason,
+                    "warning": "credited without transaction hash or chain verification",
+                },
+            )
+            db.commit()
+            flash(
+                request,
+                f"充值订单 #{order.id} 已执行无 TxHash 人工补单。"
+                if credited else "该订单已经入账。",
+                "success",
+            )
+        except Exception as exc:
+            db.rollback()
+            flash(request, f"无 TxHash 补单失败：{str(exc)[:220]}", "error")
+
+    return RedirectResponse("/admin?section=payments", status_code=303)
 
 
 @app.post("/admin/payments/scan")
@@ -3497,7 +3757,7 @@ def admin_backup_download(request:Request,backup_name:str):
 def health():
     return {
         "status": "ok",
-        "version": "1.0.1",
+        "version": "1.0.2",
         "provider": PROVIDER_NAME,
         "timezone": APP_TIMEZONE,
     }

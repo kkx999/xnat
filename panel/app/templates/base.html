@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{% block title %}{{ app_name }}{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}?v=1.0.1-sidebar-blue">
+  <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}?v=1.0.2-no-tx-repair">
 </head>
 {% set is_home_area = request.url.path == '/' %}
 {% set is_admin_area = request.url.path.startswith('/admin') %}
@@ -151,7 +151,7 @@
 {% else %}
   </main>
   <footer class="wrap footer">
-    XNAT v1.0.1 Multi-Node · Provider: {{ provider_name }}
+    XNAT v1.0.2 Multi-Node · Provider: {{ provider_name }}
   </footer>
 {% endif %}
 

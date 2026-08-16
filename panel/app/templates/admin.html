@@ -37,7 +37,7 @@
         <div class="admin-nav-group-items">
           <a class="{% if section == 'servers' %}active{% endif %}" href="/admin?section=servers"><span class="nav-mark">▣</span><span>服务器</span></a>
           <a class="{% if section == 'orders' %}active{% endif %}" href="/admin?section=orders"><span class="nav-mark">≡</span><span>订单</span></a>
-          <a class="{% if section == 'payments' %}active{% endif %}" href="/admin?section=payments"><span class="nav-mark">$</span><span>USDT 自动充值</span></a>
+          <a class="{% if section == 'payments' %}active{% endif %}" href="/admin?section=payments"><span class="nav-mark">$</span><span>USDT 充值</span></a>
           <a class="{% if section == 'tickets' %}active{% endif %}" href="/admin?section=tickets"><span class="nav-mark">?</span><span>工单</span></a>
         </div>
       </details>
@@ -97,7 +97,7 @@
         {% elif section == "orders" %}
           <span class="eyebrow">ORDERS</span><h1>订单</h1>
         {% elif section == "payments" %}
-          <span class="eyebrow">PAYMENTS</span><h1>USDT 自动充值</h1>
+          <span class="eyebrow">PAYMENTS</span><h1>USDT 充值</h1>
         {% elif section == "tickets" %}
           <span class="eyebrow">SUPPORT</span><h1>工单管理</h1>
         {% elif section == "jobs" %}
@@ -627,8 +627,8 @@
           <input type="hidden" name="scope" value="payments">
           <section class="settings-section">
             <div class="settings-section-head">
-              <div><span class="eyebrow">PAYMENTS</span><h3>USDT 自动充值</h3><p>允许先保存不完整配置，真正创建充值订单时再进行通道安全校验。</p></div>
-              <span class="settings-health">TronGrid {{ 'OK' if env_status.trongrid else '未配置 API Key' }}</span>
+              <div><span class="eyebrow">PAYMENTS</span><h3>USDT 充值</h3><p>支持自动扫链和人工确认两种模式。XNAT 只需要公开收款地址，不需要钱包私钥或助记词。</p></div>
+              <span class="settings-health">官方 Token 合约由系统锁定</span>
             </div>
             <div class="settings-fields three-col">
               <label>支付总开关<select name="payment_enabled"><option value="true" {% if site_settings.payment_enabled %}selected{% endif %}>开启</option><option value="false" {% if not site_settings.payment_enabled %}selected{% endif %}>关闭</option></select></label>
@@ -636,39 +636,148 @@
               <label>支付超时（分钟）<input type="number" name="payment_expire_minutes" value="{{ site_settings.payment_expire_minutes }}"></label>
               <label>最低充值 ¥<input name="recharge_min_cny" value="{{ site_settings.recharge_min_cny }}"></label>
               <label>最高充值 ¥<input name="recharge_max_cny" value="{{ site_settings.recharge_max_cny }}"></label>
-              <label>超时后继续扫描（小时）<input type="number" name="payment_late_grace_hours" value="{{ site_settings.payment_late_grace_hours }}"></label>
+              <label>自动订单超时后继续扫描（小时）<input type="number" name="payment_late_grace_hours" value="{{ site_settings.payment_late_grace_hours }}"></label>
             </div>
 
-            <div class="chain-settings">
-              <div>
-                <h4>USDT · TRON (TRC20)</h4>
+            <div class="chain-settings payment-chain-settings">
+              <div class="payment-chain-card">
+                <div class="payment-chain-head"><div><h4>USDT · TRON (TRC20)</h4><span>{{ '自动扫链' if payment_cfg.tron_mode == 'auto' else '人工确认' }}</span></div><code>TRON</code></div>
                 <label>启用<select name="payment_tron_enabled"><option value="true" {% if site_settings.payment_tron_enabled %}selected{% endif %}>开启</option><option value="false" {% if not site_settings.payment_tron_enabled %}selected{% endif %}>关闭</option></select></label>
+                <label>充值模式<select name="payment_tron_mode"><option value="auto" {% if payment_cfg.tron_mode == 'auto' %}selected{% endif %}>自动充值 · TronGrid 扫链</option><option value="manual" {% if payment_cfg.tron_mode == 'manual' %}selected{% endif %}>人工充值 · 管理员确认</option></select><small>人工模式只需要收款地址；自动模式还需要 TronGrid API Key。</small></label>
                 <label>收款地址<input name="payment_tron_wallet" value="{{ site_settings.payment_tron_wallet }}" placeholder="T..."></label>
-                <label>USDT 合约<input name="payment_tron_contract" value="{{ site_settings.payment_tron_contract }}"></label>
+                <label class="system-contract-field">USDT 官方合约<input value="{{ payment_cfg.tron_contract }}" readonly aria-readonly="true"><small><strong>系统锁定</strong> 用于确认链上转入的是官方 USDT Token。请勿修改，后端也不会接受自定义合约。</small></label>
                 <label>TronGrid API Key
-                  <input type="password" name="trongrid_api_key" autocomplete="new-password" placeholder="{{ '已配置，留空不修改' if env_status.trongrid else '输入 TronGrid API Key' }}">
+                  <input type="password" name="trongrid_api_key" autocomplete="new-password" placeholder="{{ '已配置，留空不修改' if env_status.trongrid else '自动模式需要填写；人工模式可留空' }}">
+                  <small>仅用于读取 TRON 主网交易，不是钱包私钥，不具备转账权限。</small>
                 </label>
                 {% if env_status.trongrid %}<label class="secret-clear-row"><input type="checkbox" name="clear_trongrid_api_key" value="true"> 清除已保存的 API Key</label>{% endif %}
               </div>
-              <div>
-                <h4>USDT · Polygon (USDT0)</h4>
+              <div class="payment-chain-card">
+                <div class="payment-chain-head"><div><h4>USDT · Polygon (USDT0)</h4><span>{{ '自动扫链' if payment_cfg.polygon_mode == 'auto' else '人工确认' }}</span></div><code>POLYGON</code></div>
                 <label>启用<select name="payment_polygon_enabled"><option value="true" {% if site_settings.payment_polygon_enabled %}selected{% endif %}>开启</option><option value="false" {% if not site_settings.payment_polygon_enabled %}selected{% endif %}>关闭</option></select></label>
+                <label>充值模式<select name="payment_polygon_mode"><option value="auto" {% if payment_cfg.polygon_mode == 'auto' %}selected{% endif %}>自动充值 · RPC 扫链</option><option value="manual" {% if payment_cfg.polygon_mode == 'manual' %}selected{% endif %}>人工充值 · 管理员确认</option></select><small>人工模式只需要收款地址；自动模式还需要可用的 Polygon RPC。</small></label>
                 <label>收款地址<input name="payment_polygon_wallet" value="{{ site_settings.payment_polygon_wallet }}" placeholder="0x..."></label>
-                <label>RPC<input name="payment_polygon_rpc" value="{{ site_settings.payment_polygon_rpc }}"></label>
-                <label>Token 合约<input name="payment_polygon_contract" value="{{ site_settings.payment_polygon_contract }}"></label>
-                <label>确认数<input type="number" name="payment_polygon_confirmations" value="{{ site_settings.payment_polygon_confirmations }}"></label>
+                <label>RPC<input name="payment_polygon_rpc" value="{{ site_settings.payment_polygon_rpc }}"><small>自动模式使用。测试会检查 Chain ID 137 和系统内置合约。</small></label>
+                <label class="system-contract-field">USDT0 官方合约<input value="{{ payment_cfg.polygon_contract }}" readonly aria-readonly="true"><small><strong>系统锁定</strong> 用于识别 Polygon 上的 USDT0 充值交易。仅显示，不允许编辑。</small></label>
+                <label>确认数<input type="number" min="1" max="1000" name="payment_polygon_confirmations" value="{{ site_settings.payment_polygon_confirmations }}"></label>
               </div>
             </div>
-            <div class="settings-note">可以先保存再慢慢补配置。钱包私钥、助记词仍然不要填写到面板。</div>
-            <div class="settings-save-row"><span>独立保存 USDT 自动充值</span><button type="submit">保存自动充值设置</button></div>
+            <div class="settings-note">合约地址是识别 USDT Token 的安全边界，因此由 XNAT 固定。收款地址属于公开地址，可以填写；钱包私钥、助记词、Keystore 密码永远不要填写到面板。</div>
+            <div class="settings-save-row"><span>先保存设置，再使用下面的通道测试。</span><button type="submit">保存 USDT 充值设置</button></div>
           </section>
         </form>
+
+        <section class="settings-section payment-test-section">
+          <div class="settings-section-head"><div><span class="eyebrow">CHANNEL TEST</span><h3>通道测试</h3><p>不会发送 USDT，也不会操作钱包。自动模式测试 API / RPC；人工模式只检查收款地址。</p></div></div>
+          <div class="payment-test-grid">
+            <form method="post" action="/admin/payments/test-tron"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><div><strong>TRON</strong><span>{{ 'TronGrid 已配置' if env_status.trongrid else 'TronGrid 未配置' }} · {{ '自动' if payment_cfg.tron_mode == 'auto' else '人工' }}</span></div><button type="submit">测试 TRON 配置</button></form>
+            <form method="post" action="/admin/payments/test-polygon"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><div><strong>Polygon</strong><span>{{ '自动 RPC' if payment_cfg.polygon_mode == 'auto' else '人工确认' }}</span></div><button type="submit">测试 Polygon 配置</button></form>
+          </div>
+        </section>
       </div>
-      <div class="admin-section-actions"><div><strong>链上充值监控</strong><span>面板只使用收款地址和只读 RPC/API，不保存钱包私钥。</span></div><form method="post" action="/admin/payments/scan"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">立即扫描链上订单</button></form></div>
-      <div class="payment-admin-summary"><div><span>支付总开关</span><strong>{{ "已开启" if payment_cfg.enabled else "未开启" }}</strong></div><div><span>汇率</span><strong>{{ rate_text(payment_cfg.rate_micros) }}</strong></div><div><span>TRON</span><strong>{{ "启用" if payment_cfg.tron_enabled else "停用" }}</strong></div><div><span>Polygon</span><strong>{{ "启用" if payment_cfg.polygon_enabled else "停用" }}</strong></div></div>
+      <div class="admin-section-actions"><div><strong>充值订单</strong><span>自动订单由链上扫描入账；异常、延迟或超时付款可通过“补单”恢复。</span></div><form method="post" action="/admin/payments/scan"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">立即扫描自动订单</button></form></div>
+      <div class="payment-admin-summary"><div><span>支付总开关</span><strong>{{ "已开启" if payment_cfg.enabled else "未开启" }}</strong></div><div><span>汇率</span><strong>{{ rate_text(payment_cfg.rate_micros) }}</strong></div><div><span>TRON</span><strong>{{ ("自动" if payment_cfg.tron_mode == "auto" else "人工") if payment_cfg.tron_enabled else "停用" }}</strong></div><div><span>Polygon</span><strong>{{ ("自动" if payment_cfg.polygon_mode == "auto" else "人工") if payment_cfg.polygon_enabled else "停用" }}</strong></div></div>
       <form class="admin-search" method="get" action="/admin"><input type="hidden" name="section" value="payments"><input name="q" value="{{ q }}" placeholder="搜索订单号、用户、链、状态、TxHash"><button>搜索</button>{% if q %}<a href="/admin?section=payments">清除</a>{% endif %}</form>
       <div class="result-meta">共 {{ total_rows }} 条结果</div>
-      <div class="table-wrap"><table><thead><tr><th>订单</th><th>用户</th><th>网络</th><th>充值</th><th>应付 USDT</th><th>状态</th><th>TxHash</th><th>创建/到期</th></tr></thead><tbody>{% for r in recharge_orders %}<tr><td>#{{ r.id }}</td><td>{{ r.user.username }}</td><td>{{ "TRON" if r.chain == "tron" else "Polygon" }}</td><td>{{ money(r.requested_cny_cents) }}</td><td><code>{{ usdt_units_to_text(r.expected_usdt_units) }}</code></td><td>{{ recharge_status_label(r.status) }}</td><td><code class="hash-code">{{ r.tx_hash or "-" }}</code></td><td>{{ local_dt(r.created_at).strftime('%m-%d %H:%M') }}<small>→ {{ local_dt(r.expires_at).strftime('%m-%d %H:%M') }}</small></td></tr>{% else %}<tr><td colspan="8">暂无充值订单</td></tr>{% endfor %}</tbody></table></div>
+      {% if repair_order %}
+      <section class="payment-repair-panel" id="payment-repair">
+        <div class="payment-repair-head">
+          <div>
+            <span class="eyebrow">ORDER REPAIR</span>
+            <h3>手动补单 · 订单 #{{ repair_order.id }}</h3>
+            <p>补单始终按订单创建时的人民币金额入账，不会使用当前汇率重新计算。</p>
+          </div>
+          <a class="payment-repair-close" href="/admin?section=payments">关闭</a>
+        </div>
+
+        <div class="payment-repair-facts">
+          <div><span>用户</span><strong>{{ repair_order.user.username }}</strong></div>
+          <div><span>网络</span><strong>{{ 'TRON · TRC20' if repair_order.chain == 'tron' else 'Polygon · USDT0' }}</strong></div>
+          <div><span>充值金额</span><strong>{{ money(repair_order.requested_cny_cents) }}</strong></div>
+          <div><span>应付 USDT</span><strong>{{ usdt_units_to_text(repair_order.expected_usdt_units) }}</strong></div>
+          <div><span>当前状态</span><strong>{{ recharge_status_label(repair_order.status) }}</strong></div>
+          <div><span>到期时间</span><strong>{{ local_dt(repair_order.expires_at).strftime('%Y-%m-%d %H:%M') }}</strong></div>
+        </div>
+
+        {% if repair_order.status != 'paid' %}
+        <form class="payment-repair-verify" method="get" action="/admin">
+          <input type="hidden" name="section" value="payments">
+          <input type="hidden" name="repair_order_id" value="{{ repair_order.id }}">
+          <label>
+            <span>交易哈希 TxHash</span>
+            <input name="repair_tx" value="{{ repair_tx or repair_order.tx_hash or '' }}" placeholder="输入链上 TxHash" required>
+          </label>
+          <button type="submit">校验交易</button>
+        </form>
+
+        {% if repair_preview %}
+        <div class="payment-repair-result success">
+          <div class="payment-repair-result-head">
+            <div><strong>链上校验通过</strong><span>系统已核对官方 Token、收款地址、精确金额和确认状态。</span></div>
+            <span class="repair-ok-pill">可补单</span>
+          </div>
+          <div class="payment-repair-checks">
+            <div><span>实际到账</span><strong>{{ usdt_units_to_text(repair_preview.amount_units) }} USDT</strong></div>
+            <div><span>确认状态</span><strong>{{ repair_preview.confirmations }} confirmations</strong></div>
+            <div class="wide"><span>收款地址</span><code>{{ repair_preview.to_address }}</code></div>
+            <div class="wide"><span>TxHash</span><code>{{ repair_preview.tx_hash }}</code></div>
+          </div>
+          <form class="payment-repair-confirm" method="post" action="/admin/payments/{{ repair_order.id }}/repair-confirm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="tx_hash" value="{{ repair_preview.tx_hash }}">
+            <label><span>输入 <code>PAID</code> 确认补单</span><input name="confirm_text" placeholder="PAID" autocomplete="off" required></label>
+            <button type="submit">确认补单入账</button>
+          </form>
+        </div>
+        {% elif repair_error and repair_tx %}
+        <div class="payment-repair-result danger">
+          <div class="payment-repair-result-head">
+            <div><strong>自动校验未通过</strong><span>{{ repair_error }}</span></div>
+            <span class="repair-danger-pill">需人工核对</span>
+          </div>
+          <p class="payment-repair-force-note">只有你已经在区块浏览器人工确认：网络、官方 USDT、收款地址、金额和交易成功状态全部正确时，才使用强制补单。</p>
+          <form class="payment-repair-confirm force" method="post" action="/admin/payments/{{ repair_order.id }}/repair-force">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="tx_hash" value="{{ repair_tx }}">
+            <label><span>输入 <code>FORCE PAID</code> 强制补单</span><input name="confirm_text" placeholder="FORCE PAID" autocomplete="off" required></label>
+            <button type="submit">强制补单入账</button>
+          </form>
+        </div>
+        {% endif %}
+        <details class="payment-repair-no-tx">
+          <summary>
+            <span>高级危险操作</span>
+            <strong>无 TxHash 强制补单</strong>
+          </summary>
+          <div class="payment-repair-no-tx-body">
+            <div class="payment-repair-no-tx-warning">
+              <strong>此操作不会验证链上交易</strong>
+              <span>系统不会要求或伪造 TxHash，也不会写入链上交易记录。请仅在你已通过其他凭证确认收款时使用。</span>
+            </div>
+            <form method="post" action="/admin/payments/{{ repair_order.id }}/repair-no-tx">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <label class="payment-repair-no-tx-reason">
+                <span>补单原因</span>
+                <textarea name="reason" maxlength="300" placeholder="例如：TronGrid 故障期间已通过区块浏览器和钱包流水人工确认到账" required></textarea>
+                <small>必填，5–300 个字符；原因会写入余额流水和审计日志。</small>
+              </label>
+              <div class="payment-repair-no-tx-confirm">
+                <label>
+                  <span>输入 <code>FORCE CREDIT</code> 确认</span>
+                  <input name="confirm_text" placeholder="FORCE CREDIT" autocomplete="off" required>
+                </label>
+                <button type="submit">无 TxHash 强制入账</button>
+              </div>
+            </form>
+          </div>
+        </details>
+        {% else %}
+        <div class="payment-repair-already-paid">该订单已经入账，无需再次补单。</div>
+        {% endif %}
+      </section>
+      {% endif %}
+
+      <div class="table-wrap payment-orders-table"><table><thead><tr><th>订单</th><th>用户</th><th>网络</th><th>充值</th><th>应付 USDT</th><th>状态</th><th>TxHash</th><th>创建/到期</th><th>操作</th></tr></thead><tbody>{% for r in recharge_orders %}<tr><td>#{{ r.id }}</td><td>{{ r.user.username }}</td><td>{{ "TRON" if r.chain == "tron" else "Polygon" }}</td><td>{{ money(r.requested_cny_cents) }}</td><td><code>{{ usdt_units_to_text(r.expected_usdt_units) }}</code></td><td>{{ recharge_status_label(r.status) }}</td><td><code class="hash-code">{{ r.tx_hash or "-" }}</code></td><td>{{ local_dt(r.created_at).strftime('%m-%d %H:%M') }}<small>→ {{ local_dt(r.expires_at).strftime('%m-%d %H:%M') }}</small></td><td><div class="payment-order-actions">{% if r.status != 'paid' %}<a href="/admin?section=payments&repair_order_id={{ r.id }}#payment-repair">补单</a>{% else %}<span>已入账</span>{% endif %}</div></td></tr>{% else %}<tr><td colspan="9">暂无充值订单</td></tr>{% endfor %}</tbody></table></div>
       {% include "_admin_pagination.html" %}
 
     {% elif section == "tickets" %}

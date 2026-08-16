@@ -1,9 +1,120 @@
 {% extends "base.html" %}
 {% block title %}充值订单 #{{ recharge.id }} · {{ app_name }}{% endblock %}
-{% block client_header %}<span class="client-kicker">PAYMENT</span><h1>充值订单 #{{ recharge.id }}</h1><p>{{ 'USDT · TRON (TRC20)' if recharge.chain == 'tron' else 'USDT · Polygon (USDT0)' }} · {{ recharge_status_label(recharge.status) }}</p>{% endblock %}
+{% block client_header %}
+<span class="client-kicker">PAYMENT</span>
+<h1>充值订单 #{{ recharge.id }}</h1>
+<p>{{ 'USDT · TRON (TRC20)' if recharge.chain == 'tron' else 'USDT · Polygon (USDT0)' }} · {{ recharge_status_label(recharge.status) }}</p>
+{% endblock %}
+
 {% block content %}
-<section class="client-panel payment-order-card"><div class="payment-order-head"><div><span>需要支付</span><strong>{{ usdt_units_to_text(recharge.expected_usdt_units) }} <em>USDT</em></strong><small>充值 {{ money(recharge.requested_cny_cents) }} · {{ rate_text(recharge.rate_micros) }}</small></div><span class="payment-status {{ recharge.status }}">{{ recharge_status_label(recharge.status) }}</span></div>
-<div class="payment-detail-grid"><div><span>网络</span><strong>{{ 'TRON · TRC20' if recharge.chain == 'tron' else 'Polygon · USDT0' }}</strong></div><div><span>收款地址</span><code id="depositAddress">{{ recharge.deposit_address }}</code><button type="button" class="copy-mini" onclick="navigator.clipboard.writeText(document.getElementById('depositAddress').innerText)">复制</button></div><div><span>精确金额</span><code id="exactAmount">{{ usdt_units_to_text(recharge.expected_usdt_units) }} USDT</code><button type="button" class="copy-mini" onclick="navigator.clipboard.writeText('{{ usdt_units_to_text(recharge.expected_usdt_units) }}')">复制</button></div><div><span>支付期限</span><strong>{{ local_dt(recharge.expires_at).strftime('%Y-%m-%d %H:%M:%S') }}</strong></div><div><span>Token 合约</span><code>{{ recharge.token_contract }}</code></div><div><span>交易哈希</span><code>{{ recharge.tx_hash or '等待链上交易' }}</code></div></div>
-{% if recharge.status == 'paid' %}<div class="payment-success"><strong>充值已到账</strong><span>{{ money(recharge.requested_cny_cents) }} 已加入账户余额。</span></div>{% elif recharge.status == 'expired' %}<div class="payment-warning"><strong>订单已超时</strong><span>系统仍会在管理员设置的延迟窗口内扫描这笔精确金额，但请优先创建新订单后再付款。</span></div>{% else %}<div class="payment-warning"><strong>务必发送精确金额</strong><span>不要四舍五入，不要使用其他网络。链上扫描会自动完成入账，通常无需手工提交交易哈希。</span></div>{% endif %}</section>
-<a class="client-detail-link" href="/recharge">← 返回充值中心</a>
+<section class="client-panel payment-order-card payment-order-card-v102">
+  <div class="payment-order-hero">
+    <div class="payment-order-amount">
+      <span class="payment-eyebrow">需要支付</span>
+      <div class="payment-amount-line">
+        <strong>{{ usdt_units_to_text(recharge.expected_usdt_units) }}</strong>
+        <em>USDT</em>
+      </div>
+      <small>充值 {{ money(recharge.requested_cny_cents) }} · 汇率 {{ rate_text(recharge.rate_micros) }}</small>
+    </div>
+
+    <div class="payment-order-state">
+      <span class="payment-status {{ recharge.status }}">{{ recharge_status_label(recharge.status) }}</span>
+      <span class="payment-chain-chip">{{ 'TRON · TRC20' if recharge.chain == 'tron' else 'Polygon · USDT0' }}</span>
+    </div>
+  </div>
+
+  <div class="payment-pay-grid">
+    <div class="payment-info-card payment-address-card">
+      <div class="payment-info-label">
+        <span>收款地址</span>
+        <small>仅向此地址使用下方指定网络付款</small>
+      </div>
+      <div class="payment-value-row">
+        <code id="depositAddress" data-copy="{{ recharge.deposit_address }}">{{ recharge.deposit_address }}</code>
+        <button type="button" class="payment-copy-button" onclick="copyPaymentValue(this, 'depositAddress')">复制地址</button>
+      </div>
+    </div>
+
+    <div class="payment-info-card">
+      <div class="payment-info-label">
+        <span>精确支付金额</span>
+        <small>请勿四舍五入</small>
+      </div>
+      <div class="payment-value-row payment-amount-value">
+        <strong id="exactAmount" data-copy="{{ usdt_units_to_text(recharge.expected_usdt_units) }}">{{ usdt_units_to_text(recharge.expected_usdt_units) }} <em>USDT</em></strong>
+        <button type="button" class="payment-copy-button" onclick="copyPaymentValue(this, 'exactAmount')">复制金额</button>
+      </div>
+    </div>
+
+    <div class="payment-info-card">
+      <div class="payment-info-label">
+        <span>支付期限</span>
+        <small>请在订单有效期内完成转账</small>
+      </div>
+      <strong class="payment-deadline">{{ local_dt(recharge.expires_at).strftime('%Y-%m-%d %H:%M:%S') }}</strong>
+    </div>
+
+    <div class="payment-info-card">
+      <div class="payment-info-label">
+        <span>链上状态</span>
+        <small>{{ '付款后系统自动扫描到账' if recharge.status != 'manual' else '提交交易哈希后等待管理员核对' }}</small>
+      </div>
+      {% if recharge.tx_hash %}
+        <code class="payment-txhash">{{ recharge.tx_hash }}</code>
+      {% else %}
+        <strong class="payment-chain-wait">{{ '等待管理员确认' if recharge.status == 'manual' else '等待链上交易' }}</strong>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if recharge.status == 'paid' %}
+    <div class="payment-success payment-note-v102 payment-notice-text-only">
+      <div><strong>充值已到账</strong><span>{{ money(recharge.requested_cny_cents) }} 已加入账户余额。</span></div>
+    </div>
+  {% elif recharge.status == 'manual' %}
+    <div class="payment-warning manual-payment-warning payment-note-v102 payment-notice-text-only">
+      <div><strong>人工确认模式</strong><span>完成转账后提交交易哈希。管理员会核对网络、收款地址和精确金额后确认入账。</span></div>
+    </div>
+    <form class="manual-txid-form" method="post" action="/recharge/{{ recharge.id }}/txid">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>交易哈希 TxID
+        <input name="tx_hash" value="{{ recharge.tx_hash or '' }}" placeholder="TRON: 64位 TxID；Polygon: 0x..." required>
+        <small>{{ '已提交，仍可更正；等待管理员确认。' if recharge.tx_hash else '付款完成后从钱包或区块浏览器复制 TxHash。' }}</small>
+      </label>
+      <button type="submit">{{ '更新交易哈希' if recharge.tx_hash else '提交交易哈希' }}</button>
+    </form>
+  {% elif recharge.status == 'expired' %}
+    <div class="payment-warning payment-note-v102 payment-notice-text-only">
+      <div><strong>订单已超时</strong><span>请优先创建新的充值订单后再付款，避免延迟到账。</span></div>
+    </div>
+  {% else %}
+    <div class="payment-network-notice payment-notice-text-only">
+      <div>
+        <strong>仅使用 {{ 'TRON · TRC20' if recharge.chain == 'tron' else 'Polygon · USDT0' }} 网络，并发送精确金额</strong>
+        <span>请发送 {{ usdt_units_to_text(recharge.expected_usdt_units) }} USDT。不要四舍五入，也不要通过其他网络付款。</span>
+      </div>
+    </div>
+  {% endif %}
+</section>
+
+<a class="client-detail-link payment-back-link" href="/recharge">← 返回充值中心</a>
+
+<script>
+function copyPaymentValue(button, elementId) {
+  const el = document.getElementById(elementId);
+  const value = (el && (el.dataset.copy || el.textContent || '')).trim();
+  if (!value) return;
+  navigator.clipboard.writeText(value).then(function () {
+    const original = button.dataset.originalText || button.textContent;
+    button.dataset.originalText = original;
+    button.textContent = '已复制';
+    button.classList.add('copied');
+    window.setTimeout(function () {
+      button.textContent = original;
+      button.classList.remove('copied');
+    }, 1400);
+  });
+}
+</script>
 {% endblock %}
