@@ -63,14 +63,14 @@ grep -q 'upgrade-panel.sh' scripts/xnat
 grep -q 'upgrade-host-agent.sh' scripts/xnat
 grep -q 'xnat doctor' README.md || true
 
-# v1.0.0 Host UX contract: NAT user port range is configured only after the
+# v1.0.x Host UX contract: NAT user port range is configured only after the
 # node connects to Panel, not during Host installation.
 ! grep -q 'HOST_PORT_START' scripts/install-host.sh
 ! grep -q 'HOST_PORT_END' scripts/install-host.sh
 grep -q '/v1/config/nat-port-pool' agent/natvps_agent/main.py
 grep -q '尚未配置 NAT 端口池' panel/app/nodes.py
 grep -q '保存并同步到 Agent' panel/app/templates/admin.html
-# v1.0.0 final admin UX contracts.
+# v1.0.x admin UX contracts.
 grep -q '/admin/servers/{server_id}/traffic/quota' panel/app/main.py
 grep -q '/admin/servers/{server_id}/expiry' panel/app/main.py
 grep -q '磁盘仅支持扩容' panel/app/templates/admin.html

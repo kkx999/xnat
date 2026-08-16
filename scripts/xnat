@@ -990,7 +990,7 @@ cmd_update(){
   curl -fL --retry 3 --connect-timeout 15 \
     "https://github.com/${XNAT_REPO}/archive/refs/tags/v${release}.tar.gz" \
     -o "$tmp/xnat.tar.gz"
-  top="$(tar -tzf "$tmp/xnat.tar.gz" | head -n1 | cut -d/ -f1)"
+  top="$(tar -tzf "$tmp/xnat.tar.gz" | awk -F/ 'NR == 1 { print $1 }')"
   [[ -n "$top" ]] || die "无法解析 XNAT 源码包"
   tar -xzf "$tmp/xnat.tar.gz" -C "$tmp"
 

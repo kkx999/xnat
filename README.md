@@ -4,7 +4,7 @@
 
 XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、多宿主机节点、套餐、用户、流量、通知及日常运维。
 
-当前正式版本：**v1.0.0**
+当前正式版本：**v1.0.1**
 
 ---
 
@@ -73,19 +73,19 @@ Host 连接 Panel 成功后，在 Panel 后台节点设置中配置 NAT 端口�
 
 ---
 
-# 指定 v1.0.0 安装
+# 指定 v1.0.1 安装
 
 Panel：
 
 ```bash
-XNAT_VERSION=1.0.0 \
+XNAT_VERSION=1.0.1 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
 Host：
 
 ```bash
-XNAT_VERSION=1.0.0 \
+XNAT_VERSION=1.0.1 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-host.sh)
 ```
 

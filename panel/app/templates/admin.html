@@ -12,33 +12,53 @@
       </div>
     </div>
 
-    <nav class="admin-nav">
-      <a class="{% if section == 'dashboard' %}active{% endif %}" href="/admin?section=dashboard"><span class="nav-mark">⌂</span><span>仪表板</span></a>
+    <nav class="admin-nav admin-nav-collapsible">
+      <a class="admin-dashboard-link {% if section == 'dashboard' %}active{% endif %}" href="/admin?section=dashboard"><span class="nav-mark">⌂</span><span>仪表板</span></a>
 
-      <div class="nav-label">商品</div>
-      <a class="{% if section == 'plans' %}active{% endif %}" href="/admin?section=plans"><span class="nav-mark">□</span><span>套餐与库存</span></a>
-      <a class="{% if section == 'images' %}active{% endif %}" href="/admin?section=images"><span class="nav-mark">◇</span><span>系统镜像</span></a>
-      <a class="{% if section == 'coupons' %}active{% endif %}" href="/admin?section=coupons"><span class="nav-mark">％</span><span>优惠码</span></a>
+      <details class="admin-nav-group" {% if section in ['plans','images','coupons'] %}open{% endif %}>
+        <summary><span class="admin-nav-group-title"><span class="nav-mark">◇</span><span>商品</span></span><span class="admin-nav-chevron" aria-hidden="true">›</span></summary>
+        <div class="admin-nav-group-items">
+          <a class="{% if section == 'plans' %}active{% endif %}" href="/admin?section=plans"><span class="nav-mark">□</span><span>套餐与库存</span></a>
+          <a class="{% if section == 'images' %}active{% endif %}" href="/admin?section=images"><span class="nav-mark">◇</span><span>系统镜像</span></a>
+          <a class="{% if section == 'coupons' %}active{% endif %}" href="/admin?section=coupons"><span class="nav-mark">％</span><span>优惠码</span></a>
+        </div>
+      </details>
 
-      <div class="nav-label">客户</div>
-      <a class="{% if section == 'users' %}active{% endif %}" href="/admin?section=users"><span class="nav-mark">○</span><span>用户管理</span></a>
-      <a class="{% if section == 'provision' %}active{% endif %}" href="/admin?section=provision"><span class="nav-mark">＋</span><span>手动开通</span></a>
+      <details class="admin-nav-group" {% if section in ['users','provision'] %}open{% endif %}>
+        <summary><span class="admin-nav-group-title"><span class="nav-mark">○</span><span>客户</span></span><span class="admin-nav-chevron" aria-hidden="true">›</span></summary>
+        <div class="admin-nav-group-items">
+          <a class="{% if section == 'users' %}active{% endif %}" href="/admin?section=users"><span class="nav-mark">○</span><span>用户管理</span></a>
+          <a class="{% if section == 'provision' %}active{% endif %}" href="/admin?section=provision"><span class="nav-mark">＋</span><span>手动开通</span></a>
+        </div>
+      </details>
 
-      <div class="nav-label">业务</div>
-      <a class="{% if section == 'servers' %}active{% endif %}" href="/admin?section=servers"><span class="nav-mark">▣</span><span>服务器</span></a>
-      <a class="{% if section == 'orders' %}active{% endif %}" href="/admin?section=orders"><span class="nav-mark">≡</span><span>订单</span></a>
-      <a class="{% if section == 'payments' %}active{% endif %}" href="/admin?section=payments"><span class="nav-mark">$</span><span>USDT 自动充值</span></a>
-      <a class="{% if section == 'tickets' %}active{% endif %}" href="/admin?section=tickets"><span class="nav-mark">?</span><span>工单</span></a>
+      <details class="admin-nav-group" {% if section in ['servers','orders','payments','tickets'] %}open{% endif %}>
+        <summary><span class="admin-nav-group-title"><span class="nav-mark">▣</span><span>业务</span></span><span class="admin-nav-chevron" aria-hidden="true">›</span></summary>
+        <div class="admin-nav-group-items">
+          <a class="{% if section == 'servers' %}active{% endif %}" href="/admin?section=servers"><span class="nav-mark">▣</span><span>服务器</span></a>
+          <a class="{% if section == 'orders' %}active{% endif %}" href="/admin?section=orders"><span class="nav-mark">≡</span><span>订单</span></a>
+          <a class="{% if section == 'payments' %}active{% endif %}" href="/admin?section=payments"><span class="nav-mark">$</span><span>USDT 自动充值</span></a>
+          <a class="{% if section == 'tickets' %}active{% endif %}" href="/admin?section=tickets"><span class="nav-mark">?</span><span>工单</span></a>
+        </div>
+      </details>
 
-      <div class="nav-label">运维</div>
-      <a class="{% if section == 'jobs' %}active{% endif %}" href="/admin?section=jobs"><span class="nav-mark">↻</span><span>任务队列</span></a>
-      <a class="{% if section == 'audit' %}active{% endif %}" href="/admin?section=audit"><span class="nav-mark">≡</span><span>审计日志</span></a>
-      <a class="{% if section == 'backups' %}active{% endif %}" href="/admin?section=backups"><span class="nav-mark">□</span><span>数据库备份</span></a>
-      <a class="{% if section == 'nodes' %}active{% endif %}" href="/admin?section=nodes"><span class="nav-mark">N</span><span>宿主机节点</span></a>
+      <details class="admin-nav-group" {% if section in ['jobs','audit','backups','nodes'] %}open{% endif %}>
+        <summary><span class="admin-nav-group-title"><span class="nav-mark">↻</span><span>运维</span></span><span class="admin-nav-chevron" aria-hidden="true">›</span></summary>
+        <div class="admin-nav-group-items">
+          <a class="{% if section == 'jobs' %}active{% endif %}" href="/admin?section=jobs"><span class="nav-mark">↻</span><span>任务队列</span></a>
+          <a class="{% if section == 'audit' %}active{% endif %}" href="/admin?section=audit"><span class="nav-mark">≡</span><span>审计日志</span></a>
+          <a class="{% if section == 'backups' %}active{% endif %}" href="/admin?section=backups"><span class="nav-mark">□</span><span>数据库备份</span></a>
+          <a class="{% if section == 'nodes' %}active{% endif %}" href="/admin?section=nodes"><span class="nav-mark">N</span><span>宿主机节点</span></a>
+        </div>
+      </details>
 
-      <div class="nav-label">系统</div>
-      <a class="{% if section == 'notifications' %}active{% endif %}" href="/admin?section=notifications"><span class="nav-mark">◎</span><span>通知服务</span></a>
-      <a class="{% if section == 'settings' %}active{% endif %}" href="/admin?section=settings"><span class="nav-mark">⚙</span><span>站点设置</span></a>
+      <details class="admin-nav-group" {% if section in ['notifications','settings'] %}open{% endif %}>
+        <summary><span class="admin-nav-group-title"><span class="nav-mark">⚙</span><span>系统</span></span><span class="admin-nav-chevron" aria-hidden="true">›</span></summary>
+        <div class="admin-nav-group-items">
+          <a class="{% if section == 'notifications' %}active{% endif %}" href="/admin?section=notifications"><span class="nav-mark">◎</span><span>通知服务</span></a>
+          <a class="{% if section == 'settings' %}active{% endif %}" href="/admin?section=settings"><span class="nav-mark">⚙</span><span>站点设置</span></a>
+        </div>
+      </details>
     </nav>
 
     <div class="admin-sidebar-bottom">
@@ -57,7 +77,7 @@
     </div>
   </aside>
 
-  <section class="admin-main">
+  <section class="admin-main admin-section-{{ section }}">
     <header class="admin-topbar">
       <div>
         {% if section == "dashboard" %}
@@ -660,18 +680,103 @@
     {% elif section == "jobs" %}
       <form class="admin-search" method="get" action="/admin"><input type="hidden" name="section" value="jobs"><input name="q" value="{{ q }}" placeholder="搜索任务号、类型、状态、服务器 ID"><button>搜索</button>{% if q %}<a href="/admin?section=jobs">清除</a>{% endif %}</form>
       <div class="result-meta">共 {{ total_rows }} 条任务</div>
-      <div class="table-wrap"><table><thead><tr><th>任务</th><th>类型</th><th>用户</th><th>服务器</th><th>状态</th><th>尝试</th><th>错误/结果</th><th>时间</th><th>操作</th></tr></thead><tbody>{% for j in jobs %}<tr><td>#{{ j.id }}</td><td>{{ j.job_type }}</td><td>{{ j.user.username if j.user else '-' }}</td><td>{{ j.server.name if j.server else (j.server_id or '-') }}</td><td><span class="job-state {{ j.status }}">{{ job_status_label(j.status) }}</span></td><td>{{ j.attempts }}/{{ j.max_attempts }}</td><td class="job-detail">{{ j.error_text or j.result_json or '-' }}</td><td>{{ local_dt(j.created_at).strftime('%m-%d %H:%M:%S') }}</td><td>{% if j.status == 'failed' and j.job_type != 'provision_server' %}<form method="post" action="/admin/jobs/{{ j.id }}/retry"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>重试</button></form>{% else %}-{% endif %}</td></tr>{% else %}<tr><td colspan="9">暂无任务</td></tr>{% endfor %}</tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>任务</th><th>类型</th><th>用户</th><th>服务器</th><th>状态</th><th>尝试</th><th>错误/结果</th><th>时间</th><th>操作</th></tr></thead><tbody>{% for j in jobs %}<tr><td>#{{ j.id }}</td><td>{{ j.job_type }}</td><td>{{ j.user.username if j.user else '-' }}</td><td>{{ j.server.name if j.server else (j.server_id or '-') }}</td><td><span class="job-state {{ j.status }}">{{ job_status_label(j.status) }}</span></td><td>{{ j.attempts }}/{{ j.max_attempts }}</td><td class="job-detail">{% if j.error_text %}<span class="job-error-text">{{ j.error_text }}</span>{% elif j.result_json %}<code class="job-result-code">{{ j.result_json }}</code>{% else %}-{% endif %}</td><td>{{ local_dt(j.created_at).strftime('%m-%d %H:%M:%S') }}</td><td>{% if j.status == 'failed' and j.job_type != 'provision_server' %}<form method="post" action="/admin/jobs/{{ j.id }}/retry"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>重试</button></form>{% else %}-{% endif %}</td></tr>{% else %}<tr><td colspan="9">暂无任务</td></tr>{% endfor %}</tbody></table></div>
       {% include "_admin_pagination.html" %}
 
     {% elif section == "audit" %}
       <form class="admin-search" method="get" action="/admin"><input type="hidden" name="section" value="audit"><input name="q" value="{{ q }}" placeholder="搜索操作者、IP、动作、目标"><button>搜索</button>{% if q %}<a href="/admin?section=audit">清除</a>{% endif %}</form>
       <div class="result-meta">共 {{ total_rows }} 条审计记录</div>
-      <div class="table-wrap"><table><thead><tr><th>ID</th><th>操作者</th><th>IP</th><th>动作</th><th>目标</th><th>结果</th><th>详情</th><th>时间</th></tr></thead><tbody>{% for a in audit_logs %}<tr><td>#{{ a.id }}</td><td>{{ a.actor_username }}</td><td>{{ a.ip or '-' }}</td><td><code>{{ a.action }}</code></td><td>{{ a.target_type or '-' }} · {{ a.target_name or a.target_id or '-' }}</td><td>{{ '成功' if a.success else '失败' }}</td><td class="job-detail">{{ a.detail or '-' }}</td><td>{{ local_dt(a.created_at).strftime('%Y-%m-%d %H:%M:%S') }}</td></tr>{% else %}<tr><td colspan="8">暂无记录</td></tr>{% endfor %}</tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>ID</th><th>操作者</th><th>IP</th><th>动作</th><th>目标</th><th>结果</th><th>详情</th><th>时间</th></tr></thead><tbody>{% for a in audit_logs %}<tr><td>#{{ a.id }}</td><td>{{ a.actor_username }}</td><td>{{ a.ip or '-' }}</td><td><code>{{ a.action }}</code></td><td>{{ a.target_type or '-' }} · {{ a.target_name or a.target_id or '-' }}</td><td>{{ '成功' if a.success else '失败' }}</td><td class="job-detail">{% if a.detail %}<code class="job-result-code">{{ a.detail }}</code>{% else %}-{% endif %}</td><td>{{ local_dt(a.created_at).strftime('%Y-%m-%d %H:%M:%S') }}</td></tr>{% else %}<tr><td colspan="8">暂无记录</td></tr>{% endfor %}</tbody></table></div>
       {% include "_admin_pagination.html" %}
 
     {% elif section == "backups" %}
-      <div class="admin-section-actions"><div><strong>SQLite 自动备份</strong><span>自动保留最近 7 个每日备份和 4 个每周备份；恢复只允许通过宿主机 CLI 执行。</span></div><form method="post" action="/admin/backups/create"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>立即备份</button></form></div>
-      <div class="backup-list">{% for b in backup_rows %}<article><div><strong>{{ b.name }}</strong><span>{{ local_dt(b.created_at).strftime('%Y-%m-%d %H:%M:%S') }} · {{ human_bytes(b.size) }}</span><code>SHA256 {{ b.sha256 }}</code></div><a href="/admin/backups/{{ b.name }}/download">下载</a></article>{% else %}<div class="empty">暂无备份</div>{% endfor %}</div>
+      <div class="admin-section-actions backup-head-actions">
+        <div>
+          <strong>SQLite 自动备份</strong>
+          <span>自动保留最近 7 个每日备份和 4 个每周备份。恢复前会自动创建当前数据库快照，失败时自动回滚。</span>
+        </div>
+        <div class="backup-top-buttons">
+          <form method="post" action="/admin/backups/create">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button>立即备份</button>
+          </form>
+          <details class="backup-upload-panel">
+            <summary>上传备份</summary>
+            <form method="post" action="/admin/backups/upload" enctype="multipart/form-data">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <div class="backup-upload-title">
+                <strong>上传数据库备份</strong>
+                <span>选择从 XNAT 下载保存的 SQLite `.db` 文件</span>
+              </div>
+              <label class="backup-file-field">
+                <span>备份文件</span>
+                <input type="file" name="backup_file" accept=".db,application/x-sqlite3,application/octet-stream" required>
+              </label>
+              <small>上传后只做校验，不会立即覆盖当前数据库。系统会检查 SQLite 完整性、外键以及当前 XNAT 所需的数据表和字段，也不会覆盖 <code>.env</code>。</small>
+              <button class="backup-upload-submit" type="submit">上传并校验</button>
+            </form>
+          </details>
+        </div>
+      </div>
+
+      {% if backup_preview %}
+      <section class="backup-restore-preview">
+        <div class="backup-preview-head">
+          <div>
+            <span class="eyebrow">RESTORE CHECK</span>
+            <h3>备份校验通过</h3>
+            <p>文件还没有恢复。请核对下面信息，确认后才会替换当前数据库。</p>
+          </div>
+          <span class="backup-ok">SQLite OK</span>
+        </div>
+        <div class="backup-preview-grid">
+          <div><span>备份文件</span><strong>{{ backup_preview.name }}</strong></div>
+          <div><span>文件大小</span><strong>{{ human_bytes(backup_preview.size) }}</strong></div>
+          <div><span>用户</span><strong>{{ backup_preview.users }}</strong></div>
+          <div><span>VPS</span><strong>{{ backup_preview.servers }}</strong></div>
+          <div><span>订单</span><strong>{{ backup_preview.orders }}</strong></div>
+          <div><span>SHA256</span><code>{{ backup_preview.sha256[:16] }}…</code></div>
+        </div>
+        <form class="backup-confirm-form" method="post" action="/admin/backups/{{ backup_preview.name }}/restore">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="backup-danger-copy">
+            <strong>危险操作</strong>
+            <span>请输入 <code>RESTORE</code> 后才能恢复数据库</span>
+          </div>
+          <div class="backup-confirm-actions">
+            <input name="confirm_text" autocomplete="off" placeholder="输入 RESTORE" required>
+            <button class="danger-button" type="submit">确认恢复数据库</button>
+          </div>
+        </form>
+        <small class="backup-warning">恢复只替换 <code>panel.db</code>；不会覆盖 <code>.env</code>、APP_SECRET、域名或通知密钥。恢复前会自动创建当前数据库快照，失败时自动回滚。</small>
+      </section>
+      {% endif %}
+
+      <div class="backup-list">
+        {% for b in backup_rows %}
+        <article>
+          <div class="backup-meta">
+            <strong>{{ b.name }}</strong>
+            <span>{{ local_dt(b.created_at).strftime('%Y-%m-%d %H:%M:%S') }} · {{ human_bytes(b.size) }}</span>
+            <code>SHA256 {{ b.sha256 }}</code>
+          </div>
+          <div class="backup-actions">
+            <a href="/admin/backups/{{ b.name }}/download">下载</a>
+            <details class="backup-row-restore">
+              <summary>恢复</summary>
+              <form method="post" action="/admin/backups/{{ b.name }}/restore">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <div class="backup-row-danger">输入 <code>RESTORE</code> 确认</div>
+                <input name="confirm_text" autocomplete="off" placeholder="输入 RESTORE" required>
+                <button class="danger-button" type="submit">确认恢复</button>
+              </form>
+            </details>
+          </div>
+        </article>
+        {% else %}
+        <div class="empty">暂无备份</div>
+        {% endfor %}
+      </div>
 
     {% elif section == "nodes" %}
       <div class="admin-section-intro">

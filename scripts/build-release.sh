@@ -31,22 +31,22 @@ cp scripts/bootstrap-host.sh "$DIST/xnat-bootstrap-host-v${RELEASE_VERSION}.sh"
 cp release.json "$DIST/release.json"
 chmod +x "$DIST"/*.sh
 
+AGENT_API_VERSION="$(python3 -c 'import json; print(json.load(open("release.json"))["agent_api_version"])')"
 cat > "$DIST/RELEASE_NOTES.md" <<EOF_NOTES
 # XNAT v${RELEASE_VERSION}
 
-XNAT 首个正式基线版本。
+XNAT v${RELEASE_VERSION} 稳定修复版本。
 
 - Panel：v${PANEL_VERSION}
 - Host Agent：v${AGENT_VERSION}
-- Agent API：v$(python3 -c 'import json; print(json.load(open("release.json"))["agent_api_version"])')
-- Host 使用交互式安装：输入 Panel 真实公网 IP，并确认 natpool 容量
-- NAT 用户端口池在节点接入 Panel 后配置，并自动同步到 Agent
-- VPS 流量额度支持直接调整、重置周期与超额策略重算
-- VPS 到期时间支持自定义天数或直接指定日期时间
-- 磁盘仅允许扩容，并提供前后端双重缩容保护
-- USDT 自动充值独立管理，配置与充值记录集中到同一业务页面
-- 通知服务独立管理，支持 SMTP / Telegram 测试、全站通知规则与发送记录
-- Multi-Node NAT 端口按 Host + 协议隔离
+- Agent API：v${AGENT_API_VERSION}
+- 管理后台侧边栏改为折叠分类并统一深蓝灰视觉
+- 后台卡片、表格、输入框、按钮与文字对比度统一优化
+- 数据库备份支持本地 .db 上传校验与后台直接恢复
+- 恢复前自动创建安全快照，失败自动回滚
+- 数据库备份 / 下载 / 上传 / 恢复操作写入审计日志
+- 修复 xnat update 在 pipefail 环境下可能下载后提前退出的问题
+- 保持 v1.0.0 已验证的 Host、NAT、VPS 生命周期逻辑不变
 
 详细介绍请查看项目 README，完整部署与运维说明请查看 docs/README.md。
 EOF_NOTES

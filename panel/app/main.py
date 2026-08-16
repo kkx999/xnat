@@ -14,7 +14,7 @@ from pathlib import Path
 import psutil
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, Form, HTTPException, Request, Query
+from fastapi import FastAPI, File, Form, HTTPException, Request, Query, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -27,7 +27,7 @@ from .auth import (
 )
 from .crypto import decrypt_secret, encrypt_secret
 from .audit import write_audit
-from .backups import BACKUP_DIR, create_backup, create_scheduled_backup_if_due, list_backups
+from .backups import BACKUP_DIR, create_backup, create_scheduled_backup_if_due, list_backups, restore_backup, store_uploaded_backup, validate_backup_file
 from .jobs import enqueue_job, process_jobs
 from .notifications import process_pending_notifications, queue_notification, send_email_address, send_telegram_chat
 from .runtime_config import notification_runtime_config, runtime_plain, runtime_secret
@@ -1971,7 +1971,7 @@ def admin_page(
         plans=[]; system_images=[]; coupons=[]; users=[]; servers=[]; orders=[]
         recharge_orders=[]; tickets=[]; jobs=[]; audit_logs=[]; balance_ledger=[]; hosts=[]; notification_rows=[]
         dashboard_recent_orders=[]; dashboard_recent_servers=[]; dashboard_stock=[]
-        inventories={}; user_stats={}; site_settings={}; backup_rows=[]; plan_host_map={}; host_port_stats={}
+        inventories={}; user_stats={}; site_settings={}; backup_rows=[]; backup_preview=None; plan_host_map={}; host_port_stats={}
         total_rows=0; total_pages=1
 
         def finish_page(stmt, *, order_by):
@@ -2066,6 +2066,14 @@ def admin_page(
         elif section == "backups":
             backup_rows=list_backups()
             total_rows=len(backup_rows)
+            restore_candidate=(request.query_params.get("restore_candidate") or "").strip()
+            if restore_candidate:
+                try:
+                    candidate=(BACKUP_DIR/Path(restore_candidate).name).resolve()
+                    if candidate.parent==BACKUP_DIR.resolve() and candidate.exists():
+                        backup_preview=validate_backup_file(candidate)
+                except Exception as exc:
+                    flash(request,f"备份校验失败：{str(exc)[:180]}","error")
         setting_keys=[]
         bool_setting_keys=[]
         if section == "settings":
@@ -2114,7 +2122,7 @@ def admin_page(
         return render(request,"admin.html",db,
             section=section,q=q,page=page,per_page=per_page,total_rows=total_rows,total_pages=total_pages,
             stats=stats,node=node,business=business,plans=plans,system_images=system_images,coupons=coupons,users=users,servers=servers,orders=orders,
-            recharge_orders=recharge_orders,tickets=tickets,jobs=jobs,audit_logs=audit_logs,balance_ledger=balance_ledger,backup_rows=backup_rows,hosts=hosts,notification_rows=notification_rows,
+            recharge_orders=recharge_orders,tickets=tickets,jobs=jobs,audit_logs=audit_logs,balance_ledger=balance_ledger,backup_rows=backup_rows,backup_preview=backup_preview,hosts=hosts,notification_rows=notification_rows,
             inventories=inventories,user_stats=user_stats,site_settings=site_settings,payment_cfg=payment_cfg,env_status=env_status,deployment=deployment,plan_host_map=plan_host_map,host_port_stats=host_port_stats,
             dashboard_recent_orders=dashboard_recent_orders,dashboard_recent_servers=dashboard_recent_servers,dashboard_stock=dashboard_stock,
         )
@@ -3355,6 +3363,128 @@ def admin_backup_create(request:Request,csrf_token:str=Form(...)):
     return RedirectResponse("/admin?section=backups",status_code=303)
 
 
+
+@app.post("/admin/backups/upload")
+def admin_backup_upload(
+    request: Request,
+    backup_file: UploadFile = File(...),
+    csrf_token: str = Form(...),
+):
+    validate_csrf(request, csrf_token)
+    with db_session() as db:
+        admin = admin_required(request, db)
+        actor_username = admin.username
+    try:
+        info = store_uploaded_backup(backup_file.file, backup_file.filename or "")
+        with db_session() as db:
+            write_audit(
+                db,
+                actor_username=actor_username,
+                request=request,
+                action="admin.backup.upload",
+                target_type="backup",
+                target_name=info["name"],
+                detail={
+                    "original_name": info.get("original_name"),
+                    "sha256": info["sha256"],
+                    "size": info["size"],
+                    "users": info["users"],
+                    "servers": info["servers"],
+                    "orders": info["orders"],
+                },
+            )
+            db.commit()
+        flash(request, f"上传并校验通过：{info['name']}。确认信息后再执行恢复。", "success")
+        return RedirectResponse(
+            f"/admin?section=backups&restore_candidate={quote_plus(info['name'])}",
+            status_code=303,
+        )
+    except Exception as exc:
+        with db_session() as db:
+            write_audit(
+                db,
+                actor_username=actor_username,
+                request=request,
+                action="admin.backup.upload",
+                target_type="backup",
+                target_name=Path(backup_file.filename or "upload.db").name,
+                detail={"error": str(exc)[:500]},
+                success=False,
+            )
+            db.commit()
+        flash(request, f"上传失败：{str(exc)[:180]}", "error")
+        return RedirectResponse("/admin?section=backups", status_code=303)
+    finally:
+        try:
+            backup_file.file.close()
+        except Exception:
+            pass
+
+
+@app.post("/admin/backups/{backup_name}/restore")
+def admin_backup_restore(
+    request: Request,
+    backup_name: str,
+    confirm_text: str = Form(...),
+    csrf_token: str = Form(...),
+):
+    validate_csrf(request, csrf_token)
+    if confirm_text.strip() != "RESTORE":
+        flash(request, "恢复确认失败：请输入 RESTORE。", "error")
+        return RedirectResponse("/admin?section=backups", status_code=303)
+
+    safe_name = Path(backup_name).name
+    with db_session() as db:
+        admin = admin_required(request, db)
+        actor_username = admin.username
+
+    try:
+        result = restore_backup(safe_name)
+        safety_name = result["safety"]["name"]
+        # Write the audit entry into the restored database. actor_user_id is intentionally
+        # left null because the restored snapshot may contain a different user id layout.
+        with db_session() as db:
+            write_audit(
+                db,
+                actor_username=actor_username,
+                request=request,
+                action="admin.backup.restore",
+                target_type="backup",
+                target_name=safe_name,
+                detail={
+                    "sha256": result["restored"]["sha256"],
+                    "pre_restore_backup": safety_name,
+                    "users": result["restored"]["users"],
+                    "servers": result["restored"]["servers"],
+                    "orders": result["restored"]["orders"],
+                },
+            )
+            db.commit()
+        flash(
+            request,
+            f"数据库已恢复：{safe_name}。恢复前快照：{safety_name}。如登录状态失效，请重新登录。",
+            "success",
+        )
+    except Exception as exc:
+        try:
+            with db_session() as db:
+                write_audit(
+                    db,
+                    actor_username=actor_username,
+                    request=request,
+                    action="admin.backup.restore",
+                    target_type="backup",
+                    target_name=safe_name,
+                    detail={"error": str(exc)[:500]},
+                    success=False,
+                )
+                db.commit()
+        except Exception:
+            pass
+        flash(request, f"恢复失败：{str(exc)[:180]}", "error")
+    return RedirectResponse("/admin?section=backups", status_code=303)
+
+
 @app.get("/admin/backups/{backup_name}/download")
 def admin_backup_download(request:Request,backup_name:str):
     with db_session() as db: admin=admin_required(request,db); write_audit(db,actor=admin,request=request,action="admin.backup.download",target_type="backup",target_name=Path(backup_name).name); db.commit()
@@ -3367,7 +3497,7 @@ def admin_backup_download(request:Request,backup_name:str):
 def health():
     return {
         "status": "ok",
-        "version": "1.0.0",
+        "version": "1.0.1",
         "provider": PROVIDER_NAME,
         "timezone": APP_TIMEZONE,
     }

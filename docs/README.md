@@ -1,4 +1,4 @@
-# XNAT v1.0.0 详细使用文档
+# XNAT v1.0.1 详细使用文档
 
 > 本文档负责详细说明 XNAT 的安装和运维。  
 > 根目录 `README.md` 保持简洁，具体操作以这里为准。
@@ -71,15 +71,15 @@ bash <(...)
 # 3. 指定版本安装 Panel
 
 ```bash
-XNAT_VERSION=1.0.0 \
+XNAT_VERSION=1.0.1 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
 ```text
-XNAT_VERSION=1.0.0
+XNAT_VERSION=1.0.1
 ```
 
-表示固定安装 Release `v1.0.0`，不自动跟随以后发布的新版本。
+表示固定安装 Release `v1.0.1`，不自动跟随以后发布的新版本。
 
 ---
 
@@ -575,19 +575,19 @@ Panel Server 的真实公网 IPv4。
 
 ---
 
-# 15. 指定 v1.0.0 安装 Host
+# 15. 指定 v1.0.1 安装 Host
 
 ```bash
-XNAT_VERSION=1.0.0 \
+XNAT_VERSION=1.0.1 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-host.sh)
 ```
 
-`XNAT_VERSION=1.0.0`：
+`XNAT_VERSION=1.0.1`：
 
 固定下载 Release tag：
 
 ```text
-v1.0.0
+v1.0.1
 ```
 
 然后仍然会进入正常的交互式 Panel IP + natpool 流程。
@@ -725,9 +725,67 @@ xnat panel-ip 1.2.3.4
 
 ---
 
-# 20. 数据库备份
+# 20. 数据库备份与恢复
 
-Panel：
+Panel 后台：
+
+```text
+运维
+→ 数据库备份
+```
+
+支持：
+
+- 立即创建 SQLite 备份
+- 下载已有备份
+- 服务器已有备份直接恢复
+- 从本地上传 `.db` 后校验并恢复
+
+上传的数据库在恢复前会检查：
+
+```text
+SQLite 3 文件头
+PRAGMA integrity_check
+PRAGMA foreign_key_check
+当前 XNAT 所需的数据表
+当前 XNAT 所需的字段
+```
+
+校验通过后仍不会立即覆盖数据库，需要输入：
+
+```text
+RESTORE
+```
+
+再次确认。
+
+恢复时 XNAT 会先自动创建：
+
+```text
+panel-pre-restore-YYYYMMDD-HHMMSS.db
+```
+
+作为恢复前快照。
+
+如果恢复过程或恢复后的 SQLite 校验失败，会自动尝试回滚到恢复前数据库。
+
+后台上传恢复只替换：
+
+```text
+panel.db
+```
+
+不会覆盖：
+
+```text
+.env
+APP_SECRET
+域名配置
+Telegram / SMTP 密钥
+服务器本机配置
+```
+
+命令行同样可以管理备份：
 
 ```bash
 xnat backup
@@ -759,7 +817,7 @@ Panel 配置：
 /opt/xnat/panel/.env
 ```
 
-两者都需要认真备份。
+数据库与 `.env` 都应保留异机备份。
 
 ---
 
