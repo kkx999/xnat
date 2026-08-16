@@ -1,4 +1,4 @@
-# XNAT v1.0.2 详细使用文档
+# XNAT v1.1.0 详细使用文档
 
 > 本文档负责详细说明 XNAT 的安装和运维。  
 > 根目录 `README.md` 保持简洁，具体操作以这里为准。
@@ -71,15 +71,15 @@ bash <(...)
 # 3. 指定版本安装 Panel
 
 ```bash
-XNAT_VERSION=1.0.2 \
+XNAT_VERSION=1.1.0 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
 ```text
-XNAT_VERSION=1.0.2
+XNAT_VERSION=1.1.0
 ```
 
-表示固定安装 Release `v1.0.2`，不自动跟随以后发布的新版本。
+表示固定安装 Release `v1.1.0`，不自动跟随以后发布的新版本。
 
 ---
 
@@ -575,19 +575,19 @@ Panel Server 的真实公网 IPv4。
 
 ---
 
-# 15. 指定 v1.0.2 安装 Host
+# 15. 指定 v1.1.0 安装 Host
 
 ```bash
-XNAT_VERSION=1.0.2 \
+XNAT_VERSION=1.1.0 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-host.sh)
 ```
 
-`XNAT_VERSION=1.0.2`：
+`XNAT_VERSION=1.1.0`：
 
 固定下载 Release tag：
 
 ```text
-v1.0.2
+v1.1.0
 ```
 
 然后仍然会进入正常的交互式 Panel IP + natpool 流程。
@@ -1298,7 +1298,6 @@ failed:...    发送失败及简短错误
 ```text
 首页内容
 开放注册
-登录公告
 PUBLIC_BASE_URL
 域名 / HTTPS 状态
 登录与管理员安全
@@ -1310,21 +1309,14 @@ NAT 全局安全策略
 ```text
 USDT 自动充值 → 独立页面
 SMTP / Telegram → 独立通知服务页面
+站点公告 → 独立“公告管理”页面；用户右上角可查看历史公告
 ```
 
 这样后续运维时不需要在一个很长的设置页面里寻找业务配置。
 
 ---
 
----
 
-<div align="center">
-
-## XNAT
-
-**由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**
-
-</div>
 
 
 ## USDT 无 TxHash 强制补单
@@ -1344,3 +1336,132 @@ SMTP / Telegram → 独立通知服务页面
 - 余额流水和审计日志会明确标记为“无链上凭证人工补单”。
 
 该功能仅用于最后兜底，不建议替代正常的 TxHash 校验补单。
+
+---
+
+# 31. v1.0.2 → v1.1.0 原地升级
+
+正式兼容基线是 **XNAT Panel v1.0.2 final**。升级前不需要删除旧 Panel，也不要手工修改 SQLite。
+
+正式 v1.1.0 Tag 发布后，v1.0.2 Panel 首选直接执行：
+
+```bash
+xnat update 1.1.0
+```
+
+v1.0.2 的更新命令会下载 v1.1.0 Tag，并调用新版本自身的 `scripts/upgrade-panel.sh` 完成备份、数据库迁移、健康检查与失败回滚。
+
+如果采用手动源码包升级，把完整的 v1.1.0 源码包上传到 Panel，例如解压到：
+
+```text
+/root/xnat-v1.1.0
+```
+
+然后执行：
+
+```bash
+cd /root/xnat-v1.1.0
+bash scripts/upgrade-panel-from-v1.0.2.sh
+```
+
+专用脚本会先确认现有 Panel 版本是 `1.0.2`，然后调用通用升级器。升级器会执行以下安全流程：
+
+```text
+SQLite quick_check
+↓
+备份 panel.db / .env / 旧代码 / systemd / xnat 命令
+↓
+更新 Panel 代码
+↓
+安装/更新 Python 依赖
+↓
+执行 additive schema migration
+↓
+确认 v1.1.0 新字段全部存在
+↓
+重建 Panel / maintenance systemd 单元
+↓
+启动 Panel
+↓
+/health 必须返回 v1.1.0
+↓
+再次执行 SQLite quick_check
+```
+
+升级不会删除 `data/`，因此原有用户、余额、订单、VPS、Host、套餐、充值、通知和备份目录都会保留。`.env` 也不会被覆盖；如果 v1.0.2 使用了自定义 `PANEL_BIND_HOST` 或 `PANEL_PORT`，升级会继续使用原值。
+
+v1.1.0 的新数据库字段全部采用新增字段迁移，不重建旧表。到期自动永久删除在升级后默认仍为关闭状态。
+
+如果更新流程出现错误，脚本会尝试恢复升级前的数据库、`.env`、代码、systemd 单元和管理脚本，然后重新启动旧 Panel。升级前快照统一保存在：
+
+```text
+/root/xnat-backups/
+```
+
+> Panel v1.1.0 仍支持 Agent API v1；现有 Host Agent v1.0.0 不需要因为本次 Panel 升级而重装。
+
+---
+
+# 32. v1.1.0 运营可靠性
+
+## 32.1 节点维护 / Drain
+
+节点后台可以进入“维护模式”。维护中的节点不会接收新 VPS，但现有 VPS 不会自动停止，开关机、重启、重装与 NAT 管理仍可按实例状态正常使用。退出维护后恢复调度。
+
+## 32.2 调度资源水位
+
+每个 Host 可以分别设置 CPU、内存和 natpool 存储调度阈值。默认均为 `90%`；设置为 `0` 表示关闭该项水位限制。达到阈值后只阻止新调度，不会主动停止已有 VPS。
+
+Panel 还会在分配套餐时检查预计内存和逻辑磁盘分配，避免新实例把节点推过配置上限。
+
+## 32.3 运维异常通知
+
+系统通知类型会覆盖：Host Agent 离线 / 恢复、natpool 存储达到水位、NAT 公网端口池余量不足、后台任务达到最大重试次数、定时数据库备份失败。
+
+通知会进入管理员账户的通知记录；Email / Telegram 是否实际发送仍受“通知服务 → 系统通知”全站规则和管理员自己的渠道偏好控制。
+
+## 32.4 VPS 到期生命周期
+
+默认策略：
+
+```text
+提前提醒：7 / 3 / 1 天
+宽限期：0 天
+到期后自动停机：开启
+续费后自动恢复：开启
+自动永久删除：关闭
+```
+
+自动删除是危险能力，**v1.1.0 全新安装和升级后都默认关闭**。只有管理员主动开启后，系统才会在“宽限期 + 删除等待天数”结束后排队删除；删除前还会按配置发送最终提醒。
+
+续费会取消尚未开始执行的“生命周期自动删除”任务，并可以恢复由到期策略自动停止的 VPS。手动删除任务不会被续费静默覆盖。
+
+## 32.5 独立流量周期
+
+每台 VPS 可以使用：
+
+```text
+rolling30  每 30 天滚动重置
+monthly    每月固定 1-28 日重置
+```
+
+修改 VPS 到期时间不会改变流量周期。修改某台 VPS 的周期模式时，后台会要求确认并立即开始一个新的流量周期。
+
+## 32.6 用户控制台交互
+
+用户端增加轻量 Hover、按钮处理中状态、复制结果反馈、Toast、折叠过渡和流量条动画。动画仅用于反馈状态，不使用背景粒子、持续发光或大面积霓虹效果；系统开启“减少动态效果”时会自动降低动画。
+
+## 32.7 v1.0.x 数据库升级
+
+v1.1.0 采用仅新增字段的迁移方式。Panel 启动时会自动检测并补齐 Host 调度字段、流量周期字段和到期生命周期标记。恢复 v1.0.x 的 SQLite 备份后，也会自动执行同一迁移。
+
+
+---
+
+<div align="center">
+
+## XNAT
+
+**由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**
+
+</div>

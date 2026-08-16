@@ -26,6 +26,9 @@ class User(Base):
     totp_secret_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
     totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Fingerprint of the latest site announcement this user has already seen.
+    # This makes each announcement a one-time post-login notice per user.
+    announcement_seen_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     servers: Mapped[list["Server"]] = relationship(back_populates="user")
@@ -83,6 +86,14 @@ class HostNode(Base):
     max_vps: Mapped[int] = mapped_column(Integer, default=0)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     verify_tls: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # v1.1 scheduling controls. Maintenance/drain only blocks new placement;
+    # existing instances keep running and remain manageable.
+    maintenance_mode: Mapped[bool] = mapped_column(Boolean, default=False)
+    maintenance_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    schedule_cpu_max_percent: Mapped[int] = mapped_column(Integer, default=90)
+    schedule_memory_max_percent: Mapped[int] = mapped_column(Integer, default=90)
+    schedule_storage_max_percent: Mapped[int] = mapped_column(Integer, default=90)
 
     status: Mapped[str] = mapped_column(String(24), default="unknown", index=True)
     agent_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -178,6 +189,10 @@ class Server(Base):
     traffic_throttled: Mapped[bool] = mapped_column(Boolean, default=False)
     traffic_throttled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     traffic_throttle_exempt: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Traffic reset policy is independent from service expiry.
+    # rolling30 = every 30 days; monthly = fixed day (1-28) of each month.
+    traffic_cycle_mode: Mapped[str] = mapped_column(String(24), default="rolling30")
+    traffic_cycle_day: Mapped[int] = mapped_column(Integer, default=1)
 
     # Reconciliation / drift state.
     reconcile_status: Mapped[str] = mapped_column(String(24), default="unknown")
@@ -185,6 +200,9 @@ class Server(Base):
     reconciled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Lifecycle markers used for safe expiry suspension / auto-delete.
+    expiry_suspended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    expiry_delete_queued_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
@@ -216,6 +234,35 @@ class SiteSetting(Base):
 
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[str] = mapped_column(Text, default="")
+
+
+class Announcement(Base):
+    __tablename__ = "announcements"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(160))
+    body: Mapped[str] = mapped_column(Text)
+    is_published: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    show_on_login: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class AnnouncementRead(Base):
+    __tablename__ = "announcement_reads"
+    __table_args__ = (
+        UniqueConstraint("announcement_id", "user_id", name="uq_announcement_read_user"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    announcement_id: Mapped[int] = mapped_column(ForeignKey("announcements.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    read_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    announcement: Mapped["Announcement"] = relationship()
+    user: Mapped["User"] = relationship()
 
 
 class Coupon(Base):

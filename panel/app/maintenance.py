@@ -7,7 +7,8 @@ from .backups import create_backup, create_scheduled_backup_if_due, restore_back
 from .db import SessionLocal
 from .jobs import process_jobs
 from .models import Server, User
-from .notifications import process_pending_notifications, queue_notification
+from .notifications import process_pending_notifications, queue_admin_notification
+from .lifecycle import run_expiry_lifecycle
 from .payments import poll_pending_payments
 from .reconcile import reconcile_all
 from .traffic import collect_all as collect_traffic_all
@@ -20,51 +21,9 @@ provider = RemoteHostProvider() if PROVIDER_NAME == "remote" else IncusProvider(
 
 
 def expiry_notifications_and_stop() -> int:
-    now = datetime.utcnow()
-    stopped = 0
-    with SessionLocal() as db:
-        servers = db.scalars(select(Server).where(
-            Server.deleted_at.is_(None),
-            Server.expires_at.is_not(None),
-        )).all()
-        for server in servers:
-            user = db.get(User, server.user_id)
-            if not user:
-                continue
-            remaining = server.expires_at - now
-            days = remaining.total_seconds() / 86400
-            for threshold in (7, 3, 1):
-                if 0 < days <= threshold:
-                    cycle = server.expires_at.strftime("%Y%m%d%H%M")
-                    queue_notification(
-                        db,
-                        user,
-                        title=f"VPS 将在 {threshold} 天内到期",
-                        body=f"{server.name} 到期时间：{server.expires_at:%Y-%m-%d %H:%M} UTC，请及时续费。",
-                        kind="expiry",
-                        severity="warning",
-                        event_key=f"expiry-{threshold}:{server.id}:{cycle}",
-                    )
-            if server.expires_at <= now:
-                cycle = server.expires_at.strftime("%Y%m%d%H%M")
-                queue_notification(
-                    db,
-                    user,
-                    title="VPS 已到期",
-                    body=f"{server.name} 已到期并停止服务。续费后可重新开机。",
-                    kind="expiry",
-                    severity="error",
-                    event_key=f"expired:{server.id}:{cycle}",
-                )
-                if server.status == "running" and server.provider == PROVIDER_NAME and server.provider_instance_id:
-                    try:
-                        provider.power_action(server.provider_instance_id, "stop")
-                        server.status = "stopped"
-                        stopped += 1
-                    except Exception as exc:
-                        print(f"[expire] {server.name}: {exc}")
-        db.commit()
-    return stopped
+    # Backwards-compatible CLI name; v1.1 runs the full lifecycle engine.
+    result = run_expiry_lifecycle(provider, PROVIDER_NAME)
+    return int(result.get("stopped", 0))
 
 
 def tick() -> dict:
@@ -79,6 +38,12 @@ def tick() -> dict:
         backup_created = create_scheduled_backup_if_due()
     except Exception as exc:
         print(f"[backup] {exc}")
+        with SessionLocal() as db:
+            queue_admin_notification(
+                db, title="数据库自动备份失败", body=f"XNAT 定时数据库备份失败：{str(exc)[:300]}",
+                kind="system", severity="error", event_key=f"backup-failed:{datetime.utcnow():%Y%m%d%H}"
+            )
+            db.commit()
     return {
         "traffic_sampled": sampled,
         "traffic_failed": traffic_failed,

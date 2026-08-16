@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{% block title %}{{ app_name }}{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}?v=1.0.2-no-tx-repair">
+  <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}?v=1.1.0-ux4">
 </head>
 {% set is_home_area = request.url.path == '/' %}
 {% set is_admin_area = request.url.path.startswith('/admin') %}
@@ -35,26 +35,26 @@
 
       <nav class="client-nav">
         <div class="client-nav-label">概览</div>
-        <a class="{% if request.url.path == '/dashboard' %}active{% endif %}" href="/dashboard"><span class="client-nav-icon">⌂</span><span>仪表板</span></a>
+        <a class="{% if request.url.path == '/dashboard' %}active{% endif %}" href="/dashboard"><span>仪表板</span></a>
 
         <div class="client-nav-label">服务</div>
-        <a class="{% if request.url.path == '/servers' or request.url.path.startswith('/servers/') %}active{% endif %}" href="/servers"><span class="client-nav-icon">▣</span><span>我的服务器</span></a>
-        <a class="{% if request.url.path == '/plans' %}active{% endif %}" href="/plans"><span class="client-nav-icon">＋</span><span>套餐中心</span></a>
+        <a class="{% if request.url.path == '/servers' or request.url.path.startswith('/servers/') %}active{% endif %}" href="/servers"><span>我的服务器</span></a>
+        <a class="{% if request.url.path == '/plans' %}active{% endif %}" href="/plans"><span>套餐中心</span></a>
 
         <div class="client-nav-label">账务</div>
-        <a class="{% if request.url.path.startswith('/recharge') %}active{% endif %}" href="/recharge"><span class="client-nav-icon">¥</span><span>在线充值</span></a>
-        <a class="{% if request.url.path == '/orders' %}active{% endif %}" href="/orders"><span class="client-nav-icon">≡</span><span>订单记录</span></a>
+        <a class="{% if request.url.path.startswith('/recharge') %}active{% endif %}" href="/recharge"><span>在线充值</span></a>
+        <a class="{% if request.url.path == '/orders' %}active{% endif %}" href="/orders"><span>订单记录</span></a>
 
         <div class="client-nav-label">支持</div>
-        <a class="{% if request.url.path == '/notifications' %}active{% endif %}" href="/notifications"><span class="client-nav-icon">·</span><span>通知中心{% if unread_notifications %}<em class="client-nav-count">{{ unread_notifications }}</em>{% endif %}</span></a>
-        <a class="{% if request.url.path.startswith('/tickets') %}active{% endif %}" href="/tickets"><span class="client-nav-icon">?</span><span>工单支持</span></a>
+        <a class="{% if request.url.path == '/notifications' %}active{% endif %}" href="/notifications"><span>通知中心{% if unread_notifications %}<em class="client-nav-count">{{ unread_notifications }}</em>{% endif %}</span></a>
+        <a class="{% if request.url.path.startswith('/tickets') %}active{% endif %}" href="/tickets"><span>工单支持</span></a>
 
         <div class="client-nav-label">账户</div>
-        <a class="{% if request.url.path == '/account' %}active{% endif %}" href="/account"><span class="client-nav-icon">○</span><span>账户设置</span></a>
+        <a class="{% if request.url.path == '/account' %}active{% endif %}" href="/account"><span>账户设置</span></a>
 
         {% if user.is_admin %}
         <div class="client-nav-label">管理</div>
-        <a href="/admin"><span class="client-nav-icon">⚙</span><span>管理后台</span></a>
+        <a href="/admin"><span>管理后台</span></a>
         {% endif %}
       </nav>
 
@@ -91,9 +91,11 @@
           {% endblock %}
         </div>
         <div class="client-top-actions">
-          <a class="client-balance-pill" href="/plans">
-            <span>余额</span><strong>{{ money(user.balance_cents) }}</strong>
-          </a>
+          <button class="client-announcement-button" type="button" data-announcement-center-toggle aria-controls="announcementCenter" aria-expanded="false">
+            <span class="client-announcement-icon" aria-hidden="true">i</span><span>公告</span>
+            <em class="client-announcement-badge{% if not announcement_unread_count %} is-empty{% endif %}" data-announcement-badge>{{ announcement_unread_count if announcement_unread_count else '' }}</em>
+          </button>
+          <a class="client-balance-pill" href="/plans"><span>余额</span><strong>{{ money(user.balance_cents) }}</strong></a>
           <a class="client-round-avatar" href="/account" title="账户设置">{{ user.username[:1]|upper }}</a>
         </div>
       </header>
@@ -151,19 +153,33 @@
 {% else %}
   </main>
   <footer class="wrap footer">
-    XNAT v1.0.2 Multi-Node · Provider: {{ provider_name }}
+    XNAT v1.1.0 Multi-Node · Provider: {{ provider_name }}
   </footer>
 {% endif %}
 
-{% if login_announcement %}
-<div class="modal-backdrop" id="loginAnnouncement">
-  <div class="modal-card">
-    <div class="modal-icon">i</div>
-    <h2>站点公告</h2>
-    <div class="modal-message">{{ login_announcement }}</div>
-    <button type="button" class="btn wide" onclick="document.getElementById('loginAnnouncement').remove()">我知道了</button>
+{% if is_client_area %}
+<div class="announcement-center-backdrop" data-announcement-center-close hidden></div>
+<aside class="announcement-center" id="announcementCenter" aria-hidden="true" data-csrf="{{ csrf_token }}">
+  <div class="announcement-center-head"><div><span>NOTICE CENTER</span><h2>历史公告</h2><p>站点更新、维护与重要运营通知</p></div><button type="button" class="announcement-center-close" data-announcement-center-close aria-label="关闭公告中心">×</button></div>
+  <div class="announcement-center-list">
+    {% for item in announcement_rows %}
+    <article class="announcement-history-item{% if item.id not in announcement_read_ids %} is-unread{% endif %}" data-announcement-id="{{ item.id }}">
+      <button type="button" class="announcement-history-toggle" data-announcement-open><span class="announcement-history-meta">{% if item.is_pinned %}<em class="announcement-pin">置顶</em>{% endif %}{% if item.id not in announcement_read_ids %}<em class="announcement-unread-dot">NEW</em>{% endif %}<time>{{ local_dt(item.published_at or item.created_at).strftime('%Y-%m-%d %H:%M') }}</time></span><strong>{{ item.title }}</strong><span class="announcement-history-chevron">›</span></button>
+      <div class="announcement-history-body">{{ item.body }}</div>
+    </article>
+    {% else %}<div class="announcement-center-empty"><span>i</span><strong>暂无公告</strong><p>新的站点通知会显示在这里。</p></div>{% endfor %}
   </div>
+</aside>
+{% endif %}
+{% if login_announcement %}
+<div class="announcement-backdrop" id="loginAnnouncement" role="presentation" data-announcement-id="{{ login_announcement.id }}" data-csrf="{{ csrf_token }}">
+  <section class="announcement-card" role="dialog" aria-modal="true" aria-labelledby="announcementTitle" aria-describedby="announcementMessage">
+    <button class="announcement-close" type="button" data-announcement-dismiss aria-label="关闭公告">×</button><div class="announcement-orbit" aria-hidden="true"><span>i</span></div>
+    <div class="announcement-kicker">IMPORTANT NOTICE</div><h2 id="announcementTitle">{{ login_announcement.title }}</h2><div class="announcement-message" id="announcementMessage">{{ login_announcement.body }}</div>
+    <div class="announcement-actions"><span class="announcement-hint">首次登录提醒 · 之后可在右上角“公告”中查看</span><button type="button" class="announcement-confirm" data-announcement-dismiss>知道了</button></div>
+  </section>
 </div>
 {% endif %}
+<script src="{{ url_for('static', path='/client.js') }}?v=1.1.0-ux4" defer></script>
 </body>
 </html>

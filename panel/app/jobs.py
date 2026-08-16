@@ -9,7 +9,7 @@ from .audit import write_audit
 from .crypto import encrypt_secret
 from .db import SessionLocal
 from .models import BalanceLedger, Job, Order, PortMapping, Server, SystemImage, User
-from .notifications import queue_notification
+from .notifications import queue_notification, queue_admin_notification
 from .traffic import apply_sample, ensure_cycle
 
 
@@ -260,6 +260,14 @@ def run_one_job(provider, provider_name: str) -> bool:
                         server.reconcile_status = "error"
                         server.reconcile_message = message
                     write_audit(db, actor_username="system", action=f"job.{job.job_type}.failed", target_type="job", target_id=job.id, detail=message, success=False)
+                    queue_admin_notification(
+                        db,
+                        title="后台任务连续失败",
+                        body=f"任务 #{job.id} · {job.job_type} 已达到最大重试次数 {job.max_attempts}。服务器：{server.name if server else '-'}。错误：{message[:300]}",
+                        kind="system",
+                        severity="error",
+                        event_key=f"job-final-failed:{job.id}",
+                    )
                 db.commit()
             return True
 

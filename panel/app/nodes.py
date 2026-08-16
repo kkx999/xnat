@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 
 from .crypto import decrypt_secret
 from .models import HostNode, Plan, PlanHost, PortMapping, Server, SiteSetting
+from .notifications import queue_admin_notification
 
 SUPPORTED_AGENT_API_VERSIONS = {"1"}
 
@@ -47,7 +48,7 @@ def host_request(host: HostNode, method: str, path: str, *, payload=None, timeou
         "X-NAT-Timestamp": ts,
         "X-NAT-Signature": _signature(token, ts, method, path, body),
         "Content-Type": "application/json",
-        "User-Agent": "NAT-VPS-Panel/1.0.2",
+        "User-Agent": "XNAT-Panel/1.1.0",
     }
     try:
         with httpx.Client(verify=bool(host.verify_tls), timeout=timeout) as client:
@@ -108,16 +109,81 @@ def refresh_host(host: HostNode) -> dict:
         raise
 
 
+def _setting_int(db, key: str, default: int, low: int = 0, high: int = 100) -> int:
+    row = db.get(SiteSetting, key)
+    try:
+        value = int((row.value if row else str(default)) or default)
+    except Exception:
+        value = default
+    return max(low, min(high, value))
+
+
+def host_resource_percentages(host: HostNode) -> dict:
+    memory_percent = (host.memory_used_mb * 100 / host.memory_total_mb) if host.memory_total_mb else 0.0
+    storage_percent = (host.storage_used_gb * 100 / host.storage_total_gb) if host.storage_total_gb else 0.0
+    return {
+        "cpu": round(float(host.cpu_percent or 0), 1),
+        "memory": round(memory_percent, 1),
+        "storage": round(storage_percent, 1),
+    }
+
+
 def refresh_all_hosts(db) -> tuple[int, int]:
     ok = 0
     failed = 0
     hosts = db.scalars(select(HostNode).where(HostNode.enabled == True).order_by(HostNode.id)).all()
+    now = datetime.utcnow()
     for host in hosts:
+        previous_status = host.status
         try:
             refresh_host(host)
             ok += 1
-        except Exception:
+            if previous_status == "offline" and host.status == "online":
+                queue_admin_notification(
+                    db,
+                    title="宿主机节点已恢复",
+                    body=f"{host.name} ({host.public_ip or host.api_url}) 已恢复连接，当前 Agent {host.agent_version or '-'} / API v{host.agent_api_version or '-' }。",
+                    kind="system",
+                    severity="success",
+                    event_key=f"host-recovered:{host.id}:{now:%Y%m%d%H%M}",
+                )
+
+            percentages = host_resource_percentages(host)
+            storage_limit = max(0, int(host.schedule_storage_max_percent or 0))
+            if storage_limit and percentages["storage"] >= storage_limit:
+                queue_admin_notification(
+                    db,
+                    title="宿主机 natpool 存储达到调度水位",
+                    body=f"{host.name} 存储已使用 {percentages['storage']:.1f}%（调度阈值 {storage_limit}%），系统已停止向该节点调度新 VPS。",
+                    kind="system",
+                    severity="error",
+                    event_key=f"host-storage-high:{host.id}:{now:%Y%m%d}",
+                )
+
+            pool = host_port_pool_stats(db, host)
+            alert_percent = _setting_int(db, "node_nat_port_alert_percent", 10, 0, 100)
+            if pool.get("configured") and pool.get("total", 0) and alert_percent:
+                remaining_percent = pool["remaining"] * 100 / max(pool["total"], 1)
+                if remaining_percent <= alert_percent:
+                    queue_admin_notification(
+                        db,
+                        title="宿主机 NAT 端口池余量不足",
+                        body=f"{host.name} NAT 端口池仅剩 {pool['remaining']} / {pool['total']} 个可用端口（{remaining_percent:.1f}%）。",
+                        kind="system",
+                        severity="warning",
+                        event_key=f"host-port-low:{host.id}:{now:%Y%m%d}",
+                    )
+        except Exception as exc:
             failed += 1
+            if previous_status != "offline":
+                queue_admin_notification(
+                    db,
+                    title="宿主机节点离线",
+                    body=f"{host.name} ({host.public_ip or host.api_url}) 无法连接 Host Agent：{str(exc)[:240]}",
+                    kind="system",
+                    severity="error",
+                    event_key=f"host-offline:{host.id}:{now:%Y%m%d%H%M}",
+                )
     return ok, failed
 
 
@@ -159,37 +225,89 @@ def allowed_hosts_for_plan(db, plan: Plan):
     return db.scalars(select(HostNode).where(HostNode.enabled == True)).all()
 
 
+def host_schedule_state(db, host: HostNode, plan: Plan | None = None, *, refresh_if_stale: bool = False) -> dict:
+    """Return whether a Host may receive a new VPS and the exact block reason."""
+    now = datetime.utcnow()
+    stale = not host.last_seen_at or host.last_seen_at < now - timedelta(seconds=90)
+    if refresh_if_stale and (host.status != "online" or stale) and host.enabled:
+        try:
+            refresh_host(host)
+            stale = False
+        except Exception:
+            pass
+
+    if not host.enabled:
+        return {"allowed": False, "code": "disabled", "label": "已停用调度", "reason": "节点已被管理员停用"}
+    if bool(host.maintenance_mode):
+        reason = (host.maintenance_reason or "管理员已将节点置于维护模式").strip()
+        return {"allowed": False, "code": "maintenance", "label": "维护中", "reason": reason}
+    if host.status != "online":
+        return {"allowed": False, "code": "offline", "label": "不可调度", "reason": f"节点状态：{host.status or 'unknown'}"}
+    if stale:
+        return {"allowed": False, "code": "stale", "label": "心跳过期", "reason": "节点心跳超过 90 秒"}
+    if host.port_start is None or host.port_end is None:
+        return {"allowed": False, "code": "port_pool", "label": "待配置", "reason": "尚未配置 NAT 端口池"}
+
+    count = host_active_server_count(db, host.id)
+    if host.max_vps and count >= host.max_vps:
+        return {"allowed": False, "code": "max_vps", "label": "容量已满", "reason": f"VPS 数量已达到 {host.max_vps}"}
+
+    percentages = host_resource_percentages(host)
+    thresholds = {
+        "cpu": max(0, int(host.schedule_cpu_max_percent or 0)),
+        "memory": max(0, int(host.schedule_memory_max_percent or 0)),
+        "storage": max(0, int(host.schedule_storage_max_percent or 0)),
+    }
+    labels = {"cpu": "CPU", "memory": "内存", "storage": "natpool 存储"}
+    for key in ("cpu", "memory", "storage"):
+        limit = thresholds[key]
+        if limit and percentages[key] >= limit:
+            return {
+                "allowed": False, "code": f"watermark_{key}", "label": "资源保护",
+                "reason": f"{labels[key]} {percentages[key]:.1f}% 已达到调度阈值 {limit}%",
+                "percentages": percentages,
+            }
+
+    allocated_memory = host_allocated_memory_mb(db, host.id)
+    allocated_disk = host_allocated_disk_gb(db, host.id)
+    if plan is not None:
+        if host.memory_total_mb:
+            projected_memory = (allocated_memory + int(plan.memory_mb or 0)) * 100 / host.memory_total_mb
+            limit = thresholds["memory"] or 100
+            if projected_memory > limit:
+                return {"allowed": False, "code": "capacity_memory", "label": "内存不足", "reason": f"开通后分配内存将达到 {projected_memory:.1f}%（上限 {limit}%）"}
+        if host.storage_total_gb:
+            projected_disk = (allocated_disk + int(plan.disk_gb or 0)) * 100 / host.storage_total_gb
+            limit = thresholds["storage"] or 100
+            if projected_disk > limit:
+                return {"allowed": False, "code": "capacity_storage", "label": "存储不足", "reason": f"开通后逻辑磁盘分配将达到 {projected_disk:.1f}%（上限 {limit}%）"}
+
+    return {
+        "allowed": True, "code": "ready", "label": "可调度", "reason": "节点在线且资源水位正常",
+        "percentages": percentages, "active_vps": count,
+    }
+
+
 def select_host_for_plan(db, plan: Plan) -> HostNode:
     candidates = []
-    now = datetime.utcnow()
+    rejected: list[str] = []
     for host in allowed_hosts_for_plan(db, plan):
-        # Give a newly-added/unknown node one synchronous refresh attempt.
-        stale = not host.last_seen_at or host.last_seen_at < now - timedelta(seconds=90)
-        if host.status != "online" or stale:
-            try:
-                refresh_host(host)
-            except Exception:
-                continue
-        if host.status != "online":
-            continue
-        if host.port_start is None or host.port_end is None:
+        state = host_schedule_state(db, host, plan, refresh_if_stale=True)
+        if not state["allowed"]:
+            rejected.append(f"{host.name}: {state['reason']}")
             continue
         count = host_active_server_count(db, host.id)
-        if host.max_vps and count >= host.max_vps:
-            continue
         allocated_memory = host_allocated_memory_mb(db, host.id)
         allocated_disk = host_allocated_disk_gb(db, host.id)
-        if host.memory_total_mb and allocated_memory + int(plan.memory_mb or 0) > host.memory_total_mb:
-            continue
-        if host.storage_total_gb and allocated_disk + int(plan.disk_gb or 0) > int(host.storage_total_gb * 0.96):
-            continue
         memory_ratio = allocated_memory / max(host.memory_total_mb, 1)
         disk_ratio = allocated_disk / max(host.storage_total_gb, 1.0)
         max_ratio = count / max(host.max_vps, 1) if host.max_vps else 0
         score = float(host.cpu_percent or 0) + memory_ratio * 55 + disk_ratio * 35 + max_ratio * 20
         candidates.append((score, host.id, host))
     if not candidates:
-        raise HostAPIError("当前没有可用宿主机：请检查节点在线状态、套餐绑定和资源容量")
+        detail = "；".join(rejected[:4])
+        suffix = f"。{detail}" if detail else ""
+        raise HostAPIError("当前没有可用宿主机：请检查维护模式、节点在线状态、NAT 端口池和资源水位" + suffix)
     candidates.sort(key=lambda item: (item[0], item[1]))
     return candidates[0][2]
 
@@ -232,11 +350,11 @@ def allocate_host_port(db, host: HostNode, protocol: str, blocked: set[int] | No
 
 
 def host_summary(host: HostNode) -> dict:
-    memory_percent = (host.memory_used_mb * 100 / host.memory_total_mb) if host.memory_total_mb else 0
-    storage_percent = (host.storage_used_gb * 100 / host.storage_total_gb) if host.storage_total_gb else 0
+    percentages = host_resource_percentages(host)
     return {
-        "memory_percent": round(memory_percent, 1),
-        "storage_percent": round(storage_percent, 1),
+        "memory_percent": percentages["memory"],
+        "storage_percent": percentages["storage"],
+        "cpu_percent": percentages["cpu"],
         "api_compatible": host.agent_api_version in SUPPORTED_AGENT_API_VERSIONS,
     }
 

@@ -8,7 +8,7 @@
 {% block content %}
 <div class="client-page-toolbar">
   <div><strong>{{ servers|length }} 台服务器</strong><span>点击“管理服务器”进入完整操作页面。</span></div>
-  <a class="btn" href="/plans">＋ 购买新服务器</a>
+  <a class="btn" href="/plans">购买新服务器</a>
 </div>
 
 {% if servers %}
@@ -27,12 +27,12 @@
         </div>
         <span>{{ s.plan.name }} · {{ server_status_label(s.status) }}</span>
       </div>
-      <a class="client-detail-link" href="/servers/{{ s.id }}">管理服务器 →</a>
+      <a class="client-detail-link" href="/servers/{{ s.id }}">管理服务器</a>
     </div>
 
     <div class="client-server-info-grid">
-      <div><span>公网主机</span><strong>{{ s.public_ip }}</strong></div>
-      <div><span>SSH</span><strong>{{ s.public_ip }}:{{ s.ssh_port or "-" }}</strong></div>
+      <div class="server-card-copy"><span>公网主机</span><strong>{{ s.public_ip }}</strong><button type="button" data-copy-value="{{ s.public_ip }}">复制</button></div>
+      <div class="server-card-copy"><span>SSH</span><strong>{{ s.public_ip }}:{{ s.ssh_port or "-" }}</strong><button type="button" data-copy-value="{{ s.public_ip }}:{{ s.ssh_port or '' }}">复制</button></div>
       <div><span>配置</span><strong>{{ s.cpu }}C / {{ s.memory_mb }}M / {{ s.disk_gb }}G</strong></div>
       <div><span>当前带宽</span><strong>{% if s.traffic_throttled %}1 Mbps · 流量限速{% elif (s.bandwidth_mbps or 0) == 0 %}不限速{% else %}{{ s.bandwidth_mbps }} Mbps{% endif %}</strong></div>
       <div><span>流量使用</span><strong>{{ human_bytes(traffic_used_bytes(s)) }} / {% if traffic_quota_gb(s) > 0 %}{{ traffic_quota_gb(s) }} GB{% else %}不限{% endif %}</strong></div>

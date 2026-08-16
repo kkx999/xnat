@@ -13,15 +13,49 @@ GIB = 1024 ** 3
 THROTTLE_MBPS = 1
 
 
-def reset_cycle(server: Server, now: datetime) -> None:
-    """Start a fresh 30-day traffic cycle from *now*.
+def traffic_cycle_mode(server: Server) -> str:
+    mode = (getattr(server, "traffic_cycle_mode", None) or "rolling30").strip().lower()
+    return mode if mode in {"rolling30", "monthly"} else "rolling30"
 
-    The NIC baseline is deliberately cleared so the next sample establishes a
-    new baseline instead of counting the container's lifetime counter again.
-    Any one-cycle bonus and manual throttle exemption are also cleared.
+
+def traffic_cycle_day(server: Server) -> int:
+    try:
+        day = int(getattr(server, "traffic_cycle_day", 1) or 1)
+    except Exception:
+        day = 1
+    return max(1, min(28, day))
+
+
+def traffic_cycle_mode_label(server: Server) -> str:
+    if traffic_cycle_mode(server) == "monthly":
+        return f"每月 {traffic_cycle_day(server)} 日重置"
+    return "每 30 天滚动重置"
+
+
+def _next_month_boundary(now: datetime, day: int) -> datetime:
+    day = max(1, min(28, int(day)))
+    candidate = now.replace(day=day, hour=0, minute=0, second=0, microsecond=0)
+    if candidate > now:
+        return candidate
+    year = now.year + (1 if now.month == 12 else 0)
+    month = 1 if now.month == 12 else now.month + 1
+    return candidate.replace(year=year, month=month, day=day)
+
+
+def _next_cycle_end(server: Server, start: datetime) -> datetime:
+    if traffic_cycle_mode(server) == "monthly":
+        return _next_month_boundary(start, traffic_cycle_day(server))
+    return start + timedelta(days=CYCLE_DAYS)
+
+
+def reset_cycle(server: Server, now: datetime) -> None:
+    """Reset used traffic without coupling the cycle to VPS expiry.
+
+    rolling30: a fresh 30-day window starts now.
+    monthly: the fresh window starts now and ends at the next configured day.
     """
     server.traffic_cycle_start = now
-    server.traffic_cycle_end = now + timedelta(days=CYCLE_DAYS)
+    server.traffic_cycle_end = _next_cycle_end(server, now)
     server.traffic_used_rx_bytes = 0
     server.traffic_used_tx_bytes = 0
     server.traffic_last_rx_bytes = None
@@ -32,30 +66,19 @@ def reset_cycle(server: Server, now: datetime) -> None:
 
 
 def ensure_cycle(server: Server, now: datetime) -> bool:
-    """Ensure a current 30-day traffic window exists.
-
-    Returns True when a new cycle was started/reset. The actual bandwidth
-    restoration is handled by enforce_traffic_policy(), because only that
-    function has access to the provider.
-    """
+    """Ensure a current traffic window exists for the configured policy."""
     changed = False
 
     if server.traffic_cycle_start is None or server.traffic_cycle_end is None:
-        start = server.created_at or now
-        end = start + timedelta(days=CYCLE_DAYS)
-        while end <= now:
-            start = end
-            end = start + timedelta(days=CYCLE_DAYS)
-        server.traffic_cycle_start = start
-        server.traffic_cycle_end = end
-        changed = True
+        reset_cycle(server, now)
+        return True
 
     if server.traffic_cycle_end and now >= server.traffic_cycle_end:
         start = server.traffic_cycle_end
-        end = start + timedelta(days=CYCLE_DAYS)
+        end = _next_cycle_end(server, start)
         while end <= now:
             start = end
-            end = start + timedelta(days=CYCLE_DAYS)
+            end = _next_cycle_end(server, start)
         server.traffic_cycle_start = start
         server.traffic_cycle_end = end
         server.traffic_used_rx_bytes = 0
@@ -264,7 +287,7 @@ def collect_all(provider, provider_name: str) -> tuple[int, int]:
                     queue_notification(db, user, title="流量已用尽，已自动限速", body=f"{server.name} 已用尽本周期流量，当前带宽自动降为 {THROTTLE_MBPS} Mbps；新周期开始后会自动恢复。", kind="traffic", severity="error", event_key=f"traffic100:{server.id}:{cycle_key}")
 
                 if cycle_changed and previous_cycle_start is not None:
-                    queue_notification(db, user, title="流量周期已重置", body=f"{server.name} 已进入新的 30 天流量周期，流量重新计数。", kind="traffic", severity="success", event_key=f"traffic-reset:{server.id}:{cycle_key}")
+                    queue_notification(db, user, title="流量周期已重置", body=f"{server.name} 已进入新的流量周期，流量重新计数。", kind="traffic", severity="success", event_key=f"traffic-reset:{server.id}:{cycle_key}")
                 if previous_throttled and policy_result == "restored":
                     queue_notification(db, user, title="带宽已恢复", body=f"{server.name} 的流量限速已解除，带宽恢复为 {configured_bandwidth_mbps(server) or '不限'} Mbps。", kind="traffic", severity="success", event_key=f"traffic-restored:{server.id}:{cycle_key}")
 

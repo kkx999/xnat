@@ -13,9 +13,9 @@
 {% block content %}
 <div class="server-detail-page">
 <div class="server-detail-overview">
-  <div><span>公网主机</span><strong>{{ server.public_ip }}</strong></div>
+  <div class="detail-copy-field"><span>公网主机</span><strong>{{ server.public_ip }}</strong><button type="button" data-copy-value="{{ server.public_ip }}">复制</button></div>
   <div><span>私网 IPv4</span><strong>{{ server.private_ip or "-" }}</strong></div>
-  <div><span>SSH</span><strong>{{ server.public_ip }}:{{ server.ssh_port or "-" }}</strong></div>
+  <div class="detail-copy-field"><span>SSH</span><strong>{{ server.public_ip }}:{{ server.ssh_port or "-" }}</strong><button type="button" data-copy-value="{{ server.public_ip }}:{{ server.ssh_port or '' }}">复制</button></div>
   <div><span>配置</span><strong>{{ server.cpu }}C / {{ server.memory_mb }}M / {{ server.disk_gb }}G</strong></div>
   <div><span>当前带宽</span><strong>{% if server.traffic_throttled %}1 Mbps · 流量限速{% elif (server.bandwidth_mbps or 0) == 0 %}不限速{% else %}{{ server.bandwidth_mbps }} Mbps{% endif %}</strong></div>
   <div><span>本周期已用</span><strong>{{ human_bytes(traffic_used_bytes(server)) }}</strong></div>
@@ -32,6 +32,7 @@
     <div class="traffic-reset-time">
       <span>下次重置</span>
       <strong>{{ traffic_cycle_label(server) }}</strong>
+      <small>{{ traffic_cycle_mode_label(server) }}</small>
     </div>
   </div>
   <div class="traffic-policy-status {{ traffic_level(server) }}">
@@ -51,14 +52,15 @@
 </section>
 
 <section class="client-panel server-renew-panel">
-  <div>
+  <div class="renew-expiry-copy">
     <span>到期时间</span>
     <strong class="{% if server.expires_at and server.expires_at <= now %}expired{% endif %}">{{ local_dt(server.expires_at).strftime("%Y-%m-%d %H:%M") if server.expires_at else "-" }}</strong>
-    <small>续费价格 {{ money(server.monthly_price_cents) }} / 30 天</small>
+    <small>续费价格 {{ money(server.monthly_price_cents) }} / 30 天 · <em class="lifecycle-pill {{ lifecycle.code }}">{{ lifecycle.label }}</em></small>
+    {% if lifecycle.code == 'grace' and lifecycle.grace_end %}<small>宽限结束：{{ local_dt(lifecycle.grace_end).strftime("%Y-%m-%d %H:%M") }}</small>{% endif %}
   </div>
   <form method="post" action="/servers/{{ server.id }}/renew">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <button type="submit">续费 30 天 · {{ money(server.monthly_price_cents) }}</button>
+    <button type="submit" data-loading-label="正在续费…">续费 30 天 · {{ money(server.monthly_price_cents) }}</button>
   </form>
 </section>
 
@@ -69,12 +71,12 @@
     <form method="post" action="/servers/{{ server.id }}/action">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="action" value="{{ action }}">
-      <button type="submit"><strong>{{ label }}</strong><span>{{ desc }}</span></button>
+      <button type="submit" data-loading-label="{{ label }}处理中…"><strong>{{ label }}</strong><span>{{ desc }}</span></button>
     </form>
     {% endfor %}
     <form method="post" action="/servers/{{ server.id }}/reset-password">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button type="submit"><strong>重置 root 密码</strong><span>生成并保存新密码</span></button>
+      <button type="submit" data-loading-label="正在重置…"><strong>重置 root 密码</strong><span>生成并保存新密码</span></button>
     </form>
   </div>
 </section>
@@ -89,7 +91,7 @@
   <div class="client-detail-body">
     {% set current_root_password = decrypt_secret(server.root_password_enc) %}
     {% if current_root_password %}
-      <div class="client-password-display"><span>当前保存的 root 密码</span><code>{{ current_root_password }}</code></div>
+      <div class="client-password-display"><span>当前保存的 root 密码</span><code>{{ current_root_password }}</code><button type="button" data-copy-value="{{ current_root_password }}">复制密码</button></div>
       <p class="client-help-text">如果你进入系统后手动执行 passwd 修改密码，这里不会自动同步。</p>
     {% else %}
       <div class="client-empty-inline">当前没有可显示的 root 密码，可使用上方“重置 root 密码”重新生成。</div>
@@ -121,7 +123,7 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>内部端口<input type="number" min="1" max="65535" name="private_port" placeholder="例如 80" required></label>
       <label>协议<select name="protocol"><option value="tcp">TCP</option><option value="udp">UDP</option></select></label>
-      <button type="submit">自动分配公网端口</button>
+      <button type="submit" data-loading-label="正在分配…">自动分配公网端口</button>
     </form>
   </div>
 </details>
@@ -147,7 +149,7 @@
           </select>
         </label>
         <label>输入实例名确认<input name="confirm_name" placeholder="{{ server.name }}" required></label>
-        <button class="danger" type="submit">确认重装系统</button>
+        <button class="danger" type="submit" data-loading-label="正在提交重装…">确认重装系统</button>
       </form>
 
       <form method="post" action="/servers/{{ server.id }}/delete">
@@ -155,7 +157,7 @@
         <h3>永久删除实例</h3>
         <p>删除后服务器、映射端口和数据都不可恢复。</p>
         <label>输入实例名确认<input name="confirm_name" placeholder="{{ server.name }}" required></label>
-        <button class="danger" type="submit">永久删除实例</button>
+        <button class="danger" type="submit" data-loading-label="正在提交删除…">永久删除实例</button>
       </form>
     </div>
   </div>

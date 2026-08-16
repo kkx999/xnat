@@ -41,6 +41,28 @@ def queue_notification(
 
 
 
+def queue_admin_notification(
+    db,
+    *,
+    title: str,
+    body: str,
+    kind: str = "system",
+    severity: str = "warning",
+    event_key: str | None = None,
+) -> int:
+    """Queue the same operational alert for every active administrator."""
+    count = 0
+    admins = db.scalars(select(User).where(User.is_admin == True, User.is_active == True)).all()
+    for admin in admins:
+        key = f"{event_key}:admin:{admin.id}" if event_key else None
+        if queue_notification(
+            db, admin, title=title, body=body, kind=kind, severity=severity, event_key=key
+        ):
+            count += 1
+    return count
+
+
+
 def _delivery_config() -> dict:
     with SessionLocal() as db:
         return notification_runtime_config(db)

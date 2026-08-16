@@ -4,7 +4,7 @@
 
 XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、多宿主机节点、套餐、用户、流量、通知及日常运维。
 
-当前版本：**v1.0.2**
+当前版本：**v1.1.0**
 
 ---
 
@@ -15,7 +15,10 @@ XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、
 - NAT VPS 自动开通、重装、删除
 - CPU / 内存 / 磁盘 / 带宽管理
 - TCP / UDP NAT 端口
-- 流量统计与超额限速
+- 流量统计、独立流量周期与超额限速
+- 节点维护 / Drain 与资源水位调度保护
+- 到期提醒、宽限期、自动停机与可选延迟删除
+- Host 离线、natpool、任务和备份异常通知
 - 套餐、库存、用户与订单
 - USDT 充值
 - Telegram / SMTP 通知
@@ -24,6 +27,8 @@ XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、
 - USDT 自动充值与通知服务独立管理
 - Panel 域名、HTTPS、Cloudflare
 - XNAT 敏感管理端口自动保护
+- 用户控制台交互反馈、复制、Toast 与轻量状态动画
+- 独立公告中心：历史公告、未读提示、首次登录重点公告与后台公告管理
 - `xnat` 统一管理命令
 
 ---
@@ -73,21 +78,54 @@ Host 连接 Panel 成功后，在 Panel 后台节点设置中配置 NAT 端口�
 
 ---
 
-# 指定 v1.0.2 安装
+# 指定 v1.1.0 安装
 
 Panel：
 
 ```bash
-XNAT_VERSION=1.0.2 \
+XNAT_VERSION=1.1.0 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
 Host：
 
 ```bash
-XNAT_VERSION=1.0.2 \
+XNAT_VERSION=1.1.0 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-host.sh)
 ```
+
+---
+
+# 从 v1.0.2 升级到 v1.1.0
+
+正式兼容基线是 **XNAT Panel v1.0.2 final**。v1.1.0 发布到 GitHub Release 后，现有 v1.0.2 Panel 推荐直接执行：
+
+```bash
+xnat update 1.1.0
+```
+
+v1.0.2 自带的 `xnat update` 会下载 v1.1.0 Tag 源码并调用 v1.1.0 的 `scripts/upgrade-panel.sh`；该升级器明确识别 v1.0.2 兼容路径。
+
+如果使用手动源码包升级，也可以执行：
+
+```bash
+cd /root/xnat-v1.1.0
+bash scripts/upgrade-panel-from-v1.0.2.sh
+```
+
+升级流程会自动：
+
+- 校验当前 Panel 确实为 v1.0.2；
+- 对现有 SQLite 执行 `PRAGMA quick_check`；
+- 备份 `panel.db`、`.env`、当前 Panel 代码、systemd 单元和 XNAT 管理命令；
+- 保留现有 Panel 监听地址与端口；
+- 原地更新 Panel 到 v1.1.0；
+- 只通过 `ALTER TABLE ... ADD COLUMN` 补齐 v1.1.0 字段；
+- 保留用户、余额、订单、VPS、Host、套餐、支付和通知数据；
+- 自动删除策略仍保持默认关闭；
+- 健康检查或数据库检查失败时自动尝试回滚。
+
+本次 Panel 升级**不要求重装 Host Agent**；Host Agent 继续保持 v1.0.0 / Agent API v1。
 
 ---
 

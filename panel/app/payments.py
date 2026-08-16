@@ -106,7 +106,7 @@ def payment_config(db) -> dict:
 def usdt_units_to_text(units: int) -> str:
     """Render new orders with 3 decimals while preserving legacy exact amounts.
 
-    v1.0.2 creates amounts on a 0.001 USDT grid. Older pending orders can still
+    XNAT creates new payment amounts on a 0.001 USDT grid. Older pending orders can still
     contain six-decimal values; those must remain visible exactly as originally
     created so users are never instructed to send a different amount.
     """
@@ -122,7 +122,7 @@ def rate_text(rate_micros: int) -> str:
 
 
 def _next_unique_units(db, chain: str, base_units: int) -> int:
-    # Never reuse an exact amount on the same chain. v1.0.2 keeps all newly
+    # Never reuse an exact amount on the same chain. New orders remain
     # generated amounts on a 0.001 USDT grid, so even collision adjustments
     # remain human-friendly: 1.389 -> 1.390 -> 1.391 instead of six decimals.
     units = max(USDT_ORDER_QUANTUM_UNITS, int(base_units))

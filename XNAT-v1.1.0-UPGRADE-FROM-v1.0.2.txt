@@ -1,0 +1,76 @@
+XNAT v1.1.0 — 从 v1.0.2 原地升级说明
+================================================
+
+适用条件
+--------
+- 当前 Panel：XNAT v1.0.2 final
+- 系统：Debian 12 Bookworm
+- 默认安装目录：/opt/xnat/panel
+- Host Agent 不需要升级，继续使用 v1.0.0 / Agent API v1
+
+一、推荐：正式 Release 直接升级
+-----------------------------
+GitHub Tag v1.1.0 发布后，在现有 v1.0.2 Panel 直接执行：
+
+xnat update 1.1.0
+
+v1.0.2 自带的 xnat update 会下载 v1.1.0 Tag，并调用 v1.1.0 自身的 upgrade-panel.sh。
+升级器会识别 verified-v1.0.2 路径，不要求先重装 Panel 或 Host Agent。
+
+二、手动源码包升级
+------------------
+把本 ZIP 上传到 Panel 服务器 /root/ 后：
+
+cd /root
+apt-get update && apt-get install -y unzip
+rm -rf /root/xnat-v1.1.0
+ZIP="$(ls -1t /root/xnat-v1.1.0*.zip | head -n1)"
+unzip -o "$ZIP"
+cd /root/xnat-v1.1.0
+
+三、执行 v1.0.2 专用升级脚本
+---------------------------
+
+bash scripts/upgrade-panel-from-v1.0.2.sh
+
+脚本会自动备份：
+- /opt/xnat/panel/data/panel.db
+- /opt/xnat/panel/.env
+- 当前 Panel 代码
+- xnat-panel / xnat-maintenance systemd 单元
+- /usr/local/sbin/xnat
+- /usr/local/sbin/xnat-firewall
+- /etc/xnat 版本元数据
+
+备份目录：/root/xnat-backups/
+
+四、升级后检查
+------------
+
+xnat status
+systemctl status xnat-panel --no-pager
+curl -s http://127.0.0.1:8000/health
+sqlite3 /opt/xnat/panel/data/panel.db 'PRAGMA quick_check;'
+
+/health 应显示 version = 1.1.0，SQLite 应返回 ok。
+如果 v1.0.2 原来使用了自定义 PANEL_PORT，请把 curl 里的 8000 换成原端口。
+
+五、重点验收
+----------
+1. 原管理员账号可正常登录。
+2. 原用户、余额、订单、VPS、Host、套餐仍存在。
+3. 原充值/支付配置、Telegram/SMTP 配置仍存在。
+4. 原 VPS 不应因升级被停止、删除或重建。
+5. Host 节点保持 ONLINE，Agent API 显示 v1 兼容。
+6. 后台节点可以切换维护/Drain。
+7. CPU/RAM/natpool 调度水位可保存。
+8. 运营设置中自动永久删除默认关闭。
+9. VPS 流量周期可选择 rolling30 / monthly。
+10. 用户控制台按钮处理状态、复制反馈和 Toast 正常。
+
+注意
+----
+- 不要手工修改 SQLite。
+- 不要重装 Host Agent。
+- 不要删除 /root/xnat-backups/ 中的升级前备份，直到全部验收完成。
+- 正式升级前建议自行保留 /root/xnat-backups/ 中的升级前备份，确认业务正常后再清理。

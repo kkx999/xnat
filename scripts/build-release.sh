@@ -35,18 +35,21 @@ AGENT_API_VERSION="$(python3 -c 'import json; print(json.load(open("release.json
 cat > "$DIST/RELEASE_NOTES.md" <<EOF_NOTES
 # XNAT v${RELEASE_VERSION}
 
-XNAT v${RELEASE_VERSION} 支付与运营修复版本。
+XNAT v${RELEASE_VERSION} 运营可靠性与用户体验版本。
 
 - Panel：v${PANEL_VERSION}
 - Host Agent：v${AGENT_VERSION}
 - Agent API：v${AGENT_API_VERSION}
-- 用户 USDT 支付页面重构，隐藏用户端 Token 合约地址
-- 新充值订单金额统一为 3 位小数，旧未支付订单保留原精确金额
-- 后台新增 TxHash 校验补单与全局防重复保护
-- 新增无 TxHash 强制补单，要求补单原因与 FORCE CREDIT 二次确认
-- 补单按订单原人民币金额入账，并写入余额流水与审计日志
-- 保留 v1.0.1 的折叠侧栏、统一 UI 与数据库上传/恢复能力
-- Host、NAT、VPS 核心逻辑保持不变
+- 新增节点维护 / Drain 和 CPU、内存、natpool 调度水位保护
+- 新增 Host 离线 / 恢复、资源水位、任务最终失败和数据库备份失败通知
+- 新增到期提醒、宽限期、自动停机、续费恢复与可选延迟自动删除
+- 自动删除默认关闭，必须由管理员主动开启
+- 流量周期独立于 VPS 到期，支持每 30 天滚动或每月固定日期重置
+- 用户控制台加入克制的卡片反馈、按钮 Loading、复制反馈、Toast 和流量动画
+- 新增独立公告中心、历史公告、未读提示与首次登录重点公告；后台公告管理从站点设置独立
+- v1.1.0 数据库改动为 additive migration，可兼容 v1.0.x SQLite 备份
+- v1.0.2 → v1.1.0 原地升级会自动备份并保留 .env、SQLite 数据和现有 Host/VPS
+- v1.0.2 USDT 三位小数和手动补单能力继续保留
 
 详细介绍请查看项目 README，完整部署与运维说明请查看 docs/README.md。
 EOF_NOTES

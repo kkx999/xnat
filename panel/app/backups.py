@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from .db import Base, engine
+from .schema import SCHEMA_EXTENSIONS, ensure_schema_extensions
 
 BACKUP_DIR = Path(os.getenv("BACKUP_DIR", "./data/backups"))
 BACKUP_LOCK = threading.RLock()
@@ -94,8 +95,13 @@ def validate_backup_file(path: Path) -> dict:
             }
             required_columns = {column.name for column in table.columns}
             absent = sorted(required_columns - actual_columns)
-            if absent:
-                missing_columns.append(f"{table_name}({','.join(absent[:6])})")
+            # v1.1 uses additive schema migrations. Older XNAT backups that only
+            # miss known additive columns remain restorable; the current DB is
+            # migrated immediately after the restore copy.
+            migratable = set(SCHEMA_EXTENSIONS.get(table_name, {}).keys())
+            blocking = [name for name in absent if name not in migratable]
+            if blocking:
+                missing_columns.append(f"{table_name}({','.join(blocking[:6])})")
         if missing_columns:
             raise RuntimeError("数据库结构不兼容，缺少字段：" + "；".join(missing_columns[:6]))
 
@@ -271,6 +277,8 @@ def restore_backup(backup_name: str) -> dict:
         try:
             engine.dispose()
             _copy_database(candidate, current_db)
+            engine.dispose()
+            ensure_schema_extensions()
             engine.dispose()
             restored_info = validate_backup_file(current_db)
             return {

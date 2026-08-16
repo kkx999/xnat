@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import secrets
+import hashlib
 import socket
 from urllib.parse import quote_plus
 from contextlib import asynccontextmanager
@@ -16,10 +17,10 @@ import psutil
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, Query, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import delete, func, or_, select, text
 from starlette.middleware.sessions import SessionMiddleware
 
 from .auth import (
@@ -30,29 +31,31 @@ from .crypto import decrypt_secret, encrypt_secret
 from .audit import write_audit
 from .backups import BACKUP_DIR, create_backup, create_scheduled_backup_if_due, list_backups, restore_backup, store_uploaded_backup, validate_backup_file
 from .jobs import enqueue_job, process_jobs
-from .notifications import process_pending_notifications, queue_notification, send_email_address, send_telegram_chat
+from .notifications import process_pending_notifications, queue_notification, queue_admin_notification, send_email_address, send_telegram_chat
 from .runtime_config import notification_runtime_config, runtime_plain, runtime_secret
 from .payments import (POLYGON_USDT0_CONTRACT, TRON_USDT_CONTRACT, create_recharge_order, manual_credit_order, normalize_tx_hash, payment_config, poll_pending_payments, rate_text, repair_credit_order, force_credit_order_without_tx, test_polygon_configuration, test_tron_configuration, usdt_units_to_text, valid_evm_address, valid_tron_address, verify_recharge_transaction)
 from .reconcile import reconcile_all, reconcile_server as reconcile_one_server
 from .security import (client_ip, consume_password_reset_token, create_login_session, create_password_reset_token, get_login_session, login_block_remaining_seconds, new_totp_secret, record_login_event, revoke_current_session, revoke_other_sessions, totp_uri, verify_totp)
 from .db import Base, SessionLocal, engine
+from .schema import ensure_schema_extensions
+from .lifecycle import cancel_pending_expiry_delete, lifecycle_config, lifecycle_state, resume_after_renewal, run_expiry_lifecycle
 from .deployment import deployment_status
 from .models import (
-    AuditLog, BalanceLedger, ChainTransaction, Coupon, CouponRedemption, HostNode, PlanHost, Job, LoginEvent, LoginSession,
+    Announcement, AnnouncementRead, AuditLog, BalanceLedger, ChainTransaction, Coupon, CouponRedemption, HostNode, PlanHost, Job, LoginEvent, LoginSession,
     Notification, Order, PasswordResetToken, Plan, PortMapping, RechargeOrder, Server, SiteSetting,
     SystemImage, Ticket, TicketMessage, User,
 )
 from .traffic import (
     THROTTLE_MBPS, apply_sample, collect_all as collect_traffic_all, configured_bandwidth_mbps,
     effective_bandwidth_mbps, enforce_traffic_policy, ensure_cycle, reset_cycle, traffic_bonus_gb,
-    traffic_level, traffic_percent, traffic_quota_bytes, traffic_quota_gb, traffic_raw_percent,
+    traffic_cycle_mode_label, traffic_level, traffic_percent, traffic_quota_bytes, traffic_quota_gb, traffic_raw_percent,
     traffic_remaining_bytes, traffic_status_label, traffic_used_bytes,
 )
 from .providers.incus import IncusProvider
 from .providers.remote import RemoteHostProvider
 from .providers.mock import MockProvider
 from .nodes import (
-    HostAPIError, allocate_host_port, host_request, host_summary, host_port_pool_stats,
+    HostAPIError, allocate_host_port, host_request, host_summary, host_port_pool_stats, host_schedule_state,
     refresh_all_hosts, refresh_host, select_host_for_plan,
 )
 
@@ -119,6 +122,7 @@ def order_status_label(value: str | None) -> str:
         "paid": "已支付",
         "completed": "已完成",
         "failed": "失败",
+        "cancelled": "已取消",
         "refunded": "已退款",
         "cancelled": "已取消",
     }.get((value or "").lower(), value or "未知")
@@ -355,6 +359,8 @@ def provision_service(db, request, user, plan, system_image, *, order_amount_cen
         port_limit=plan.port_count,
         bandwidth_mbps=plan.bandwidth_mbps,
         traffic_gb=plan.traffic_gb,
+        traffic_cycle_mode=get_setting(db, "traffic_cycle_default_mode", "rolling30"),
+        traffic_cycle_day=max(1, min(28, int(get_setting(db, "traffic_cycle_default_day", "1") or 1))),
         monthly_price_cents=plan.monthly_price_cents,
         expires_at=datetime.utcnow() + timedelta(days=30),
     )
@@ -432,7 +438,10 @@ def queue_service_provision(db, user, plan, system_image, *, order_amount_cents:
         public_ip=public_ip,
         ssh_port=ssh_port, os_image_id=system_image.id, os_name=system_image.name, os_alias=system_image.alias,
         cpu=plan.cpu, memory_mb=plan.memory_mb, disk_gb=plan.disk_gb, port_limit=plan.port_count,
-        bandwidth_mbps=plan.bandwidth_mbps, traffic_gb=plan.traffic_gb, monthly_price_cents=plan.monthly_price_cents,
+        bandwidth_mbps=plan.bandwidth_mbps, traffic_gb=plan.traffic_gb,
+        traffic_cycle_mode=get_setting(db, "traffic_cycle_default_mode", "rolling30"),
+        traffic_cycle_day=max(1, min(28, int(get_setting(db, "traffic_cycle_default_day", "1") or 1))),
+        monthly_price_cents=plan.monthly_price_cents,
         expires_at=datetime.utcnow() + timedelta(days=30), reconcile_status="pending",
     )
     db.add(server)
@@ -466,6 +475,7 @@ templates.env.globals["traffic_level"] = traffic_level
 templates.env.globals["traffic_status_label"] = traffic_status_label
 templates.env.globals["effective_bandwidth_mbps"] = effective_bandwidth_mbps
 templates.env.globals["traffic_cycle_label"] = traffic_cycle_label
+templates.env.globals["traffic_cycle_mode_label"] = traffic_cycle_mode_label
 templates.env.globals["server_status_label"] = server_status_label
 templates.env.globals["order_status_label"] = order_status_label
 templates.env.globals["order_kind_label"] = order_kind_label
@@ -478,9 +488,69 @@ templates.env.globals["urlencode"] = quote_plus
 templates.env.globals["decrypt_secret"] = decrypt_secret
 templates.env.globals["host_summary"] = host_summary
 
+
+def migrate_legacy_announcement(db) -> int | None:
+    """Import the old single site announcement into the announcement center once."""
+    marker = get_setting(db, "announcement_center_migrated", "false").strip().lower()
+    if marker in {"1", "true", "yes", "on"}:
+        return None
+    legacy_text = get_setting(db, "announcement_text", "").strip()
+    legacy_enabled = setting_enabled(db, "announcement_enabled", False)
+    migrated_id = None
+    if legacy_text:
+        existing = db.scalar(select(Announcement).where(Announcement.body == legacy_text).order_by(Announcement.id.desc()))
+        if existing:
+            migrated_id = existing.id
+        else:
+            row = Announcement(title="站点公告", body=legacy_text, is_published=True, is_pinned=True,
+                               show_on_login=legacy_enabled, published_at=datetime.utcnow(), updated_at=datetime.utcnow())
+            db.add(row)
+            db.flush()
+            migrated_id = row.id
+
+        # v1.1.0 UX3 stored a per-user SHA256 fingerprint when the old single
+        # announcement had already been shown. Convert those fingerprints into
+        # AnnouncementRead rows so upgrading to the announcement center does not
+        # make users re-read an announcement they already acknowledged.
+        legacy_key = hashlib.sha256(legacy_text.encode("utf-8")).hexdigest()
+        seen_user_ids = db.scalars(select(User.id).where(User.announcement_seen_key == legacy_key)).all()
+        existing_read_user_ids = set(db.scalars(select(AnnouncementRead.user_id).where(
+            AnnouncementRead.announcement_id == migrated_id
+        )).all())
+        for user_id in seen_user_ids:
+            if user_id not in existing_read_user_ids:
+                db.add(AnnouncementRead(announcement_id=migrated_id, user_id=user_id))
+
+    set_setting(db, "announcement_center_migrated", "true")
+    return migrated_id
+
+
+def published_announcements(db, *, limit: int = 30) -> list[Announcement]:
+    return db.scalars(
+        select(Announcement).where(Announcement.is_published == True)
+        .order_by(Announcement.is_pinned.desc(), Announcement.published_at.desc(), Announcement.id.desc())
+        .limit(limit)
+    ).all()
+
+
+def mark_announcement_read(db, user_id: int, announcement_id: int) -> bool:
+    announcement = db.get(Announcement, announcement_id)
+    if not announcement or not announcement.is_published:
+        return False
+    exists = db.scalar(select(AnnouncementRead).where(
+        AnnouncementRead.announcement_id == announcement_id, AnnouncementRead.user_id == user_id
+    ))
+    if not exists:
+        db.add(AnnouncementRead(announcement_id=announcement_id, user_id=user_id))
+    return True
+
+
 def seed():
     Path("data").mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
+    migrated = ensure_schema_extensions()
+    if migrated:
+        print("[schema] added: " + ", ".join(migrated))
 
     with SessionLocal() as db:
 
@@ -543,6 +613,17 @@ def seed():
             "port_blocked_public": "",
             "port_tcp_enabled": "true",
             "port_udp_enabled": "true",
+            # v1.1 lifecycle and operations policy. Auto-delete is OFF by default.
+            "expiry_notice_days": "7,3,1",
+            "expiry_grace_days": "0",
+            "expiry_auto_stop_enabled": "true",
+            "expiry_delete_enabled": "false",
+            "expiry_delete_after_days": "7",
+            "expiry_delete_notice_hours": "24",
+            "expiry_renew_auto_start": "true",
+            "traffic_cycle_default_mode": "rolling30",
+            "traffic_cycle_default_day": "1",
+            "node_nat_port_alert_percent": "10",
             # Web-managed notification/runtime configuration. Secrets are encrypted with APP_SECRET.
             "public_base_url": os.getenv("PUBLIC_BASE_URL", "").strip(),
             "smtp_host": os.getenv("SMTP_HOST", "").strip(),
@@ -572,6 +653,11 @@ def seed():
         for key, value in default_settings.items():
             if not db.get(SiteSetting, key):
                 db.add(SiteSetting(key=key, value=value))
+
+        db.flush()
+        migrated_announcement_id = migrate_legacy_announcement(db)
+        if migrated_announcement_id:
+            print(f"[announcement] migrated legacy notice to #{migrated_announcement_id}")
 
         admin_username = os.getenv("ADMIN_USERNAME", "admin")
         admin_password = os.getenv("ADMIN_PASSWORD", "ChangeThisAdminPassword123!")
@@ -649,27 +735,20 @@ async def notification_sender_loop():
 
 
 def expiry_maintenance_once():
-    now = datetime.utcnow()
+    return run_expiry_lifecycle(provider, PROVIDER_NAME)
+
+
+def notify_backup_failure(message: str):
     with SessionLocal() as db:
-        servers = db.scalars(select(Server).where(Server.deleted_at.is_(None), Server.expires_at.is_not(None))).all()
-        for server in servers:
-            user = db.get(User, server.user_id)
-            if not user:
-                continue
-            remaining = server.expires_at - now
-            days = remaining.total_seconds() / 86400
-            for threshold in (7, 3, 1):
-                if 0 < days <= threshold:
-                    key = server.expires_at.strftime("%Y%m%d%H%M")
-                    queue_notification(db, user, title=f"VPS 将在 {threshold} 天内到期", body=f"{server.name} 即将到期，请及时续费。", kind="expiry", severity="warning", event_key=f"expiry-{threshold}:{server.id}:{key}")
-            if server.expires_at <= now:
-                key = server.expires_at.strftime("%Y%m%d%H%M")
-                queue_notification(db, user, title="VPS 已到期", body=f"{server.name} 已到期。续费后可以重新开机。", kind="expiry", severity="error", event_key=f"expired:{server.id}:{key}")
-                if server.status == "running" and server.provider == PROVIDER_NAME and server.provider_instance_id:
-                    try:
-                        server.status = provider.power_action(server.provider_instance_id, "stop")
-                    except Exception as exc:
-                        print(f"[expiry] stop {server.name}: {exc}")
+        now = datetime.utcnow()
+        queue_admin_notification(
+            db,
+            title="数据库自动备份失败",
+            body=f"XNAT 定时数据库备份失败：{message[:300]}",
+            kind="system",
+            severity="error",
+            event_key=f"backup-failed:{now:%Y%m%d%H}",
+        )
         db.commit()
 
 
@@ -686,6 +765,7 @@ async def housekeeping_loop():
                     await asyncio.to_thread(create_scheduled_backup_if_due)
                 except Exception as exc:
                     print(f"[backup] scheduled: {exc}")
+                    await asyncio.to_thread(notify_backup_failure, str(exc))
             counter += 1
         except Exception as exc:
             print(f"[housekeeping] {exc}")
@@ -744,12 +824,20 @@ def render(request: Request, template_name: str, db, **context):
             )
         ) or 0
 
+    announcement_rows = []
+    announcement_read_ids: set[int] = set()
+    announcement_unread_count = 0
     login_announcement = None
-    if user and request.session.pop("show_login_announcement", False):
-        if setting_enabled(db, "announcement_enabled", False):
-            text_value = get_setting(db, "announcement_text", "").strip()
-            if text_value:
-                login_announcement = text_value
+    if user:
+        announcement_rows = published_announcements(db)
+        if announcement_rows:
+            announcement_ids = [row.id for row in announcement_rows]
+            announcement_read_ids = set(db.scalars(select(AnnouncementRead.announcement_id).where(
+                AnnouncementRead.user_id == user.id, AnnouncementRead.announcement_id.in_(announcement_ids)
+            )).all())
+            announcement_unread_count = sum(1 for row in announcement_rows if row.id not in announcement_read_ids)
+        if request.session.pop("show_login_announcement", False):
+            login_announcement = next((row for row in announcement_rows if row.show_on_login and row.id not in announcement_read_ids), None)
 
     return templates.TemplateResponse(
         request=request,
@@ -762,6 +850,9 @@ def render(request: Request, template_name: str, db, **context):
             "one_time_secret": secret_message,
             "provider_name": PROVIDER_NAME,
             "login_announcement": login_announcement,
+            "announcement_rows": announcement_rows,
+            "announcement_read_ids": announcement_read_ids,
+            "announcement_unread_count": announcement_unread_count,
             "registration_enabled": registration_enabled,
             "unread_notifications": unread_notifications,
             **context,
@@ -828,6 +919,18 @@ def active_server_for_user(db, user, server_id: int):
     if not server or server.user_id != user.id or server.deleted_at is not None:
         raise HTTPException(404, "服务器不存在")
     return server
+
+
+def lifecycle_operation_block(db, server: Server) -> str | None:
+    """Block service-changing operations after the expiry grace period.
+
+    Stop/delete/renew remain handled by their dedicated routes. This helper is
+    for operations that would otherwise mutate or revive an expired service.
+    """
+    state = lifecycle_state(server, lifecycle_config(db), datetime.utcnow())
+    if state["code"] in {"expired", "suspended", "delete_queued"}:
+        return "服务器已超过到期宽限期，请续费后再执行此操作。"
+    return None
 
 def parse_plan_form(
     name: str,
@@ -1602,6 +1705,8 @@ def customer_server_detail(request: Request, server_id: int):
             system_images=system_images,
             service_orders=service_orders,
             server_jobs=server_jobs,
+            lifecycle=lifecycle_state(server, lifecycle_config(db), datetime.utcnow()),
+            lifecycle_cfg=lifecycle_config(db),
             now=datetime.utcnow(),
             app_timezone=APP_TIMEZONE,
         )
@@ -1735,8 +1840,9 @@ def server_action(
     with db_session() as db:
         user = login_required(request, db)
         server = active_server_for_user(db, user, server_id)
-        if server.expires_at and server.expires_at <= datetime.utcnow() and action != "stop":
-            flash(request, "服务器已到期，请续费后操作。", "error")
+        state = lifecycle_state(server, lifecycle_config(db), datetime.utcnow())
+        if state["code"] in {"expired", "suspended", "delete_queued"} and action != "stop":
+            flash(request, "服务器已超过到期宽限期，请续费后操作。", "error")
             return RedirectResponse(f"/servers/{server.id}", status_code=303)
         try:
             server.status = provider.power_action(server.provider_instance_id, action)
@@ -1760,6 +1866,10 @@ def reset_password(
     with db_session() as db:
         user = login_required(request, db)
         server = active_server_for_user(db, user, server_id)
+        blocked = lifecycle_operation_block(db, server)
+        if blocked:
+            flash(request, blocked, "error")
+            return RedirectResponse(f"/servers/{server.id}", status_code=303)
         try:
             password = provider.reset_password(server.provider_instance_id)
             server.root_password_enc = encrypt_secret(password)
@@ -1787,6 +1897,10 @@ def reinstall_server(
     with db_session() as db:
         user = login_required(request, db)
         server = active_server_for_user(db, user, server_id)
+        blocked = lifecycle_operation_block(db, server)
+        if blocked:
+            flash(request, blocked, "error")
+            return RedirectResponse(f"/servers/{server.id}", status_code=303)
         if confirm_name.strip() != server.name:
             flash(request, "重装确认名称不正确。", "error")
             return RedirectResponse(f"/servers/{server.id}", status_code=303)
@@ -1840,20 +1954,61 @@ def renew_server(
     with db_session() as db:
         user = login_required(request, db)
         server = active_server_for_user(db, user, server_id)
+
         price = server.monthly_price_cents if server.monthly_price_cents is not None else server.plan.monthly_price_cents
         if user.balance_cents < price:
             flash(request, "余额不足，无法续费。", "error")
             return RedirectResponse("/recharge", status_code=303)
-        base = server.expires_at if server.expires_at and server.expires_at > datetime.utcnow() else datetime.utcnow()
+
+        cancelled_deletes, blocking_delete = cancel_pending_expiry_delete(db, server)
+        if blocking_delete:
+            flash(request, "服务器存在手动删除任务或自动删除任务已经开始执行，当前无法安全续费。请先确认删除任务状态。", "error")
+            return RedirectResponse(f"/servers/{server.id}", status_code=303)
+
+        now = datetime.utcnow()
+        base = server.expires_at if server.expires_at and server.expires_at > now else now
         server.expires_at = base + timedelta(days=30)
         order = Order(user_id=user.id, plan_id=server.plan_id, server_id=server.id, amount_cents=price, status="completed", kind="renewal")
         db.add(order)
         db.flush()
         change_balance(db, user, -price, kind="renewal", reference_type="order", reference_id=order.id, note=f"续费 {server.name}")
-        queue_notification(db, user, title="续费成功", body=f"{server.name} 已续费 30 天，新到期时间：{local_dt(server.expires_at):%Y-%m-%d %H:%M}。", kind="billing", severity="success", event_key=f"renew:{order.id}")
-        write_audit(db, actor=user, request=request, action="server.renew", target_type="server", target_id=server.id, target_name=server.name, detail={"order_id": order.id, "amount_cents": price})
+
+        restarted, restart_error = resume_after_renewal(db, provider, PROVIDER_NAME, server)
+        queue_notification(
+            db,
+            user,
+            title="续费成功",
+            body=(
+                f"{server.name} 已续费 30 天，新到期时间：{local_dt(server.expires_at):%Y-%m-%d %H:%M}。"
+                + (" 到期停机实例已自动恢复开机。" if restarted else "")
+            ),
+            kind="billing",
+            severity="success",
+            event_key=f"renew:{order.id}",
+        )
+        write_audit(
+            db,
+            actor=user,
+            request=request,
+            action="server.renew",
+            target_type="server",
+            target_id=server.id,
+            target_name=server.name,
+            detail={
+                "order_id": order.id,
+                "amount_cents": price,
+                "cancelled_expiry_delete_jobs": cancelled_deletes,
+                "auto_restarted": restarted,
+                "restart_error": restart_error,
+            },
+        )
         db.commit()
-        flash(request, "续费成功，到期时间已延长 30 天。", "success")
+        message = "续费成功，到期时间已延长 30 天。"
+        if restarted:
+            message += " 到期停机的 VPS 已自动恢复开机。"
+        elif restart_error:
+            message += f" 到期时间已恢复，但自动开机失败：{restart_error}"
+        flash(request, message, "warning" if restart_error else "success")
         return RedirectResponse(f"/servers/{server.id}", status_code=303)
 
 
@@ -1872,6 +2027,10 @@ def add_port_mapping(
     with db_session() as db:
         user = login_required(request, db)
         server = active_server_for_user(db, user, server_id)
+        blocked = lifecycle_operation_block(db, server)
+        if blocked:
+            flash(request, blocked, "error")
+            return RedirectResponse(f"/servers/{server.id}", status_code=303)
         try:
             validate_port_policy(db, protocol, private_port)
         except ValueError as exc:
@@ -1921,6 +2080,21 @@ def delete_port_mapping(
             flash(request, f"删除端口失败：{str(exc)[:180]}", "error")
         return RedirectResponse(f"/servers/{server.id}", status_code=303)
 
+@app.post("/announcements/{announcement_id}/read")
+def announcement_mark_read(request: Request, announcement_id: int, csrf_token: str = Form(...)):
+    validate_csrf(request, csrf_token)
+    with db_session() as db:
+        user = login_required(request, db)
+        if not mark_announcement_read(db, user.id, announcement_id):
+            raise HTTPException(404, "公告不存在")
+        db.commit()
+        unread = db.scalar(select(func.count()).select_from(Announcement).where(
+            Announcement.is_published == True,
+            ~Announcement.id.in_(select(AnnouncementRead.announcement_id).where(AnnouncementRead.user_id == user.id)),
+        )) or 0
+        return JSONResponse({"ok": True, "unread": int(unread)})
+
+
 # ---------------- Admin ----------------
 
 
@@ -1935,7 +2109,7 @@ def admin_page(
     allowed_sections = {
         "dashboard", "plans", "images", "coupons", "users", "provision",
         "servers", "orders", "payments", "tickets", "jobs", "audit",
-        "backups", "nodes", "notifications", "settings",
+        "backups", "nodes", "notifications", "announcements", "settings",
     }
     if section not in allowed_sections:
         section = "dashboard"
@@ -1995,9 +2169,9 @@ def admin_page(
         }
 
         plans=[]; system_images=[]; coupons=[]; users=[]; servers=[]; orders=[]
-        recharge_orders=[]; tickets=[]; jobs=[]; audit_logs=[]; balance_ledger=[]; hosts=[]; notification_rows=[]
+        recharge_orders=[]; tickets=[]; jobs=[]; audit_logs=[]; balance_ledger=[]; hosts=[]; notification_rows=[]; announcement_admin_rows=[]
         dashboard_recent_orders=[]; dashboard_recent_servers=[]; dashboard_stock=[]
-        inventories={}; user_stats={}; site_settings={}; backup_rows=[]; backup_preview=None; plan_host_map={}; host_port_stats={}
+        inventories={}; user_stats={}; site_settings={}; backup_rows=[]; backup_preview=None; plan_host_map={}; host_port_stats={}; host_schedule_states={}
         repair_order=None; repair_preview=None; repair_error=None; repair_tx=""
         total_rows=0; total_pages=1
 
@@ -2072,6 +2246,12 @@ def admin_page(
                 like=f"%{q}%"
                 stmt=stmt.where(or_(Notification.title.ilike(like), Notification.kind.ilike(like), Notification.email_status.ilike(like), Notification.telegram_status.ilike(like), User.username.ilike(like), User.email.ilike(like)))
             notification_rows=finish_page(stmt, order_by=Notification.id.desc())
+        elif section == "announcements":
+            stmt=select(Announcement)
+            if q:
+                like=f"%{q}%"
+                stmt=stmt.where(or_(Announcement.title.ilike(like), Announcement.body.ilike(like)))
+            announcement_admin_rows=finish_page(stmt, order_by=Announcement.id.desc())
         elif section == "tickets":
             stmt=select(Ticket).join(User, Ticket.user_id==User.id)
             if q:
@@ -2099,6 +2279,7 @@ def admin_page(
         elif section == "nodes":
             hosts = db.scalars(select(HostNode).order_by(HostNode.region, HostNode.name)).all()
             host_port_stats = {row.id: host_port_pool_stats(db, row) for row in hosts}
+            host_schedule_states = {row.id: host_schedule_state(db, row) for row in hosts}
             links = db.scalars(select(PlanHost).where(PlanHost.enabled == True)).all()
             for link in links:
                 plan_host_map.setdefault(link.host_id, set()).add(link.plan_id)
@@ -2118,11 +2299,17 @@ def admin_page(
         if section == "settings":
             setting_keys=[
                 *HOME_SETTING_DEFAULTS.keys(),
-                "registration_enabled","announcement_enabled","announcement_text","public_base_url",
+                "registration_enabled","public_base_url",
                 "login_max_failures","login_window_minutes","login_block_minutes","admin_require_2fa",
                 "port_blocked_private","port_blocked_public","port_tcp_enabled","port_udp_enabled",
+                "expiry_notice_days","expiry_grace_days","expiry_auto_stop_enabled","expiry_delete_enabled",
+                "expiry_delete_after_days","expiry_delete_notice_hours","expiry_renew_auto_start",
+                "traffic_cycle_default_mode","traffic_cycle_default_day","node_nat_port_alert_percent",
             ]
-            bool_setting_keys=["registration_enabled","announcement_enabled","admin_require_2fa","port_tcp_enabled","port_udp_enabled"]
+            bool_setting_keys=[
+                "registration_enabled","admin_require_2fa","port_tcp_enabled","port_udp_enabled",
+                "expiry_auto_stop_enabled","expiry_delete_enabled","expiry_renew_auto_start",
+            ]
         elif section == "payments":
             setting_keys=[
                 "payment_enabled","usdt_cny_rate","recharge_min_cny","recharge_max_cny","payment_expire_minutes","payment_late_grace_hours",
@@ -2161,8 +2348,9 @@ def admin_page(
         return render(request,"admin.html",db,
             section=section,q=q,page=page,per_page=per_page,total_rows=total_rows,total_pages=total_pages,
             stats=stats,node=node,business=business,plans=plans,system_images=system_images,coupons=coupons,users=users,servers=servers,orders=orders,
-            recharge_orders=recharge_orders,tickets=tickets,jobs=jobs,audit_logs=audit_logs,balance_ledger=balance_ledger,backup_rows=backup_rows,backup_preview=backup_preview,hosts=hosts,notification_rows=notification_rows,
-            inventories=inventories,user_stats=user_stats,site_settings=site_settings,payment_cfg=payment_cfg,env_status=env_status,deployment=deployment,plan_host_map=plan_host_map,host_port_stats=host_port_stats,
+            recharge_orders=recharge_orders,tickets=tickets,jobs=jobs,audit_logs=audit_logs,balance_ledger=balance_ledger,backup_rows=backup_rows,backup_preview=backup_preview,hosts=hosts,notification_rows=notification_rows,announcement_admin_rows=announcement_admin_rows,
+            inventories=inventories,user_stats=user_stats,site_settings=site_settings,payment_cfg=payment_cfg,env_status=env_status,deployment=deployment,plan_host_map=plan_host_map,host_port_stats=host_port_stats,host_schedule_states=host_schedule_states,
+            lifecycle_cfg=lifecycle_config(db),
             repair_order=repair_order,repair_preview=repair_preview,repair_error=repair_error,repair_tx=repair_tx,
             dashboard_recent_orders=dashboard_recent_orders,dashboard_recent_servers=dashboard_recent_servers,dashboard_stock=dashboard_stock,
         )
@@ -2178,6 +2366,9 @@ def admin_create_node(
     api_token: str = Form(...),
     public_ip: str = Form(""),
     max_vps: int = Form(0),
+    schedule_cpu_max_percent: int = Form(90),
+    schedule_memory_max_percent: int = Form(90),
+    schedule_storage_max_percent: int = Form(90),
     verify_tls: str | None = Form(None),
     csrf_token: str = Form(...),
 ):
@@ -2207,6 +2398,10 @@ def admin_create_node(
             max_vps=max(0, max_vps),
             enabled=True,
             verify_tls=verify_tls == "true",
+            maintenance_mode=False,
+            schedule_cpu_max_percent=max(0, min(100, schedule_cpu_max_percent)),
+            schedule_memory_max_percent=max(0, min(100, schedule_memory_max_percent)),
+            schedule_storage_max_percent=max(0, min(100, schedule_storage_max_percent)),
             status="unknown",
         )
         db.add(row)
@@ -2244,6 +2439,9 @@ def admin_update_node(
     api_url: str = Form(...),
     public_ip: str = Form(""),
     max_vps: int = Form(0),
+    schedule_cpu_max_percent: int = Form(90),
+    schedule_memory_max_percent: int = Form(90),
+    schedule_storage_max_percent: int = Form(90),
     api_token: str = Form(""),
     verify_tls: str | None = Form(None),
     csrf_token: str = Form(...),
@@ -2272,6 +2470,9 @@ def admin_update_node(
         row.public_ip = public_ip
         row.max_vps = max(0, max_vps)
         row.verify_tls = verify_tls == "true"
+        row.schedule_cpu_max_percent = max(0, min(100, schedule_cpu_max_percent))
+        row.schedule_memory_max_percent = max(0, min(100, schedule_memory_max_percent))
+        row.schedule_storage_max_percent = max(0, min(100, schedule_storage_max_percent))
         if api_token.strip():
             row.api_token_enc = encrypt_secret(api_token.strip())
 
@@ -2387,6 +2588,41 @@ def admin_test_node(request: Request, node_id: int, csrf_token: str = Form(...))
         except Exception as exc:
             db.commit(); flash(request,f"{row.name} 连接失败：{str(exc)[:180]}","error")
     return RedirectResponse("/admin?section=nodes",status_code=303)
+
+
+@app.post("/admin/nodes/{node_id}/maintenance")
+def admin_node_maintenance(
+    request: Request,
+    node_id: int,
+    mode: str = Form(...),
+    reason: str = Form(""),
+    csrf_token: str = Form(...),
+):
+    validate_csrf(request, csrf_token)
+    mode = (mode or "").strip().lower()
+    with db_session() as db:
+        admin = admin_required(request, db)
+        row = db.get(HostNode, node_id)
+        if not row:
+            raise HTTPException(404, "宿主机不存在")
+        if mode == "enter":
+            row.maintenance_mode = True
+            row.maintenance_reason = re.sub(r"\s+", " ", (reason or "").strip())[:255] or "计划维护"
+            message = f"{row.name} 已进入维护模式：停止新 VPS 调度，现有 VPS 不受影响。"
+        elif mode == "exit":
+            row.maintenance_mode = False
+            row.maintenance_reason = None
+            message = f"{row.name} 已退出维护模式，恢复参与调度。"
+        else:
+            raise HTTPException(400, "维护模式参数错误")
+        write_audit(
+            db, actor=admin, request=request, action="admin.node.maintenance",
+            target_type="host_node", target_id=row.id, target_name=row.name,
+            detail={"maintenance_mode": row.maintenance_mode, "reason": row.maintenance_reason},
+        )
+        db.commit()
+        flash(request, message, "success")
+    return RedirectResponse("/admin?section=nodes", status_code=303)
 
 
 @app.post("/admin/nodes/{node_id}/toggle")
@@ -2850,6 +3086,61 @@ def admin_set_traffic_quota(
     return RedirectResponse("/admin?section=servers", status_code=303)
 
 
+@app.post("/admin/servers/{server_id}/traffic/cycle")
+def admin_set_traffic_cycle(
+    request: Request,
+    server_id: int,
+    cycle_mode: str = Form(...),
+    cycle_day: int = Form(1),
+    confirm_reset: str = Form(""),
+    csrf_token: str = Form(...),
+):
+    validate_csrf(request, csrf_token)
+    cycle_mode = (cycle_mode or "").strip().lower()
+    if cycle_mode not in {"rolling30", "monthly"}:
+        flash(request, "流量周期模式无效。", "error")
+        return RedirectResponse("/admin?section=servers", status_code=303)
+    cycle_day = max(1, min(28, int(cycle_day or 1)))
+    if confirm_reset != "true":
+        flash(request, "修改流量周期会立即重置本周期已用流量，请勾选确认。", "error")
+        return RedirectResponse("/admin?section=servers", status_code=303)
+
+    with db_session() as db:
+        admin = admin_required(request, db)
+        server = db.get(Server, server_id)
+        if not server or server.deleted_at is not None:
+            raise HTTPException(404, "服务器不存在")
+        before = {
+            "mode": server.traffic_cycle_mode,
+            "day": server.traffic_cycle_day,
+            "cycle_start": server.traffic_cycle_start.isoformat() if server.traffic_cycle_start else None,
+            "cycle_end": server.traffic_cycle_end.isoformat() if server.traffic_cycle_end else None,
+            "used_bytes": traffic_used_bytes(server),
+        }
+        server.traffic_cycle_mode = cycle_mode
+        server.traffic_cycle_day = cycle_day
+        reset_cycle(server, datetime.utcnow())
+        provider_error = None
+        try:
+            enforce_traffic_policy(server, provider)
+        except Exception as exc:
+            provider_error = str(exc)[:180]
+        write_audit(
+            db, actor=admin, request=request, action="admin.server.traffic.cycle",
+            target_type="server", target_id=server.id, target_name=server.name,
+            detail={
+                "before": before,
+                "after": {"mode": cycle_mode, "day": cycle_day, "cycle_end": server.traffic_cycle_end.isoformat()},
+            },
+        )
+        db.commit()
+        message = f"{server.name} 流量周期已改为 {traffic_cycle_mode_label(server)}，本周期用量已重置。"
+        if provider_error:
+            message += f" 带宽策略同步失败：{provider_error}"
+        flash(request, message, "warning" if provider_error else "success")
+    return RedirectResponse("/admin?section=servers", status_code=303)
+
+
 @app.post("/admin/servers/{server_id}/traffic/reset")
 def admin_reset_traffic_cycle(request:Request,server_id:int,csrf_token:str=Form(...)):
     validate_csrf(request,csrf_token)
@@ -2933,13 +3224,26 @@ def admin_set_server_expiry(
 
         server.expires_at = new_expiry
         stopped = False
-        stop_error = None
-        if new_expiry <= now and server.status == "running" and server.provider == PROVIDER_NAME and server.provider_instance_id:
-            try:
-                server.status = provider.power_action(server.provider_instance_id, "stop")
-                stopped = True
-            except Exception as exc:
-                stop_error = str(exc)[:180]
+        restarted = False
+        provider_error = None
+        cancelled_deletes = 0
+
+        if new_expiry > now:
+            cancelled_deletes, blocking_delete = cancel_pending_expiry_delete(db, server)
+            if blocking_delete:
+                flash(request, "服务器存在手动删除任务或自动删除任务已经开始执行，不能仅通过修改到期时间撤销。请先确认任务状态。", "error")
+                return RedirectResponse("/admin?section=servers", status_code=303)
+            restarted, provider_error = resume_after_renewal(db, provider, PROVIDER_NAME, server)
+        else:
+            cfg = lifecycle_config(db)
+            grace_end = new_expiry + timedelta(days=cfg["grace_days"])
+            if cfg["auto_stop"] and now >= grace_end and server.status == "running" and server.provider == PROVIDER_NAME and server.provider_instance_id:
+                try:
+                    server.status = provider.power_action(server.provider_instance_id, "stop")
+                    server.expiry_suspended_at = server.expiry_suspended_at or now
+                    stopped = True
+                except Exception as exc:
+                    provider_error = str(exc)[:180]
 
         write_audit(
             db, actor=admin, request=request, action="admin.server.expiry",
@@ -2948,14 +3252,19 @@ def admin_set_server_expiry(
                 "mode": mode, "days": days if mode == "add" else None,
                 "before": old_expiry.isoformat() if old_expiry else None,
                 "after": new_expiry.isoformat(), "stopped": stopped,
+                "restarted": restarted, "cancelled_expiry_delete_jobs": cancelled_deletes,
             },
         )
         db.commit()
         local_expiry = local_dt(new_expiry).strftime("%Y-%m-%d %H:%M")
         msg = f"{server.name} 到期时间已调整为 {local_expiry}。"
-        if stop_error:
-            msg += f" 到期时间已保存，但立即停机失败：{stop_error}"
-        flash(request, msg, "warning" if stop_error else "success")
+        if stopped:
+            msg += " 已按当前生命周期策略停止服务。"
+        if restarted:
+            msg += " 到期停机实例已自动恢复。"
+        if provider_error:
+            msg += f" Provider 操作失败：{provider_error}"
+        flash(request, msg, "warning" if provider_error else "success")
     return RedirectResponse("/admin?section=servers", status_code=303)
 
 
@@ -3027,6 +3336,70 @@ def admin_toggle_system_image(request:Request,image_id:int,csrf_token:str=Form(.
     return RedirectResponse("/admin?section=images",status_code=303)
 
 
+@app.post("/admin/announcements")
+def admin_create_announcement(request: Request, title: str = Form(...), body: str = Form(...), status: str = Form("draft"),
+                              is_pinned: str | None = Form(None), show_on_login: str | None = Form(None), csrf_token: str = Form(...)):
+    validate_csrf(request, csrf_token)
+    title, body = title.strip()[:160], body.strip()[:12000]
+    if not title or not body:
+        flash(request, "公告标题和内容不能为空。", "error")
+        return RedirectResponse("/admin?section=announcements", status_code=303)
+    published = status == "published"
+    with db_session() as db:
+        admin = admin_required(request, db)
+        login_flag = bool(show_on_login) and published
+        if login_flag:
+            db.execute(text("UPDATE announcements SET show_on_login = 0"))
+        row = Announcement(title=title, body=body, is_published=published, is_pinned=bool(is_pinned), show_on_login=login_flag,
+                           published_at=datetime.utcnow() if published else None, updated_at=datetime.utcnow())
+        db.add(row); db.flush()
+        write_audit(db, actor=admin, request=request, action="announcement.create", target_type="announcement", target_id=row.id, target_name=row.title, detail={"published": published, "login": login_flag})
+        db.commit()
+    flash(request, "公告已创建并发布。" if published else "公告草稿已创建。", "success")
+    return RedirectResponse("/admin?section=announcements", status_code=303)
+
+
+@app.post("/admin/announcements/{announcement_id}/update")
+def admin_update_announcement(request: Request, announcement_id: int, title: str = Form(...), body: str = Form(...), status: str = Form("draft"),
+                              is_pinned: str | None = Form(None), show_on_login: str | None = Form(None), csrf_token: str = Form(...)):
+    validate_csrf(request, csrf_token)
+    title, body = title.strip()[:160], body.strip()[:12000]
+    if not title or not body:
+        flash(request, "公告标题和内容不能为空。", "error")
+        return RedirectResponse("/admin?section=announcements", status_code=303)
+    with db_session() as db:
+        admin = admin_required(request, db); row = db.get(Announcement, announcement_id)
+        if not row: raise HTTPException(404, "公告不存在")
+        content_changed = row.title != title or row.body != body
+        published = status == "published"; login_flag = bool(show_on_login) and published
+        if login_flag:
+            db.execute(text("UPDATE announcements SET show_on_login = 0 WHERE id != :id"), {"id": row.id})
+        row.title, row.body, row.is_published, row.is_pinned, row.show_on_login = title, body, published, bool(is_pinned), login_flag
+        if published and row.published_at is None: row.published_at = datetime.utcnow()
+        row.updated_at = datetime.utcnow()
+        if content_changed: db.execute(delete(AnnouncementRead).where(AnnouncementRead.announcement_id == row.id))
+        write_audit(db, actor=admin, request=request, action="announcement.update", target_type="announcement", target_id=row.id, target_name=row.title, detail={"published": published, "login": login_flag, "content_changed": content_changed})
+        db.commit()
+    flash(request, "公告已更新。内容有变化时，用户会重新看到未读状态。", "success")
+    return RedirectResponse("/admin?section=announcements", status_code=303)
+
+
+@app.post("/admin/announcements/{announcement_id}/toggle")
+def admin_toggle_announcement(request: Request, announcement_id: int, csrf_token: str = Form(...)):
+    validate_csrf(request, csrf_token)
+    with db_session() as db:
+        admin = admin_required(request, db); row = db.get(Announcement, announcement_id)
+        if not row: raise HTTPException(404, "公告不存在")
+        row.is_published = not bool(row.is_published)
+        if row.is_published and row.published_at is None: row.published_at = datetime.utcnow()
+        if not row.is_published: row.show_on_login = False
+        row.updated_at = datetime.utcnow(); new_state = bool(row.is_published)
+        write_audit(db, actor=admin, request=request, action="announcement.publish_toggle", target_type="announcement", target_id=row.id, target_name=row.title, detail={"published": new_state})
+        db.commit()
+    flash(request, "公告已发布。" if new_state else "公告已下线，用户端将不再显示。", "success")
+    return RedirectResponse("/admin?section=announcements", status_code=303)
+
+
 @app.post("/admin/settings")
 async def admin_update_settings(request: Request):
     form = await request.form()
@@ -3090,11 +3463,9 @@ async def admin_update_settings(request: Request):
             elif scope == "site":
                 values = {
                     "registration_enabled": "true" if str(form.get("registration_enabled")) == "true" else "false",
-                    "announcement_enabled": "true" if str(form.get("announcement_enabled")) == "true" else "false",
-                    "announcement_text": str(form.get("announcement_text") or "").strip()[:4000],
                     "public_base_url": str(form.get("public_base_url") or "").strip().rstrip("/"),
                 }
-                success_text = "站点与公告设置已保存。"
+                success_text = "站点设置已保存。"
 
             elif scope == "payments":
                 rate = Decimal(str(form.get("usdt_cny_rate") or "7.20"))
@@ -3167,6 +3538,59 @@ async def admin_update_settings(request: Request):
                     if not tron_enabled and not polygon_enabled:
                         warnings.append("支付总开关已开启，但当前没有启用任何网络")
                 success_text = "USDT 支付设置已保存。"
+
+            elif scope == "operations":
+                notice_raw = str(form.get("expiry_notice_days") or "7,3,1").strip()
+                notice_values = []
+                for chunk in notice_raw.split(","):
+                    chunk = chunk.strip()
+                    if not chunk:
+                        continue
+                    value = int(chunk)
+                    if not (1 <= value <= 365):
+                        raise ValueError("到期提醒天数应在 1-365 之间")
+                    if value not in notice_values:
+                        notice_values.append(value)
+                if not notice_values:
+                    raise ValueError("至少配置一个到期提醒天数")
+                notice_values.sort(reverse=True)
+
+                grace_days = int(str(form.get("expiry_grace_days") or "0"))
+                delete_after_days = int(str(form.get("expiry_delete_after_days") or "7"))
+                delete_notice_hours = int(str(form.get("expiry_delete_notice_hours") or "24"))
+                cycle_mode = str(form.get("traffic_cycle_default_mode") or "rolling30").strip().lower()
+                cycle_day = int(str(form.get("traffic_cycle_default_day") or "1"))
+                port_alert = int(str(form.get("node_nat_port_alert_percent") or "10"))
+
+                if not (0 <= grace_days <= 90):
+                    raise ValueError("到期宽限期应在 0-90 天之间")
+                if not (1 <= delete_after_days <= 365):
+                    raise ValueError("自动删除等待天数应在 1-365 天之间")
+                if not (1 <= delete_notice_hours <= 720):
+                    raise ValueError("删除前最终提醒应在 1-720 小时之间")
+                if cycle_mode not in {"rolling30", "monthly"}:
+                    raise ValueError("默认流量周期模式无效")
+                if not (1 <= cycle_day <= 28):
+                    raise ValueError("每月固定重置日应在 1-28 之间")
+                if not (0 <= port_alert <= 100):
+                    raise ValueError("NAT 端口池告警阈值应在 0-100% 之间")
+
+                auto_delete = str(form.get("expiry_delete_enabled")) == "true"
+                values = {
+                    "expiry_notice_days": ",".join(str(x) for x in notice_values),
+                    "expiry_grace_days": str(grace_days),
+                    "expiry_auto_stop_enabled": "true" if str(form.get("expiry_auto_stop_enabled")) == "true" else "false",
+                    "expiry_delete_enabled": "true" if auto_delete else "false",
+                    "expiry_delete_after_days": str(delete_after_days),
+                    "expiry_delete_notice_hours": str(delete_notice_hours),
+                    "expiry_renew_auto_start": "true" if str(form.get("expiry_renew_auto_start")) == "true" else "false",
+                    "traffic_cycle_default_mode": cycle_mode,
+                    "traffic_cycle_default_day": str(cycle_day),
+                    "node_nat_port_alert_percent": str(port_alert),
+                }
+                if auto_delete:
+                    warnings.append("自动删除已经开启：超过到期宽限期和删除等待期后，系统会永久删除 VPS")
+                success_text = "运营与生命周期策略已保存。"
 
             elif scope == "security":
                 max_failures = int(str(form.get("login_max_failures") or "10"))
@@ -3757,7 +4181,7 @@ def admin_backup_download(request:Request,backup_name:str):
 def health():
     return {
         "status": "ok",
-        "version": "1.0.2",
+        "version": "1.1.0",
         "provider": PROVIDER_NAME,
         "timezone": APP_TIMEZONE,
     }
