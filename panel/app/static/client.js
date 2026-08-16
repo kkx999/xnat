@@ -13,14 +13,24 @@
   const announcement=document.getElementById("loginAnnouncement");
   if (announcement) { const card=announcement.querySelector(".announcement-card"),confirm=announcement.querySelector(".announcement-confirm");let dismissing=false;const dismiss=async()=>{if(dismissing||announcement.classList.contains("leaving"))return;dismissing=true;await announcementRead(announcement.dataset.announcementId,announcement.dataset.csrf);announcement.classList.add("leaving");window.setTimeout(()=>announcement.remove(),240);};announcement.querySelectorAll("[data-announcement-dismiss]").forEach(button=>button.addEventListener("click",dismiss));announcement.addEventListener("click",event=>{if(event.target===announcement)dismiss();});document.addEventListener("keydown",event=>{if(event.key==="Escape"&&document.body.contains(announcement))dismiss();});window.requestAnimationFrame(()=>{card?.classList.add("is-ready");confirm?.focus({preventScroll:true});});}
 
-  // Flash messages behave like compact toasts instead of blocking the layout.
-  document.querySelectorAll(".client-body .flash").forEach((toast) => {
+  // Flash messages use the same compact top-right toast in both client and admin areas.
+  // Keep them non-blocking and dismiss automatically after 3 seconds.
+  document.querySelectorAll(".client-body .flash, .admin-body .flash").forEach((toast) => {
     toast.classList.add("xnat-toast");
-    const timeout = toast.classList.contains("error") ? 6500 : 4200;
-    window.setTimeout(() => {
+    let dismissTimer = null;
+    const dismiss = () => {
+      if (!document.body.contains(toast) || toast.classList.contains("leaving")) return;
       toast.classList.add("leaving");
       window.setTimeout(() => toast.remove(), 220);
-    }, timeout);
+    };
+    const arm = () => {
+      window.clearTimeout(dismissTimer);
+      dismissTimer = window.setTimeout(dismiss, 3000);
+    };
+    toast.addEventListener("mouseenter", () => window.clearTimeout(dismissTimer));
+    toast.addEventListener("mouseleave", arm);
+    toast.addEventListener("click", dismiss);
+    arm();
   });
 
   // Copy feedback is inline and never opens an intrusive modal.

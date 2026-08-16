@@ -37,9 +37,11 @@ CURRENT_VERSION="$(grep -E '^__version__[[:space:]]*=' "${TARGET_DIR}/app/__init
 CURRENT_VERSION="${CURRENT_VERSION:-unknown}"
 
 case "$CURRENT_VERSION" in
-  1.0.2) UPGRADE_PATH="verified-v1.0.2" ;;
-  1.0.*) UPGRADE_PATH="compatible-v1.0.x"; warn "当前为 v${CURRENT_VERSION}；v1.1.0 的正式升级验收基线是 v1.0.2。建议先升级到 v1.0.2。" ;;
+  1.1.0) UPGRADE_PATH="verified-v1.1.0" ;;
   "$COMPONENT_VERSION") UPGRADE_PATH="reapply" ;;
+  1.1.*) UPGRADE_PATH="compatible-v1.1.x"; warn "当前为 v${CURRENT_VERSION}；v1.1.1 的正式升级验收基线是 v1.1.0。" ;;
+  1.0.2) UPGRADE_PATH="legacy-v1.0.2"; warn "当前为 v1.0.2；建议先执行 xnat update 1.1.0，再升级到 v1.1.1。此升级器仍保留 additive schema 兼容检查。" ;;
+  1.0.*) UPGRADE_PATH="legacy-v1.0.x"; warn "当前为 v${CURRENT_VERSION}；v1.1.1 正式升级验收基线是 v1.1.0，建议先升级到 v1.1.0。" ;;
   *) die "不支持从 v${CURRENT_VERSION} 直接使用此脚本升级到 v${COMPONENT_VERSION}" ;;
 esac
 
@@ -146,7 +148,7 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 
-info "5/8 执行 v1.1.0 数据库兼容迁移"
+info "5/8 执行 v1.1.1 数据库兼容检查 / additive migration"
 DATABASE_URL="${DATABASE_URL_VALUE}" .venv/bin/python - <<'PY'
 from app.schema import ensure_schema_extensions
 changed = ensure_schema_extensions()

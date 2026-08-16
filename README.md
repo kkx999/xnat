@@ -4,7 +4,7 @@
 
 XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、多宿主机节点、套餐、用户、流量、通知及日常运维。
 
-当前版本：**v1.1.0**
+当前版本：**v1.1.1**
 
 ---
 
@@ -78,56 +78,57 @@ Host 连接 Panel 成功后，在 Panel 后台节点设置中配置 NAT 端口�
 
 ---
 
-# 指定 v1.1.0 安装
+# 指定 v1.1.1 安装
 
 Panel：
 
 ```bash
-XNAT_VERSION=1.1.0 \
+XNAT_VERSION=1.1.1 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
 Host：
 
 ```bash
-XNAT_VERSION=1.1.0 \
+XNAT_VERSION=1.1.1 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-host.sh)
 ```
 
-> 注：`XNAT_VERSION=1.1.0` 指 XNAT Release 版本。XNAT v1.1.0 继续使用 **Host Agent v1.0.0 / Agent API v1**，无需单独升级 Host Agent。
+> 注：`XNAT_VERSION=1.1.1` 指 XNAT Release 版本。XNAT v1.1.1 继续使用 **Host Agent v1.0.0 / Agent API v1**，无需单独升级 Host Agent。
 
 ---
 
-# 从 v1.0.2 升级到 v1.1.0
+# 从 v1.1.0 升级到 v1.1.1
 
-正式兼容基线是 **XNAT Panel v1.0.2 final**。现有 v1.0.2 Panel 推荐直接执行：
+正式兼容基线是 **XNAT Panel v1.1.0**。现有 v1.1.0 Panel 直接执行：
 
 ```bash
-xnat update 1.1.0
+xnat update 1.1.1
 ```
 
-v1.0.2 自带的 `xnat update` 会下载 v1.1.0 Tag 源码并调用 v1.1.0 的 `scripts/upgrade-panel.sh`；该升级器明确识别 v1.0.2 兼容路径。
+v1.1.0 自带的 `xnat update` 会下载 v1.1.1 Tag 源码并调用 v1.1.1 的 `scripts/upgrade-panel.sh`；升级器会明确识别 `verified-v1.1.0` 路径。
 
 如果使用手动源码包升级，也可以执行：
 
 ```bash
-cd /root/xnat-v1.1.0
-bash scripts/upgrade-panel-from-v1.0.2.sh
+cd /root/xnat-v1.1.1
+bash scripts/upgrade-panel-from-v1.1.0.sh
 ```
 
 升级流程会自动：
 
-- 校验当前 Panel 确实为 v1.0.2；
+- 校验当前 Panel 为 v1.1.0；
 - 对现有 SQLite 执行 `PRAGMA quick_check`；
 - 备份 `panel.db`、`.env`、当前 Panel 代码、systemd 单元和 XNAT 管理命令；
 - 保留现有 Panel 监听地址与端口；
-- 原地更新 Panel 到 v1.1.0；
-- 只通过 `ALTER TABLE ... ADD COLUMN` 补齐 v1.1.0 字段；
-- 保留用户、余额、订单、VPS、Host、套餐、支付和通知数据；
-- 自动删除策略仍保持默认关闭；
+- 原地更新 Panel 到 v1.1.1；
+- 执行兼容性 schema 检查，沿用 v1.1.0 additive migration，不重建旧表；
+- 保留用户、余额、订单、VPS、Host、套餐、支付、通知、公告及公告已读记录；
 - 健康检查或数据库检查失败时自动尝试回滚。
 
-本次 Panel 升级**不要求重装 Host Agent**；Host Agent 继续保持 v1.0.0 / Agent API v1。
+本次仅升级 Panel；**Host Agent 继续保持 v1.0.0 / Agent API v1，无需升级或重装。**
+
+> 仍在 v1.0.2 / v1.0.x 的旧 Panel，建议先升级到 v1.1.0，再执行 `xnat update 1.1.1`。
 
 ---
 

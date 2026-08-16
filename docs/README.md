@@ -1,4 +1,4 @@
-# XNAT v1.1.0 详细使用文档
+# XNAT v1.1.1 详细使用文档
 
 > 本文档负责详细说明 XNAT 的安装和运维。  
 > 根目录 `README.md` 保持简洁，具体操作以这里为准。
@@ -71,15 +71,15 @@ bash <(...)
 # 3. 指定版本安装 Panel
 
 ```bash
-XNAT_VERSION=1.1.0 \
+XNAT_VERSION=1.1.1 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
 ```text
-XNAT_VERSION=1.1.0
+XNAT_VERSION=1.1.1
 ```
 
-表示固定安装 Release `v1.1.0`，不自动跟随以后发布的新版本。
+表示固定安装 Release `v1.1.1`，不自动跟随以后发布的新版本。
 
 ---
 
@@ -575,19 +575,19 @@ Panel Server 的真实公网 IPv4。
 
 ---
 
-# 15. 指定 v1.1.0 安装 Host
+# 15. 指定 v1.1.1 安装 Host
 
 ```bash
-XNAT_VERSION=1.1.0 \
+XNAT_VERSION=1.1.1 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-host.sh)
 ```
 
-`XNAT_VERSION=1.1.0`：
+`XNAT_VERSION=1.1.1`：
 
 固定下载 Release tag：
 
 ```text
-v1.1.0
+v1.1.1
 ```
 
 然后仍然会进入正常的交互式 Panel IP + natpool 流程。
@@ -1339,58 +1339,56 @@ SMTP / Telegram → 独立通知服务页面
 
 ---
 
-# 31. v1.0.2 → v1.1.0 原地升级
+# 31. v1.1.0 → v1.1.1 原地升级
 
-正式兼容基线是 **XNAT Panel v1.0.2 final**。升级前不需要删除旧 Panel，也不要手工修改 SQLite。
+正式兼容基线是 **XNAT Panel v1.1.0**。升级前不需要删除旧 Panel，也不要手工修改 SQLite。
 
-正式 v1.1.0 Tag 发布后，v1.0.2 Panel 首选直接执行：
+正式 v1.1.1 Tag 发布后，v1.1.0 Panel 首选直接执行：
 
 ```bash
-xnat update 1.1.0
+xnat update 1.1.1
 ```
 
-v1.0.2 的更新命令会下载 v1.1.0 Tag，并调用新版本自身的 `scripts/upgrade-panel.sh` 完成备份、数据库迁移、健康检查与失败回滚。
+v1.1.0 的更新命令会下载 v1.1.1 Tag，并调用新版本自身的 `scripts/upgrade-panel.sh` 完成备份、数据库兼容检查、健康检查与失败回滚。
 
-如果采用手动源码包升级，把完整的 v1.1.0 源码包上传到 Panel，例如解压到：
+如果采用手动源码包升级，把完整的 v1.1.1 源码包上传到 Panel，例如解压到：
 
 ```text
-/root/xnat-v1.1.0
+/root/xnat-v1.1.1
 ```
 
 然后执行：
 
 ```bash
-cd /root/xnat-v1.1.0
-bash scripts/upgrade-panel-from-v1.0.2.sh
+cd /root/xnat-v1.1.1
+bash scripts/upgrade-panel-from-v1.1.0.sh
 ```
 
-专用脚本会先确认现有 Panel 版本是 `1.0.2`，然后调用通用升级器。升级器会执行以下安全流程：
+专用脚本会先确认现有 Panel 版本是 `1.1.0`，然后调用通用升级器。升级器会执行：
 
 ```text
 SQLite quick_check
 ↓
 备份 panel.db / .env / 旧代码 / systemd / xnat 命令
 ↓
-更新 Panel 代码
+更新 Panel 代码到 v1.1.1
 ↓
 安装/更新 Python 依赖
 ↓
-执行 additive schema migration
+执行 schema 兼容检查（沿用 additive migration）
 ↓
-确认 v1.1.0 新字段全部存在
+确认公告中心及 v1.1.0 既有字段/表仍完整
 ↓
 重建 Panel / maintenance systemd 单元
 ↓
 启动 Panel
 ↓
-/health 必须返回 v1.1.0
+/health 必须返回 v1.1.1
 ↓
 再次执行 SQLite quick_check
 ```
 
-升级不会删除 `data/`，因此原有用户、余额、订单、VPS、Host、套餐、充值、通知和备份目录都会保留。`.env` 也不会被覆盖；如果 v1.0.2 使用了自定义 `PANEL_BIND_HOST` 或 `PANEL_PORT`，升级会继续使用原值。
-
-v1.1.0 的新数据库字段全部采用新增字段迁移，不重建旧表。到期自动永久删除在升级后默认仍为关闭状态。
+升级不会删除 `data/`，因此原有用户、余额、订单、VPS、Host、套餐、充值、通知、公告、公告已读记录和备份目录都会保留。`.env` 也不会被覆盖；自定义 `PANEL_BIND_HOST` 或 `PANEL_PORT` 会继续使用原值。
 
 如果更新流程出现错误，脚本会尝试恢复升级前的数据库、`.env`、代码、systemd 单元和管理脚本，然后重新启动旧 Panel。升级前快照统一保存在：
 
@@ -1398,7 +1396,9 @@ v1.1.0 的新数据库字段全部采用新增字段迁移，不重建旧表。�
 /root/xnat-backups/
 ```
 
-> Panel v1.1.0 仍支持 Agent API v1；现有 Host Agent v1.0.0 不需要因为本次 Panel 升级而重装。
+> Panel v1.1.1 仍支持 Agent API v1；现有 Host Agent v1.0.0 不需要因为本次 Panel 升级而重装。
+
+> 仍运行 v1.0.2 / v1.0.x 的旧 Panel，推荐先升级至 v1.1.0，再执行本节升级。
 
 ---
 
@@ -1454,6 +1454,17 @@ monthly    每月固定 1-28 日重置
 ## 32.7 v1.0.x 数据库升级
 
 v1.1.0 采用仅新增字段的迁移方式。Panel 启动时会自动检测并补齐 Host 调度字段、流量周期字段和到期生命周期标记。恢复 v1.0.x 的 SQLite 备份后，也会自动执行同一迁移。
+
+
+---
+
+# 33. v1.1.1 公告中心体验修正
+
+- 后台公告中心改为更紧凑的单栏管理布局。
+- 置顶和首次登录重点公告使用统一 Switch 控件。
+- 公告支持永久删除，并同步清理对应已读记录。
+- 后台操作反馈使用与前端一致的右上角 Toast；默认 3 秒后自动消失。
+- v1.1.0 升级到 v1.1.1 不要求数据库重建，也不要求重装 Host Agent。
 
 
 ---

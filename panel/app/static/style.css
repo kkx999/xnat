@@ -4411,12 +4411,13 @@ body.client-body button:active:not(:disabled){transform:translateY(1px)}
 body.client-body button.is-loading{cursor:wait;opacity:.72;transform:none!important}
 
 /* Compact floating toast: small status card that never reflows the client page. */
-body.client-body .xnat-toast{
+body.client-body .xnat-toast,
+body.admin-body .xnat-toast{
   position:fixed;
   z-index:3000;
   top:16px;
   right:18px;
-  width:min(300px,calc(100vw - 36px));
+  width:min(320px,calc(100vw - 36px));
   min-height:46px;
   margin:0;
   padding:11px 13px 11px 12px;
@@ -4435,8 +4436,10 @@ body.client-body .xnat-toast{
   -webkit-backdrop-filter:blur(14px);
   animation:xnat-toast-in .22s ease both;
   box-shadow:0 12px 30px rgba(0,0,0,.30);
+  cursor:pointer;
 }
-body.client-body .xnat-toast::before{
+body.client-body .xnat-toast::before,
+body.admin-body .xnat-toast::before{
   content:'i';
   flex:0 0 24px;
   width:24px;
@@ -4450,17 +4453,17 @@ body.client-body .xnat-toast::before{
   font-size:12px;
   font-weight:900;
 }
-body.client-body .xnat-toast.success{border-color:#2b664f;background:rgba(13,36,29,.95);color:#a8ead0}
-body.client-body .xnat-toast.success::before{content:'✓';border-color:#397a62;background:#173b30;color:#a8ead0}
-body.client-body .xnat-toast.error{border-color:#713c48;background:rgba(44,20,27,.95);color:#f0afb8}
-body.client-body .xnat-toast.error::before{content:'×';border-color:#824956;background:#3b2028;color:#f0afb8}
-body.client-body .xnat-toast.warning{border-color:#725d35;background:rgba(43,34,19,.95);color:#e4c985}
-body.client-body .xnat-toast.warning::before{content:'!';border-color:#806a3e;background:#392f1c;color:#e4c985}
-body.client-body .xnat-toast.leaving{animation:xnat-toast-out .22s ease both}
+body.client-body .xnat-toast.success,body.admin-body .xnat-toast.success{border-color:#2b664f;background:rgba(13,36,29,.95);color:#a8ead0}
+body.client-body .xnat-toast.success::before,body.admin-body .xnat-toast.success::before{content:'✓';border-color:#397a62;background:#173b30;color:#a8ead0}
+body.client-body .xnat-toast.error,body.admin-body .xnat-toast.error{border-color:#713c48;background:rgba(44,20,27,.95);color:#f0afb8}
+body.client-body .xnat-toast.error::before,body.admin-body .xnat-toast.error::before{content:'×';border-color:#824956;background:#3b2028;color:#f0afb8}
+body.client-body .xnat-toast.warning,body.admin-body .xnat-toast.warning{border-color:#725d35;background:rgba(43,34,19,.95);color:#e4c985}
+body.client-body .xnat-toast.warning::before,body.admin-body .xnat-toast.warning::before{content:'!';border-color:#806a3e;background:#392f1c;color:#e4c985}
+body.client-body .xnat-toast.leaving,body.admin-body .xnat-toast.leaving{animation:xnat-toast-out .22s ease both}
 @keyframes xnat-toast-in{from{opacity:0;transform:translateY(-6px) scale(.985)}to{opacity:1;transform:none}}
 @keyframes xnat-toast-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(-6px) scale(.985)}}
 @media(max-width:520px){
-  body.client-body .xnat-toast{left:14px;right:14px;top:14px;width:auto}
+  body.client-body .xnat-toast,body.admin-body .xnat-toast{left:14px;right:14px;top:14px;width:auto}
 }
 
 /* Details reveal. Native <details> is kept for accessibility. */
@@ -4682,3 +4685,420 @@ body.admin-body .announcement-admin-grid{display:grid;grid-template-columns:minm
 @media(max-width:800px){body.admin-body .announcement-admin-grid,body.admin-body .announcement-editor-options,.announcement-admin-edit-body{grid-template-columns:1fr}}@media(max-width:680px){.client-announcement-button>span:not(.client-announcement-icon){display:none}.client-announcement-button{width:38px;padding:0;justify-content:center}.announcement-center{inset:auto 8px 8px 8px;width:auto;max-height:78vh;transform:translateY(24px) scale(.985)}}
 
 .settings-relocated-card{min-height:74px;display:flex;flex-direction:column;justify-content:center;gap:3px;padding:12px 14px;border:1px solid #263d59;border-radius:8px;background:#0c1725}.settings-relocated-card span{color:#6f839d;font-size:8px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.settings-relocated-card strong{color:#cddcf0;font-size:10px}.settings-relocated-card a{margin-top:2px;color:#7fb3f3;font-size:8.5px;text-decoration:none}.settings-relocated-card a:hover{color:#a9cdf8}
+
+/* v1.1.x announcement admin polish: aligned controls, compact hierarchy, modern toggles */
+body.admin-body .announcement-section-intro{
+  margin:0 0 14px;
+}
+body.admin-body .announcement-section-intro h2{
+  margin:0;
+  color:var(--admin-text-strong);
+  font-size:20px;
+  line-height:1.25;
+  letter-spacing:-.02em;
+}
+body.admin-body .announcement-editor{
+  width:100%;
+  max-width:1120px;
+  display:grid;
+  gap:14px;
+  box-sizing:border-box;
+  margin:0 0 16px;
+  padding:18px;
+  border:1px solid var(--admin-line);
+  border-radius:12px;
+  background:var(--admin-surface);
+}
+body.admin-body .announcement-editor>label,
+body.admin-body .announcement-admin-edit-body form>label{
+  display:block;
+  margin:0;
+}
+body.admin-body .announcement-editor input,
+body.admin-body .announcement-editor select,
+body.admin-body .announcement-editor textarea,
+body.admin-body .announcement-admin-edit-body input,
+body.admin-body .announcement-admin-edit-body select,
+body.admin-body .announcement-admin-edit-body textarea{
+  box-sizing:border-box;
+}
+body.admin-body .announcement-editor textarea,
+body.admin-body .announcement-admin-edit-body textarea{
+  width:100%;
+  min-height:190px;
+  resize:vertical;
+}
+body.admin-body .announcement-admin-edit-body textarea{
+  min-height:150px;
+}
+body.admin-body .announcement-editor-options{
+  display:grid;
+  grid-template-columns:minmax(180px,.78fr) minmax(190px,1fr) minmax(240px,1.18fr);
+  gap:10px;
+  align-items:end;
+  margin:0;
+}
+body.admin-body .announcement-status-field{
+  display:block;
+  margin:0!important;
+}
+body.admin-body .announcement-status-field select{
+  height:44px;
+  min-height:44px;
+  margin-top:7px;
+  padding-top:0;
+  padding-bottom:0;
+}
+body.admin-body .announcement-option-card{
+  position:relative;
+  height:44px;
+  min-height:44px;
+  display:flex!important;
+  flex-direction:row!important;
+  align-items:center!important;
+  justify-content:space-between;
+  gap:12px!important;
+  box-sizing:border-box;
+  margin:0!important;
+  padding:0 12px!important;
+  border:1px solid #2d3a51;
+  border-radius:9px;
+  background:#0f1623;
+  color:#c6d1e2!important;
+  cursor:pointer;
+  user-select:none;
+  transition:border-color .16s ease,background-color .16s ease,box-shadow .16s ease;
+}
+body.admin-body .announcement-option-card:hover{
+  border-color:#415575;
+  background:#121c2c;
+}
+body.admin-body .announcement-option-card:focus-within{
+  border-color:#5b8fd8;
+  box-shadow:0 0 0 2px rgba(110,168,254,.12);
+}
+body.admin-body .announcement-option-card:has(input:checked){
+  border-color:#4e78ad;
+  background:#13223a;
+}
+body.admin-body .announcement-option-card input{
+  position:absolute!important;
+  width:1px!important;
+  height:1px!important;
+  min-height:0!important;
+  margin:0!important;
+  padding:0!important;
+  opacity:0;
+  pointer-events:none;
+}
+body.admin-body .announcement-option-text{
+  min-width:0;
+  overflow:hidden;
+  color:#c8d3e3;
+  font-size:11px;
+  font-weight:760;
+  line-height:1;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+body.admin-body .announcement-option-switch{
+  position:relative;
+  flex:0 0 auto;
+  width:34px;
+  height:20px;
+  border:1px solid #3b4a61;
+  border-radius:999px;
+  background:#1a2433;
+  transition:border-color .16s ease,background-color .16s ease;
+}
+body.admin-body .announcement-option-switch::after{
+  content:"";
+  position:absolute;
+  left:3px;
+  top:3px;
+  width:12px;
+  height:12px;
+  border-radius:50%;
+  background:#8795aa;
+  box-shadow:0 1px 3px rgba(0,0,0,.35);
+  transition:transform .18s ease,background-color .18s ease;
+}
+body.admin-body .announcement-option-card input:checked~.announcement-option-switch{
+  border-color:#6ea8fe;
+  background:#315f98;
+}
+body.admin-body .announcement-option-card input:checked~.announcement-option-switch::after{
+  transform:translateX(14px);
+  background:#f4f8ff;
+}
+body.admin-body .announcement-admin-hint{
+  display:block;
+  margin:-3px 0 0;
+  color:#73849a!important;
+  font-size:9px;
+  line-height:1.55;
+}
+body.admin-body .announcement-submit-row,
+body.admin-body .announcement-edit-actions{
+  display:flex;
+  align-items:center;
+}
+body.admin-body .announcement-submit-row button,
+body.admin-body .announcement-edit-actions button,
+body.admin-body .announcement-toggle-form button,
+body.admin-body .announcement-search button{
+  height:44px;
+  min-height:44px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  box-sizing:border-box;
+  margin:0;
+  padding:0 18px!important;
+  border-radius:9px;
+  line-height:1;
+}
+body.admin-body .announcement-submit-row button{
+  min-width:132px;
+}
+body.admin-body .announcement-search{
+  width:100%;
+  max-width:740px;
+  display:flex;
+  align-items:center;
+  gap:10px!important;
+  margin:0 0 14px;
+}
+body.admin-body .announcement-search input{
+  height:44px;
+  min-height:44px;
+  box-sizing:border-box;
+  margin:0;
+}
+body.admin-body .announcement-search button{
+  flex:0 0 88px;
+  width:88px;
+}
+body.admin-body .announcement-search a{
+  height:44px;
+  min-height:44px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  box-sizing:border-box;
+  margin:0;
+  padding:0 14px!important;
+  border:1px solid #39475f;
+  border-radius:9px;
+  text-decoration:none;
+  white-space:nowrap;
+}
+body.admin-body .announcement-admin-list{
+  display:grid;
+  gap:9px;
+}
+body.admin-body .announcement-admin-item{
+  padding:0!important;
+  overflow:hidden;
+  border:1px solid var(--admin-line)!important;
+  border-radius:11px;
+  background:var(--admin-surface)!important;
+}
+body.admin-body .announcement-admin-item>summary{
+  min-height:70px;
+  box-sizing:border-box;
+}
+body.admin-body .announcement-admin-edit-body{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:12px;
+  padding:16px;
+  border-top:1px solid rgba(109,140,181,.12);
+  background:#0f1623;
+}
+body.admin-body .announcement-admin-edit-body>form:first-child{
+  min-width:0;
+  display:grid;
+  gap:12px;
+}
+body.admin-body .announcement-toggle-form{
+  align-self:end;
+  margin:0;
+}
+body.admin-body .announcement-toggle-form button{
+  min-width:104px;
+  border-color:#39475f!important;
+  background:#172031!important;
+  color:#c8d7ee!important;
+}
+body.admin-body .announcement-admin-empty{
+  min-height:96px;
+  display:flex;
+  align-items:center;
+  gap:12px;
+  box-sizing:border-box;
+  padding:18px;
+  border:1px solid var(--admin-line);
+  border-radius:11px;
+  background:var(--admin-surface);
+}
+body.admin-body .announcement-empty-icon{
+  width:34px;
+  height:34px;
+  flex:0 0 34px;
+  display:grid;
+  place-items:center;
+  border:1px solid #355274;
+  border-radius:10px;
+  background:#13233a;
+  color:#8db9f2;
+  font-family:Georgia,serif;
+  font-size:15px;
+  font-weight:800;
+}
+body.admin-body .announcement-admin-empty strong,
+body.admin-body .announcement-admin-empty small{
+  display:block;
+}
+body.admin-body .announcement-admin-empty strong{
+  color:#dce6f4;
+  font-size:11px;
+}
+body.admin-body .announcement-admin-empty small{
+  margin-top:4px;
+  color:#74869e;
+  font-size:9px;
+}
+@media(max-width:900px){
+  body.admin-body .announcement-editor{max-width:none}
+  body.admin-body .announcement-editor-options{grid-template-columns:1fr 1fr}
+  body.admin-body .announcement-status-field{grid-column:1/-1}
+}
+@media(max-width:680px){
+  body.admin-body .announcement-editor{padding:14px}
+  body.admin-body .announcement-editor-options,
+  body.admin-body .announcement-admin-edit-body{grid-template-columns:1fr}
+  body.admin-body .announcement-status-field{grid-column:auto}
+  body.admin-body .announcement-submit-row button,
+  body.admin-body .announcement-edit-actions button,
+  body.admin-body .announcement-toggle-form button{width:100%}
+  body.admin-body .announcement-search{align-items:stretch}
+  body.admin-body .announcement-search input{min-width:0}
+  body.admin-body .announcement-search button{flex:0 0 78px;width:78px}
+}
+
+/* v1.1.x announcement admin follow-up: visible switches, destructive delete, aligned actions. */
+body.admin-body .announcement-option-card input.announcement-option-switch{
+  position:relative!important;
+  inset:auto!important;
+  flex:0 0 38px!important;
+  width:38px!important;
+  height:22px!important;
+  min-width:38px!important;
+  min-height:22px!important;
+  margin:0!important;
+  padding:0!important;
+  opacity:1!important;
+  pointer-events:auto!important;
+  appearance:none!important;
+  -webkit-appearance:none!important;
+  border:1px solid #46566d!important;
+  border-radius:999px!important;
+  background:radial-gradient(circle at 10px 50%,#9aa8bb 0 6px,transparent 6.5px),#1a2433!important;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.34)!important;
+  cursor:pointer;
+  transition:border-color .16s ease,background .18s ease,box-shadow .16s ease!important;
+}
+body.admin-body .announcement-option-card input.announcement-option-switch:hover{
+  border-color:#6584ad!important;
+}
+body.admin-body .announcement-option-card input.announcement-option-switch:focus-visible{
+  outline:2px solid #83b5ff!important;
+  outline-offset:2px!important;
+}
+body.admin-body .announcement-option-card input.announcement-option-switch:checked{
+  border-color:#6ea8fe!important;
+  background:radial-gradient(circle at 27px 50%,#f7faff 0 6px,transparent 6.5px),#315f98!important;
+  box-shadow:0 0 0 2px rgba(110,168,254,.10),inset 0 1px 2px rgba(0,0,0,.16)!important;
+}
+body.admin-body .announcement-option-card:has(input.announcement-option-switch:checked){
+  border-color:#4e78ad;
+  background:#13223a;
+}
+body.admin-body .announcement-submit-row button,
+body.admin-body .announcement-edit-actions button,
+body.admin-body .announcement-delete-form button,
+body.admin-body .announcement-search button{
+  width:112px;
+  min-width:112px;
+  height:44px;
+  min-height:44px;
+}
+body.admin-body .announcement-search button{
+  flex:0 0 112px;
+}
+body.admin-body .announcement-delete-form{
+  align-self:end;
+  margin:0;
+}
+body.admin-body .announcement-delete-form .announcement-delete-button{
+  border-color:#8b4652!important;
+  background:#5b2c34!important;
+  color:#ffe3e6!important;
+}
+body.admin-body .announcement-delete-form .announcement-delete-button:hover{
+  border-color:#a45765!important;
+  background:#6a323c!important;
+  filter:none!important;
+}
+
+/* The first-login announcement uses exactly the same visual treatment in admin and client areas. */
+body.admin-body .announcement-close{
+  width:30px!important;
+  min-width:30px!important;
+  height:30px!important;
+  min-height:30px!important;
+  padding:0!important;
+  border:0!important;
+  border-radius:9px!important;
+  background:transparent!important;
+  color:#6f7f99!important;
+  box-shadow:none!important;
+}
+body.admin-body .announcement-close:hover{
+  background:rgba(121,159,214,.10)!important;
+  color:#dce8fb!important;
+  filter:none!important;
+}
+body.admin-body .announcement-confirm{
+  width:auto!important;
+  min-width:112px!important;
+  height:40px!important;
+  min-height:40px!important;
+  padding:0 19px!important;
+  border:1px solid rgba(115,166,255,.58)!important;
+  border-radius:11px!important;
+  background:linear-gradient(135deg,#5e9bf6,#6aa9ff)!important;
+  color:#071323!important;
+  box-shadow:0 8px 24px rgba(68,132,231,.20)!important;
+}
+body.admin-body .announcement-confirm:hover{
+  transform:translateY(-1px);
+  filter:brightness(1.04)!important;
+  box-shadow:0 11px 28px rgba(68,132,231,.28)!important;
+}
+@media(max-width:680px){
+  body.admin-body .announcement-submit-row button,
+  body.admin-body .announcement-edit-actions button,
+  body.admin-body .announcement-delete-form button,
+  body.admin-body .announcement-search button{
+    width:100%;
+    min-width:0;
+  }
+  body.admin-body .announcement-search button{flex:1 1 auto}
+}
+body.admin-body .announcement-option-card input.announcement-option-switch::before,
+body.admin-body .announcement-option-card input.announcement-option-switch::after{
+  content:none!important;
+  display:none!important;
+}

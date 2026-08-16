@@ -79,7 +79,7 @@ grep -q 'section == "notifications"' panel/app/templates/admin.html
 grep -q '发送 Telegram 测试' panel/app/templates/admin.html
 ! grep -q 'UniqueConstraint("public_port", "protocol"' panel/app/models.py
 
-# v1.1.0 reliability / lifecycle / UX contracts.
+# v1.1.x reliability / lifecycle / UX contracts.
 grep -q 'def host_schedule_state' panel/app/nodes.py
 grep -q '/admin/nodes/{node_id}/maintenance' panel/app/main.py
 grep -q 'maintenance_mode' panel/app/models.py
@@ -91,7 +91,8 @@ grep -q 'traffic_cycle_mode' panel/app/models.py
 grep -q 'queue_admin_notification' panel/app/nodes.py
 grep -q 'admin.payment.repair_no_tx' panel/app/main.py
 grep -q 'FORCE CREDIT' panel/app/templates/admin.html
-grep -q "client.js') }}?v=1.1.0-ux4" panel/app/templates/base.html
+grep -q "client.js') }}?v=1.1.1-ux1" panel/app/templates/base.html
+grep -q "style.css') }}?v=1.1.1-ux1" panel/app/templates/base.html
 grep -q 'ensure_schema_extensions' panel/app/main.py
 grep -q 'ensure_schema_extensions' panel/app/backups.py
 grep -q 'announcement_seen_key' panel/app/models.py
@@ -100,10 +101,17 @@ grep -q 'class Announcement(Base)' panel/app/models.py
 grep -q 'class AnnouncementRead(Base)' panel/app/models.py
 grep -q 'data-announcement-center-toggle' panel/app/templates/base.html
 grep -q '/announcements/{announcement_id}/read' panel/app/main.py
+grep -q '/admin/announcements/{announcement_id}/delete' panel/app/main.py
+grep -q 'announcement.delete' panel/app/main.py
+grep -q 'window.setTimeout(dismiss, 3000)' panel/app/static/client.js
+grep -q 'body.admin-body .xnat-toast' panel/app/static/style.css
+grep -q 'announcement-option-switch' panel/app/templates/admin.html
+grep -q '删除公告' panel/app/templates/admin.html
+! grep -q '下线公告' panel/app/templates/admin.html
 ! grep -q 'name="announcement_enabled"' panel/app/templates/admin.html
 ! grep -q 'name="announcement_text"' panel/app/templates/admin.html
 grep -q '数据库迁移缺少表' scripts/upgrade-panel.sh
-grep -q 'v1.0.2 → v1.1.0' scripts/upgrade-panel-from-v1.0.2.sh
+grep -q 'v1.1.0 → v1.1.1' scripts/upgrade-panel-from-v1.1.0.sh
 grep -q 'PRAGMA quick_check' scripts/upgrade-panel.sh
 grep -q 'DATABASE_URL_VALUE' scripts/upgrade-panel.sh
 

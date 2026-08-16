@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{% block title %}{{ app_name }}{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}?v=1.1.0-ux4">
+  <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}?v=1.1.1-ux1">
 </head>
 {% set is_home_area = request.url.path == '/' %}
 {% set is_admin_area = request.url.path.startswith('/admin') %}
@@ -13,7 +13,7 @@
 
 {% if is_admin_area %}
   <main class="admin-wrap">
-    {% if flash %}<div class="flash {{ flash.kind }}">{{ flash.message }}</div>{% endif %}
+    {% if flash %}<div class="flash xnat-toast {{ flash.kind }}" role="status" aria-live="polite">{{ flash.message }}</div>{% endif %}
     {% if one_time_secret %}
       <div class="secret-alert">
         <strong>{{ one_time_secret.title }}</strong>
@@ -153,7 +153,7 @@
 {% else %}
   </main>
   <footer class="wrap footer">
-    XNAT v1.1.0 Multi-Node · Provider: {{ provider_name }}
+    XNAT v1.1.1 Multi-Node · Provider: {{ provider_name }}
   </footer>
 {% endif %}
 
@@ -180,6 +180,6 @@
   </section>
 </div>
 {% endif %}
-<script src="{{ url_for('static', path='/client.js') }}?v=1.1.0-ux4" defer></script>
+<script src="{{ url_for('static', path='/client.js') }}?v=1.1.1-ux1" defer></script>
 </body>
 </html>

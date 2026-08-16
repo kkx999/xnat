@@ -3384,19 +3384,20 @@ def admin_update_announcement(request: Request, announcement_id: int, title: str
     return RedirectResponse("/admin?section=announcements", status_code=303)
 
 
-@app.post("/admin/announcements/{announcement_id}/toggle")
-def admin_toggle_announcement(request: Request, announcement_id: int, csrf_token: str = Form(...)):
+@app.post("/admin/announcements/{announcement_id}/delete")
+def admin_delete_announcement(request: Request, announcement_id: int, csrf_token: str = Form(...)):
     validate_csrf(request, csrf_token)
     with db_session() as db:
-        admin = admin_required(request, db); row = db.get(Announcement, announcement_id)
-        if not row: raise HTTPException(404, "公告不存在")
-        row.is_published = not bool(row.is_published)
-        if row.is_published and row.published_at is None: row.published_at = datetime.utcnow()
-        if not row.is_published: row.show_on_login = False
-        row.updated_at = datetime.utcnow(); new_state = bool(row.is_published)
-        write_audit(db, actor=admin, request=request, action="announcement.publish_toggle", target_type="announcement", target_id=row.id, target_name=row.title, detail={"published": new_state})
+        admin = admin_required(request, db)
+        row = db.get(Announcement, announcement_id)
+        if not row:
+            raise HTTPException(404, "公告不存在")
+        title = row.title
+        db.execute(delete(AnnouncementRead).where(AnnouncementRead.announcement_id == row.id))
+        write_audit(db, actor=admin, request=request, action="announcement.delete", target_type="announcement", target_id=row.id, target_name=title)
+        db.delete(row)
         db.commit()
-    flash(request, "公告已发布。" if new_state else "公告已下线，用户端将不再显示。", "success")
+    flash(request, f"公告「{title}」已删除。", "success")
     return RedirectResponse("/admin?section=announcements", status_code=303)
 
 
@@ -4181,7 +4182,7 @@ def admin_backup_download(request:Request,backup_name:str):
 def health():
     return {
         "status": "ok",
-        "version": "1.1.0",
+        "version": "1.1.1",
         "provider": PROVIDER_NAME,
         "timezone": APP_TIMEZONE,
     }
