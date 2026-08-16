@@ -4,6 +4,180 @@
   const root = document.body;
   if (!root) return;
 
+  // Mobile client navigation: the desktop sidebar stays fully expanded, while
+  // phones use a real off-canvas drawer with independently collapsible groups.
+  // Expanded categories are remembered for the current tab and the active page
+  // is always revealed when the drawer is opened on a newly loaded page.
+  const clientSidebar = document.getElementById("clientSidebar");
+  const clientSidebarToggle = document.querySelector("[data-client-sidebar-toggle]");
+  const clientSidebarBackdrop = document.querySelector(".client-sidebar-backdrop");
+  const clientSidebarCloseControls = document.querySelectorAll("[data-client-sidebar-close]");
+  const clientNavGroups = Array.from(document.querySelectorAll("[data-client-nav-group]"));
+  const clientMobileQuery = window.matchMedia("(max-width: 760px)");
+  const navStateStorageKey = "xnat-client-mobile-nav-groups";
+  let clientSidebarHideTimer = null;
+
+  // Keep the drawer inside the actually visible mobile viewport. 100dvh can
+  // still extend behind Android's gesture/navigation bar in edge-to-edge mode.
+  // visualViewport is the most accurate value when available; CSS keeps a
+  // conservative bottom guard as a fallback.
+  const syncClientViewportHeight = () => {
+    if (!clientMobileQuery.matches) {
+      document.documentElement.style.removeProperty("--xnat-client-viewport-height");
+      return;
+    }
+    const viewportHeight = window.visualViewport?.height || window.innerHeight;
+    if (Number.isFinite(viewportHeight) && viewportHeight > 0) {
+      document.documentElement.style.setProperty("--xnat-client-viewport-height", `${Math.round(viewportHeight)}px`);
+    }
+  };
+
+  const readClientNavState = () => {
+    try {
+      const value = JSON.parse(sessionStorage.getItem(navStateStorageKey) || "[]");
+      return Array.isArray(value) ? new Set(value.filter((item) => typeof item === "string")) : new Set();
+    } catch (_) {
+      return new Set();
+    }
+  };
+  const saveClientNavState = () => {
+    if (!clientMobileQuery.matches) return;
+    const openNames = clientNavGroups
+      .filter((group) => group.classList.contains("is-open"))
+      .map((group) => group.dataset.clientNavGroup)
+      .filter(Boolean);
+    try { sessionStorage.setItem(navStateStorageKey, JSON.stringify(openNames)); } catch (_) {}
+  };
+  const setClientNavGroupOpen = (group, open) => {
+    if (!group) return;
+    group.classList.toggle("is-open", open);
+    const button = group.querySelector("[data-client-nav-group-toggle]");
+    if (button) button.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+  const syncClientNavGroups = () => {
+    if (!clientNavGroups.length) return;
+    if (!clientMobileQuery.matches) {
+      clientNavGroups.forEach((group) => {
+        setClientNavGroupOpen(group, true);
+        const button = group.querySelector("[data-client-nav-group-toggle]");
+        if (button) button.setAttribute("tabindex", "-1");
+      });
+      return;
+    }
+    const saved = readClientNavState();
+    const hasSavedState = saved.size > 0;
+    clientNavGroups.forEach((group) => {
+      const button = group.querySelector("[data-client-nav-group-toggle]");
+      if (button) button.removeAttribute("tabindex");
+      const containsActive = Boolean(group.querySelector("a.active"));
+      const shouldOpen = containsActive || (hasSavedState && saved.has(group.dataset.clientNavGroup));
+      setClientNavGroupOpen(group, shouldOpen);
+    });
+  };
+  const setClientSidebarAccessibility = (open) => {
+    if (!clientSidebar || !clientMobileQuery.matches) return;
+    clientSidebar.setAttribute("aria-hidden", open ? "false" : "true");
+    if ("inert" in clientSidebar) clientSidebar.inert = !open;
+  };
+  const openClientSidebar = () => {
+    if (!clientSidebar || !clientMobileQuery.matches) return;
+    window.clearTimeout(clientSidebarHideTimer);
+    clientSidebar.classList.add("is-open");
+    root.classList.add("client-sidebar-open");
+    clientSidebarToggle?.setAttribute("aria-expanded", "true");
+    if (clientSidebarBackdrop) {
+      clientSidebarBackdrop.hidden = false;
+      requestAnimationFrame(() => clientSidebarBackdrop.classList.add("is-open"));
+    }
+    setClientSidebarAccessibility(true);
+    window.setTimeout(() => {
+      clientSidebar.querySelector("a.active")?.scrollIntoView({block:"nearest"});
+      clientSidebar.querySelector("[data-client-nav-group].is-current [data-client-nav-group-toggle]")?.focus({preventScroll:true});
+    }, 70);
+  };
+  const closeClientSidebar = ({restoreFocus = true} = {}) => {
+    if (!clientSidebar) return;
+    clientSidebar.classList.remove("is-open");
+    root.classList.remove("client-sidebar-open");
+    clientSidebarToggle?.setAttribute("aria-expanded", "false");
+    clientSidebarBackdrop?.classList.remove("is-open");
+    setClientSidebarAccessibility(false);
+    window.clearTimeout(clientSidebarHideTimer);
+    clientSidebarHideTimer = window.setTimeout(() => {
+      if (clientSidebarBackdrop && !clientSidebarBackdrop.classList.contains("is-open")) clientSidebarBackdrop.hidden = true;
+    }, 250);
+    if (restoreFocus && clientMobileQuery.matches) clientSidebarToggle?.focus({preventScroll:true});
+  };
+
+  clientNavGroups.forEach((group) => {
+    const button = group.querySelector("[data-client-nav-group-toggle]");
+    button?.addEventListener("click", () => {
+      if (!clientMobileQuery.matches) return;
+      setClientNavGroupOpen(group, !group.classList.contains("is-open"));
+      saveClientNavState();
+    });
+  });
+  clientSidebarToggle?.addEventListener("click", () => {
+    if (clientSidebar?.classList.contains("is-open")) closeClientSidebar();
+    else openClientSidebar();
+  });
+  clientSidebarCloseControls.forEach((control) => control.addEventListener("click", () => closeClientSidebar()));
+  clientSidebar?.querySelectorAll(".client-nav-group-items a").forEach((link) => {
+    link.addEventListener("click", () => {
+      if (clientMobileQuery.matches) closeClientSidebar({restoreFocus:false});
+    });
+  });
+
+  // A short horizontal swipe inside the drawer closes it; no edge-swipe opener
+  // is installed so the browser's native back gesture remains untouched.
+  if (clientSidebar) {
+    let touchStartX = 0;
+    let touchStartY = 0;
+    clientSidebar.addEventListener("touchstart", (event) => {
+      const touch = event.touches[0];
+      if (!touch || !clientMobileQuery.matches) return;
+      touchStartX = touch.clientX;
+      touchStartY = touch.clientY;
+    }, {passive:true});
+    clientSidebar.addEventListener("touchend", (event) => {
+      const touch = event.changedTouches[0];
+      if (!touch || !clientMobileQuery.matches || !clientSidebar.classList.contains("is-open")) return;
+      const dx = touch.clientX - touchStartX;
+      const dy = touch.clientY - touchStartY;
+      if (dx < -58 && Math.abs(dx) > Math.abs(dy) * 1.25) closeClientSidebar();
+    }, {passive:true});
+  }
+
+  const handleClientNavViewportChange = () => {
+    syncClientViewportHeight();
+    syncClientNavGroups();
+    if (!clientMobileQuery.matches) {
+      window.clearTimeout(clientSidebarHideTimer);
+      clientSidebar?.classList.remove("is-open");
+      root.classList.remove("client-sidebar-open");
+      clientSidebar?.removeAttribute("aria-hidden");
+      if (clientSidebar && "inert" in clientSidebar) clientSidebar.inert = false;
+      clientSidebarToggle?.setAttribute("aria-expanded", "false");
+      if (clientSidebarBackdrop) {
+        clientSidebarBackdrop.classList.remove("is-open");
+        clientSidebarBackdrop.hidden = true;
+      }
+    } else {
+      closeClientSidebar({restoreFocus:false});
+    }
+  };
+  syncClientViewportHeight();
+  syncClientNavGroups();
+  if (clientMobileQuery.matches) setClientSidebarAccessibility(false);
+  window.addEventListener("resize", syncClientViewportHeight, {passive:true});
+  window.visualViewport?.addEventListener("resize", syncClientViewportHeight, {passive:true});
+  window.visualViewport?.addEventListener("scroll", syncClientViewportHeight, {passive:true});
+  if (typeof clientMobileQuery.addEventListener === "function") clientMobileQuery.addEventListener("change", handleClientNavViewportChange);
+  else if (typeof clientMobileQuery.addListener === "function") clientMobileQuery.addListener(handleClientNavViewportChange);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && clientSidebar?.classList.contains("is-open")) closeClientSidebar();
+  });
+
   // Customer theme: keep the existing dark appearance as default and provide a
   // brighter, low-glare light palette. The preference is local to this browser
   // and is applied before paint by base.html to avoid a light/dark flash.

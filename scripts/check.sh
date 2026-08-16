@@ -10,11 +10,16 @@ cleanup(){
 }
 trap cleanup EXIT
 
-echo "[1/7] Python syntax"
-python3 -m compileall -q panel/app agent/natvps_agent
+PYTHON_BIN="${XNAT_CHECK_PYTHON:-python3}"
+if [[ -z "${XNAT_CHECK_PYTHON:-}" && -x /opt/xnat/panel/.venv/bin/python ]] && /opt/xnat/panel/.venv/bin/python -c 'import jinja2' >/dev/null 2>&1; then
+  PYTHON_BIN=/opt/xnat/panel/.venv/bin/python
+fi
+
+echo "[1/7] Python syntax ($PYTHON_BIN)"
+"$PYTHON_BIN" -m compileall -q panel/app agent/natvps_agent
 
 echo "[2/7] Jinja templates"
-python3 - <<'PY'
+"$PYTHON_BIN" - <<'PY'
 from jinja2 import Environment, FileSystemLoader
 from pathlib import Path
 root=Path('panel/app/templates')
@@ -93,8 +98,8 @@ grep -q 'traffic_cycle_mode' panel/app/models.py
 grep -q 'queue_admin_notification' panel/app/nodes.py
 grep -q 'admin.payment.repair_no_tx' panel/app/main.py
 grep -q 'FORCE CREDIT' panel/app/templates/admin.html
-grep -q "client.js') }}?v=1.3.0-rc1" panel/app/templates/base.html
-grep -q "style.css') }}?v=1.3.0-rc1" panel/app/templates/base.html
+grep -q "client.js') }}?v=1.3.1" panel/app/templates/base.html
+grep -q "style.css') }}?v=1.3.1" panel/app/templates/base.html
 grep -q 'class="plan-coupon-field"' panel/app/templates/plans.html
 grep -q 'class="card admin-plan-card admin-plan-fold"' panel/app/templates/admin.html
 grep -q 'admin-plan-summary-specs' panel/app/templates/admin.html
@@ -116,6 +121,16 @@ grep -q '/admin/announcements/{announcement_id}/delete' panel/app/main.py
 grep -q 'announcement.delete' panel/app/main.py
 grep -q 'window.setTimeout(dismiss, 3000)' panel/app/static/client.js
 grep -q 'data-client-theme-toggle' panel/app/templates/base.html
+grep -q 'data-client-sidebar-toggle' panel/app/templates/base.html
+grep -q 'data-client-nav-group-toggle' panel/app/templates/base.html
+grep -q 'xnat-client-mobile-nav-groups' panel/app/static/client.js
+grep -q 'mobile client navigation drawer + collapsible categories' panel/app/static/style.css
+grep -Fq '.client-sidebar-backdrop[hidden]{display:none!important;pointer-events:none!important}' panel/app/static/style.css
+grep -Fq '.client-sidebar-backdrop.is-open{opacity:1;pointer-events:auto}' panel/app/static/style.css
+grep -Fq '.client-mobile-menu span:nth-child(2){width:16px;align-self:center;margin-left:0}' panel/app/static/style.css
+grep -Fq 'height:var(--xnat-client-viewport-height,100svh)!important' panel/app/static/style.css
+grep -Fq 'padding:14px 12px max(48px,calc(env(safe-area-inset-bottom,0px) + 12px))' panel/app/static/style.css
+grep -Fq 'const syncClientViewportHeight = () =>' panel/app/static/client.js
 grep -q 'xnat-client-theme' panel/app/static/client.js
 grep -q 'xnat-admin-theme' panel/app/static/client.js
 grep -q 'data-admin-theme-toggle' panel/app/templates/admin.html
@@ -132,6 +147,7 @@ grep -q '删除公告' panel/app/templates/admin.html
 ! grep -q 'name="announcement_enabled"' panel/app/templates/admin.html
 ! grep -q 'name="announcement_text"' panel/app/templates/admin.html
 grep -q '数据库迁移缺少表' scripts/upgrade-panel.sh
+grep -q '1.3.0) UPGRADE_PATH="verified-v1.3.0"' scripts/upgrade-panel.sh
 grep -q '1.2.0) UPGRADE_PATH="verified-v1.2.0"' scripts/upgrade-panel.sh
 grep -q 'PRAGMA quick_check' scripts/upgrade-panel.sh
 grep -q 'DATABASE_URL_VALUE' scripts/upgrade-panel.sh
@@ -172,7 +188,7 @@ if find . -maxdepth 3 -type f | grep -Ei '(testing|preview-[0-9]|rc[0-9]|patch-p
   cat /tmp/xnat-clean-guard.txt
   exit 1
 fi
-if grep -RInE 'v1\.0\.3|v1\.0\.4|testing-v|RC1|候选版本' \
+if grep -RInE 'v1\.0\.3|v1\.0\.4|testing-v|(^|[^A-Za-z])RC[0-9]+|(^|[^A-Za-z])rc[0-9]+|候选版本' \
   --exclude-dir=.git --exclude-dir=__pycache__ --exclude='check.sh' . >/tmp/xnat-old-version.txt; then
   echo "[ERROR] Found old/test version references:"
   cat /tmp/xnat-old-version.txt
@@ -202,9 +218,7 @@ if grep -RInE \
   exit 1
 fi
 
-echo "XNAT repository checks passed."
-
-# v1.3.0 release-candidate KVM/admin compatibility guards
+# v1.3.x KVM/admin compatibility guards
 grep -q 'KVM 套餐最低需要 512 MB 内存和 4 GB 磁盘' panel/app/main.py
 grep -q 'data-virtualization-form' panel/app/templates/admin.html
 grep -q 'KVM 实例最低需要 512 MB 内存和 4 GB 磁盘' panel/app/main.py
@@ -214,3 +228,5 @@ grep -q '虚拟化类型不一致：Panel=' panel/app/reconcile.py
 grep -q '实例内全部数据' panel/app/templates/server_detail.html
 grep -q 's.virtualization_type' panel/app/templates/servers.html
 grep -q 's.virtualization_type' panel/app/templates/dashboard.html
+
+echo "XNAT repository checks passed."

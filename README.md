@@ -4,7 +4,19 @@
 
 XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、多宿主机节点、套餐、用户、流量、通知及日常运维。
 
-当前版本：**v1.3.0**
+当前版本：**v1.3.1**
+
+## v1.3.1 Mobile Navigation
+
+v1.3.1 是 Panel 的兼容性与移动端交互更新：手机端用户中心改为可折叠 off-canvas Drawer，并修复透明遮罩拦截点击、Android 底部手势栏遮挡账户区域等问题。
+
+从 v1.3.0 升级 Panel：
+
+```bash
+xnat update 1.3.1
+```
+
+Host Agent 仍为 **v1.1.0 / Agent API v1**。如果 Host 已经是 Agent v1.1.0，无需因 v1.3.1 再次升级。
 
 ## v1.3.0 Hybrid Virtualization
 
@@ -93,23 +105,37 @@ Host 连接 Panel 成功后，在 Panel 后台节点设置中配置 NAT 端口�
 
 ---
 
-# 指定 v1.3.0 安装
+# 指定 v1.3.1 安装
 
 Panel：
 
 ```bash
-XNAT_VERSION=1.3.0 \
+XNAT_VERSION=1.3.1 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
 Host：
 
 ```bash
-XNAT_VERSION=1.3.0 \
+XNAT_VERSION=1.3.1 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-host.sh)
 ```
 
-> `XNAT_VERSION=1.3.0` 指 XNAT Release 版本。XNAT v1.3.0 使用 **Host Agent v1.1.0 / Agent API v1**。
+> `XNAT_VERSION=1.3.1` 指 XNAT Release 版本。XNAT v1.3.1 使用 **Host Agent v1.1.0 / Agent API v1**。
+
+---
+
+# 从 v1.3.0 升级到 v1.3.1
+
+Panel：
+
+```bash
+xnat update 1.3.1
+```
+
+本次没有数据库破坏性变更，升级器会先备份 SQLite、`.env`、旧代码与 systemd 配置，再原地更新并执行 additive schema 校验。Host Agent 仍为 v1.1.0，已经运行 v1.1.0 的 Host 无需更新。
+
+也支持 v1.2.0 Panel 直接执行 `xnat update 1.3.1`；若 Host 仍是旧 Agent，则需要把 Host 更新到本 Release 对应的 Agent v1.1.0。
 
 ---
 

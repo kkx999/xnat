@@ -4356,7 +4356,7 @@ def admin_backup_download(request:Request,backup_name:str):
 def health():
     return {
         "status": "ok",
-        "version": "1.3.0",
+        "version": "1.3.1",
         "provider": PROVIDER_NAME,
         "timezone": APP_TIMEZONE,
     }

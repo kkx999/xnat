@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.3.1
+
+- 移动端用户中心侧边栏改为真正的 off-canvas Drawer，桌面端继续保持完整展开布局。
+- 移动端导航按“概览 / 服务 / 账务 / 支持 / 账户 / 管理”分类独立折叠；当前页面分类自动展开，并在当前标签页记忆展开状态。
+- 支持遮罩、关闭按钮、ESC、点击导航项和 Drawer 内左滑关闭；打开时锁定背景滚动，并补充 `aria-hidden` / `inert` 可访问性控制。
+- 修复透明 backdrop 在关闭状态仍可能覆盖页面并拦截全部点击的问题。
+- 修复移动端 hamburger 三条横线未对齐。
+- 使用 `visualViewport.height` + `100svh` fallback 计算 Drawer 实际可视高度，并增加 Android gesture/navigation bar bottom guard。
+- 中间导航区域独立滚动，底部用户信息、余额、首页和退出始终保留在可视区域。
+- 深色 / 明亮主题同步适配移动端 Drawer。
+- `scripts/check.sh` 自动优先复用已安装 Panel 的 `.venv`（含 Jinja2），并新增移动端导航回归守卫。
+- 正式支持 v1.3.0 → v1.3.1 Panel 原地升级；继续支持 v1.2.0 → v1.3.1 additive schema 直接升级。
+- Panel 升级至 v1.3.1；Host Agent 保持 v1.1.0，Agent API 保持 v1。
+
 ## v1.3.0
 
 - 发布前完整性补强：后台 KVM 套餐与实例资源限制采用 512MB / 4GB 前后端双校验。

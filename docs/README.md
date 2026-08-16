@@ -1,4 +1,4 @@
-# XNAT v1.3.0 详细使用文档
+# XNAT v1.3.1 详细使用文档
 
 > 本文档负责详细说明 XNAT 的安装和运维。  
 > 根目录 `README.md` 保持简洁，具体操作以这里为准。
@@ -72,15 +72,15 @@ bash <(...)
 # 3. 指定版本安装 Panel
 
 ```bash
-XNAT_VERSION=1.3.0 \
+XNAT_VERSION=1.3.1 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
 ```text
-XNAT_VERSION=1.3.0
+XNAT_VERSION=1.3.1
 ```
 
-表示固定安装 Release `v1.3.0`，不自动跟随以后发布的新版本。
+表示固定安装 Release `v1.3.1`，不自动跟随以后发布的新版本。
 
 ---
 
@@ -604,19 +604,19 @@ Panel Server 的真实公网 IPv4。
 
 ---
 
-# 15. 指定 v1.3.0 安装 Host
+# 15. 指定 v1.3.1 安装 Host
 
 ```bash
-XNAT_VERSION=1.3.0 \
+XNAT_VERSION=1.3.1 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-host.sh)
 ```
 
-`XNAT_VERSION=1.3.0`：
+`XNAT_VERSION=1.3.1`：
 
 固定下载 Release tag：
 
 ```text
-v1.3.0
+v1.3.1
 ```
 
 然后仍然会进入正常的交互式 Panel IP + 虚拟化模式 + natpool 流程。
@@ -1520,3 +1520,19 @@ Host Agent 版本仍为 v1.0.0，Agent API 保持 v1。
 **由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**
 
 </div>
+
+---
+
+# 35. v1.3.0 → v1.3.1 原地升级
+
+现有 v1.3.0 Panel：
+
+```bash
+xnat update 1.3.1
+```
+
+升级器会先执行 SQLite `PRAGMA quick_check`，备份 `panel.db`、`.env`、旧代码、systemd 单元与管理命令，然后更新 Panel 并执行 additive schema 校验。v1.3.1 没有破坏性数据库迁移。
+
+Host Agent 仍为 **v1.1.0 / Agent API v1**。如果 Host 已经运行 Agent v1.1.0，不需要因为 Panel v1.3.1 再次升级 Host。
+
+也允许 v1.2.0 Panel 直接执行 `xnat update 1.3.1`；这种情况下如果 Host 仍为 v1.0.0 Agent，需要将 Host 更新到本 Release 对应的 v1.1.0 Agent 才能使用 v1.3.x 的 KVM / Hybrid Virtualization 能力。

@@ -8282,3 +8282,165 @@ html[data-admin-theme="light"] body.admin-body .admin-plan-fold-body{border-top-
   body.admin-body .admin-plan-summary{flex-direction:column!important;gap:10px!important}
   body.admin-body .admin-plan-summary-side{width:100%;flex-direction:row;justify-content:space-between;align-items:center}
 }
+
+
+/* ========================================================================== 
+   v1.3.1: mobile client navigation drawer + collapsible categories
+   - desktop keeps the approved fully expanded sidebar
+   - <=760px becomes an off-canvas drawer with independent accordion groups
+   ========================================================================== */
+.client-nav-group{width:100%;min-width:0}
+.client-nav-group-items{display:flex;flex-direction:column;gap:2px}
+.client-nav-label{
+  width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;
+  margin:0;border:0;background:transparent;font-family:inherit;cursor:default;
+}
+.client-nav-chevron{
+  display:none;width:8px;height:8px;flex:0 0 8px;
+  border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;
+  transform:rotate(45deg);transform-origin:55% 55%;transition:transform .22s ease,color .22s ease;
+}
+.client-mobile-menu,.client-sidebar-close{display:none}
+.client-sidebar-backdrop{display:none}
+
+@media(max-width:760px){
+  body.client-body{overflow-x:hidden}
+  body.client-body.client-sidebar-open{overflow:hidden;touch-action:none}
+  .client-shell{display:block;min-height:100vh}
+  .client-main{min-height:100vh;padding:0 14px 28px}
+
+  .client-sidebar{
+    position:fixed!important;inset:0 auto auto 0;z-index:1201;
+    width:min(86vw,320px);max-width:320px;
+    height:var(--xnat-client-viewport-height,100svh)!important;
+    max-height:var(--xnat-client-viewport-height,100svh)!important;
+    min-height:0!important;overflow:hidden;
+    /* Android edge-to-edge browsers often report a zero safe-area inset even
+       though the gesture/navigation bar overlays the CSS viewport. Reserve a
+       small physical bottom guard so balance/home/logout never sit underneath it. */
+    padding:14px 12px max(48px,calc(env(safe-area-inset-bottom,0px) + 12px));
+    display:flex;flex-direction:column;
+    transform:translate3d(-104%,0,0);visibility:hidden;
+    transition:transform .24s cubic-bezier(.22,.78,.2,1),visibility 0s linear .24s;
+    box-shadow:18px 0 55px rgba(0,0,0,.34);will-change:transform;
+  }
+  .client-sidebar.is-open{
+    transform:translate3d(0,0,0);visibility:visible;
+    transition:transform .24s cubic-bezier(.22,.78,.2,1),visibility 0s linear 0s;
+  }
+  .client-sidebar-backdrop{
+    position:fixed;inset:0;z-index:1200;display:block;
+    background:rgba(2,8,18,.58);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);
+    opacity:0;pointer-events:none;transition:opacity .22s ease;
+  }
+  .client-sidebar-backdrop[hidden]{display:none!important;pointer-events:none!important}
+  .client-sidebar-backdrop.is-open{opacity:1;pointer-events:auto}
+
+  .client-brand{flex:0 0 auto;padding-right:42px;margin-bottom:4px}
+  .client-sidebar-close{
+    position:absolute;right:13px;top:18px;width:34px;height:34px;
+    display:grid;place-items:center;border:1px solid #294664;border-radius:9px;
+    background:#0d1a2d;cursor:pointer;transition:background .18s ease,border-color .18s ease,transform .18s ease;
+  }
+  .client-sidebar-close:active{transform:scale(.94)}
+  .client-sidebar-close span{position:absolute;width:14px;height:1.5px;border-radius:999px;background:#9db9dc}
+  .client-sidebar-close span:first-child{transform:rotate(45deg)}
+  .client-sidebar-close span:last-child{transform:rotate(-45deg)}
+
+  .client-nav{
+    flex:1 1 0;min-height:0;width:100%;display:flex!important;flex-direction:column!important;
+    gap:6px;padding:8px 1px 10px;overflow-y:auto;overscroll-behavior:contain;
+    scrollbar-width:thin;scrollbar-color:#315174 transparent;
+  }
+  .client-nav::-webkit-scrollbar{width:5px}
+  .client-nav::-webkit-scrollbar-thumb{background:#315174;border-radius:999px}
+  .client-nav-group{
+    flex:0 0 auto;border:1px solid transparent;border-radius:10px;
+    transition:background .18s ease,border-color .18s ease;
+  }
+  .client-nav-group.is-open{background:rgba(18,39,67,.44);border-color:rgba(54,88,127,.34)}
+  .client-nav-label{
+    min-height:42px;padding:0 11px!important;color:#8ea3be!important;
+    font-size:11px!important;line-height:1!important;font-weight:800!important;letter-spacing:.08em!important;
+    text-align:left;cursor:pointer;border-radius:9px;transition:background .18s ease,color .18s ease;
+  }
+  .client-nav-label:hover,.client-nav-label:active{background:rgba(29,63,105,.38);color:#c9ddf6!important}
+  .client-nav-label:focus-visible{outline:2px solid #5b94d8;outline-offset:1px}
+  .client-nav-chevron{display:block;color:#7088a6}
+  .client-nav-group.is-open .client-nav-chevron{transform:rotate(225deg);color:#9ec5f4}
+  .client-nav-group.is-current>.client-nav-label{color:#b7d3f5!important}
+
+  .client-nav-group-items{
+    max-height:0;opacity:0;overflow:hidden;gap:2px;
+    transform:translateY(-4px);pointer-events:none;
+    transition:max-height .24s cubic-bezier(.22,.78,.2,1),opacity .18s ease,transform .24s cubic-bezier(.22,.78,.2,1),padding .24s ease;
+    padding:0 4px;
+  }
+  .client-nav-group.is-open>.client-nav-group-items{
+    max-height:118px;opacity:1;transform:translateY(0);pointer-events:auto;padding:0 4px 5px;
+  }
+  .client-nav-group-items a{
+    min-height:40px;padding:0 12px!important;border-radius:8px!important;
+    transform:none!important;transition:background .16s ease,border-color .16s ease,color .16s ease!important;
+  }
+  .client-nav-group-items a:active{transform:scale(.985)!important}
+
+  .client-sidebar-bottom{flex:0 0 auto;margin-top:0!important;padding-top:11px;position:relative;z-index:1}
+
+  .client-topbar{
+    min-height:82px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;
+    align-items:center;column-gap:11px;row-gap:8px;padding:13px 0;margin-bottom:18px;
+  }
+  .client-mobile-menu{
+    width:40px;height:40px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+    border:1px solid #2b4667;border-radius:10px;background:#0e1c31;cursor:pointer;
+    transition:background .18s ease,border-color .18s ease,transform .18s ease;
+  }
+  .client-mobile-menu:hover{background:#142844;border-color:#3b628d}
+  .client-mobile-menu:active{transform:scale(.95)}
+  .client-mobile-menu:focus-visible{outline:2px solid #5b94d8;outline-offset:2px}
+  .client-mobile-menu span{width:16px;height:1.5px;flex:0 0 auto;align-self:center;margin:0;border-radius:999px;background:#a8c6ea}
+  .client-mobile-menu span:nth-child(2){width:16px;align-self:center;margin-left:0}
+  .client-heading{min-width:0}
+  .client-heading h1{font-size:23px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .client-heading p{display:none}
+  .client-top-actions{min-width:0;gap:7px}
+  .client-top-actions .client-round-avatar{display:none}
+  .client-announcement-button{width:38px;padding:0;justify-content:center}
+  .client-announcement-button>span:not(.client-announcement-icon){display:none}
+  .client-balance-pill{min-width:0;padding:0 9px;gap:6px}
+  .client-balance-pill span{display:none}
+  .client-balance-pill strong{font-size:12px;white-space:nowrap}
+  .client-theme-toggle{width:38px;padding:0}
+  .client-theme-label{display:none}
+}
+
+@media(max-width:420px){
+  .client-main{padding-left:11px;padding-right:11px}
+  .client-topbar{column-gap:8px}
+  .client-heading h1{font-size:21px}
+  .client-mobile-menu{width:38px;height:38px}
+  .client-top-actions{gap:5px}
+  .client-balance-pill{padding:0 8px}
+}
+
+html[data-client-theme="light"] body.client-body .client-sidebar-close,
+html[data-client-theme="light"] body.client-body .client-mobile-menu{
+  background:#f5f8fc;border-color:#cbd9e7;
+}
+html[data-client-theme="light"] body.client-body .client-sidebar-close span,
+html[data-client-theme="light"] body.client-body .client-mobile-menu span{background:#547397}
+html[data-client-theme="light"] body.client-body .client-nav-group.is-open{
+  background:rgba(225,236,248,.72);border-color:rgba(188,207,228,.76);
+}
+html[data-client-theme="light"] body.client-body .client-nav-label{color:#6c8099!important}
+html[data-client-theme="light"] body.client-body .client-nav-label:hover,
+html[data-client-theme="light"] body.client-body .client-nav-label:active{background:#e7f0fa;color:#315e91!important}
+html[data-client-theme="light"] body.client-body .client-nav-group.is-current>.client-nav-label{color:#315e91!important}
+html[data-client-theme="light"] body.client-body .client-nav-chevron{color:#7790ad}
+html[data-client-theme="light"] body.client-body .client-sidebar-backdrop{background:rgba(23,40,61,.28)}
+
+@media(prefers-reduced-motion:reduce){
+  .client-sidebar,.client-sidebar-backdrop,.client-nav-group-items,.client-nav-chevron,
+  .client-mobile-menu,.client-sidebar-close{transition:none!important}
+}
