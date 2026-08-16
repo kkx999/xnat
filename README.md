@@ -94,11 +94,13 @@ XNAT_VERSION=1.1.0 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-host.sh)
 ```
 
+> 注：`XNAT_VERSION=1.1.0` 指 XNAT Release 版本。XNAT v1.1.0 继续使用 **Host Agent v1.0.0 / Agent API v1**，无需单独升级 Host Agent。
+
 ---
 
 # 从 v1.0.2 升级到 v1.1.0
 
-正式兼容基线是 **XNAT Panel v1.0.2 final**。v1.1.0 发布到 GitHub Release 后，现有 v1.0.2 Panel 推荐直接执行：
+正式兼容基线是 **XNAT Panel v1.0.2 final**。现有 v1.0.2 Panel 推荐直接执行：
 
 ```bash
 xnat update 1.1.0
