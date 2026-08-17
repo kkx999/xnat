@@ -1,4 +1,4 @@
-# XNAT v1.3.1 详细使用文档
+# XNAT v1.3.2 详细使用文档
 
 > 本文档负责详细说明 XNAT 的安装和运维。  
 > 根目录 `README.md` 保持简洁，具体操作以这里为准。
@@ -72,15 +72,15 @@ bash <(...)
 # 3. 指定版本安装 Panel
 
 ```bash
-XNAT_VERSION=1.3.1 \
+XNAT_VERSION=1.3.2 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
 ```text
-XNAT_VERSION=1.3.1
+XNAT_VERSION=1.3.2
 ```
 
-表示固定安装 Release `v1.3.1`，不自动跟随以后发布的新版本。
+表示固定安装 Release `v1.3.2`，不自动跟随以后发布的新版本。
 
 ---
 
@@ -1536,3 +1536,18 @@ xnat update 1.3.1
 Host Agent 仍为 **v1.1.0 / Agent API v1**。如果 Host 已经运行 Agent v1.1.0，不需要因为 Panel v1.3.1 再次升级 Host。
 
 也允许 v1.2.0 Panel 直接执行 `xnat update 1.3.1`；这种情况下如果 Host 仍为 v1.0.0 Agent，需要将 Host 更新到本 Release 对应的 v1.1.0 Agent 才能使用 v1.3.x 的 KVM / Hybrid Virtualization 能力。
+
+
+# 36. v1.3.1 → v1.3.2 与 Android Mobile API
+
+现有 v1.3.1 Panel：
+
+```bash
+xnat update 1.3.2
+```
+
+v1.3.2 正式集成 `/api/v1` Mobile API v1。升级保留 `.env`、SQLite、用户、余额、订单、VPS、Host、套餐、NAT 端口、工单、充值和审计数据；升级前自动备份并在失败时尝试回滚。
+
+如果 v1.3.1 已经手工应用 Mobile API dev1～dev5，也直接执行同一升级命令即可。正式版会统一覆盖代码，不需要清理旧 API 文件或重建数据库。
+
+Host Agent 仍为 v1.1.0 / Agent API v1，不需要更新。Mobile API 详细接口见 `docs/MOBILE_API.md`。

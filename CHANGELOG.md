@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.3.2
+
+- 正式集成 XNAT Mobile API v1，为 XNAT Android v1.0.0 提供稳定的 `/api/v1` 接口。
+- 新增 Bearer Token 登录/退出、账户信息、概览、服务器列表和详情接口；沿用既有登录失败封禁、TOTP、LoginSession 与审计逻辑。
+- Android 可执行 VPS 开机、关机、重启，管理 NAT TCP/UDP 端口映射，并通过既有任务队列执行系统重装。
+- 新增移动端账务读取、工单列表/创建/详情/回复/关闭接口。
+- 新增套餐目录、优惠码报价、余额购买和自动开通接口；复用 Web Panel 的套餐、库存、调度、余额和订单业务规则。
+- 购买接口使用 `request_id` 幂等保护，网络重试不会重复扣款、重复生成订单或重复开通 VPS。
+- Mobile API v1 复用现有数据库表，不引入破坏性 schema migration；浏览器 Web Panel 的 Session + CSRF 流程保持不变。
+- `/api/v1/health` 继续保持 API v1，并增加当前 Panel 版本字段，便于客户端兼容性诊断。
+- 正式验收 v1.3.1 → v1.3.2 原地升级路径；升级前自动 `quick_check` + 完整备份，失败时沿用自动回滚。
+- 兼容已经在 v1.3.1 上部署 Mobile API dev1～dev5 的实例，升级后统一收敛为正式 Mobile API v1。
+- Panel 升级至 v1.3.2；Host Agent 保持 v1.1.0，Agent API 保持 v1。
+
 ## v1.3.1
 
 - 移动端用户中心侧边栏改为真正的 off-canvas Drawer，桌面端继续保持完整展开布局。

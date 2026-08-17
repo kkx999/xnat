@@ -48,6 +48,7 @@ assert meta['panel_version']==panel
 assert meta['agent_version']==agent
 assert str(meta['agent_api_version'])==api
 assert api in [str(x) for x in meta['supported_agent_api_versions']]
+assert str(meta.get('mobile_api_version')) == '1'
 assert f'__version__ = "{panel}"' in (root/'panel/app/__init__.py').read_text()
 agent_init=(root/'agent/natvps_agent/__init__.py').read_text()
 assert f'__version__ = "{agent}"' in agent_init
@@ -98,8 +99,8 @@ grep -q 'traffic_cycle_mode' panel/app/models.py
 grep -q 'queue_admin_notification' panel/app/nodes.py
 grep -q 'admin.payment.repair_no_tx' panel/app/main.py
 grep -q 'FORCE CREDIT' panel/app/templates/admin.html
-grep -q "client.js') }}?v=1.3.1" panel/app/templates/base.html
-grep -q "style.css') }}?v=1.3.1" panel/app/templates/base.html
+grep -q "client.js') }}?v=1.3.2" panel/app/templates/base.html
+grep -q "style.css') }}?v=1.3.2" panel/app/templates/base.html
 grep -q 'class="plan-coupon-field"' panel/app/templates/plans.html
 grep -q 'class="card admin-plan-card admin-plan-fold"' panel/app/templates/admin.html
 grep -q 'admin-plan-summary-specs' panel/app/templates/admin.html
@@ -147,6 +148,7 @@ grep -q '删除公告' panel/app/templates/admin.html
 ! grep -q 'name="announcement_enabled"' panel/app/templates/admin.html
 ! grep -q 'name="announcement_text"' panel/app/templates/admin.html
 grep -q '数据库迁移缺少表' scripts/upgrade-panel.sh
+grep -q '1.3.1) UPGRADE_PATH="verified-v1.3.1"' scripts/upgrade-panel.sh
 grep -q '1.3.0) UPGRADE_PATH="verified-v1.3.0"' scripts/upgrade-panel.sh
 grep -q '1.2.0) UPGRADE_PATH="verified-v1.2.0"' scripts/upgrade-panel.sh
 grep -q 'PRAGMA quick_check' scripts/upgrade-panel.sh
@@ -181,6 +183,23 @@ grep -q 'kvm_unavailable' panel/app/nodes.py
 grep -q 'name="virtualization_type"' panel/app/templates/admin.html
 grep -q 'timeout=600 if str(virtualization_type).lower() == "kvm" else 260' panel/app/providers/remote.py
 grep -Fq 'str(detail)[:1200]' panel/app/nodes.py
+
+
+# v1.3.2 Mobile API v1 contract for XNAT Android v1.0.0.
+test -f panel/app/mobile_api.py
+grep -q 'from \.mobile_api import router as mobile_api_router' panel/app/main.py
+grep -q 'app.include_router(mobile_api_router)' panel/app/main.py
+grep -q 'APIRouter(prefix="/api/v1"' panel/app/mobile_api.py
+grep -q '@router.get("/health")' panel/app/mobile_api.py
+grep -q '@router.post("/auth/login")' panel/app/mobile_api.py
+grep -q '@router.get("/servers")' panel/app/mobile_api.py
+grep -q '@router.get("/billing")' panel/app/mobile_api.py
+grep -q '@router.get("/tickets")' panel/app/mobile_api.py
+grep -q '@router.get("/catalog")' panel/app/mobile_api.py
+grep -q '@router.post("/purchase/quote")' panel/app/mobile_api.py
+grep -q '@router.post("/purchase")' panel/app/mobile_api.py
+grep -q '@router.post("/servers/{server_id}/ports")' panel/app/mobile_api.py
+grep -q '@router.post("/servers/{server_id}/reinstall")' panel/app/mobile_api.py
 
 echo "[5/7] Clean baseline guard"
 if find . -maxdepth 3 -type f | grep -Ei '(testing|preview-[0-9]|rc[0-9]|patch-panel|patch-management|upgrade-from-v1\.0\.3|UPGRADE-FROM)' >/tmp/xnat-clean-guard.txt; then

@@ -4,7 +4,30 @@
 
 XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、多宿主机节点、套餐、用户、流量、通知及日常运维。
 
-当前版本：**v1.3.1**
+当前版本：**v1.3.2**
+
+
+## v1.3.2 Android / Mobile API v1
+
+v1.3.2 将此前为 XNAT Android 开发的 Mobile API v1 正式纳入 Panel Release。浏览器 Web Panel 继续使用原有 Session + CSRF；Android 使用 `/api/v1` Bearer Token 接口。
+
+正式能力包括：
+
+- Android 登录、账户、概览和服务器状态；
+- VPS 开机 / 关机 / 重启、NAT 端口添加删除、系统重装；
+- 账务与充值记录读取、工单创建/回复/关闭；
+- 套餐目录、优惠码试算、余额购买、自动调度开通；
+- 购买 `request_id` 幂等保护，避免网络重试造成重复扣款或重复开通。
+
+从 v1.3.1 升级 Panel：
+
+```bash
+xnat update 1.3.2
+```
+
+**升级兼容性：** v1.3.1 的 `.env`、SQLite 数据库、用户、余额、订单、VPS、Host、套餐、端口、工单和支付数据全部原地保留；升级前自动备份，失败自动尝试回滚。本次没有破坏性数据库迁移。Host Agent 继续保持 **v1.1.0 / Agent API v1**，无需因为 v1.3.2 升级 Host。
+
+XNAT Android v1.0.0 对应 Panel v1.3.2 / Mobile API v1。
 
 ## v1.3.1 Mobile Navigation
 
@@ -105,23 +128,39 @@ Host 连接 Panel 成功后，在 Panel 后台节点设置中配置 NAT 端口�
 
 ---
 
-# 指定 v1.3.1 安装
+# 指定 v1.3.2 安装
 
 Panel：
 
 ```bash
-XNAT_VERSION=1.3.1 \
+XNAT_VERSION=1.3.2 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
 Host：
 
 ```bash
-XNAT_VERSION=1.3.1 \
+XNAT_VERSION=1.3.2 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-host.sh)
 ```
 
-> `XNAT_VERSION=1.3.1` 指 XNAT Release 版本。XNAT v1.3.1 使用 **Host Agent v1.1.0 / Agent API v1**。
+> `XNAT_VERSION=1.3.2` 指 XNAT Release 版本。XNAT v1.3.2 使用 **Panel v1.3.2 / Mobile API v1 / Host Agent v1.1.0 / Agent API v1**。
+
+---
+
+# 从 v1.3.1 升级到 v1.3.2
+
+Panel：
+
+```bash
+xnat update 1.3.2
+```
+
+升级器会先执行 SQLite `PRAGMA quick_check`，备份 `panel.db`、`.env`、旧代码、systemd 单元和管理命令，然后替换 Panel 代码、执行 additive schema 检查并验证 `/health` 返回 v1.3.2。升级失败会尝试恢复升级前快照。
+
+如果当前 v1.3.1 已经手工安装过 Mobile API dev1～dev5，同样可以直接升级；正式 v1.3.2 会覆盖为统一的 Mobile API v1 实现，现有数据库和登录数据不需要重建。
+
+Host Agent 仍为 **v1.1.0 / Agent API v1**，Host 无需更新。
 
 ---
 

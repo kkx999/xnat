@@ -1,24 +1,24 @@
-# XNAT v1.2.0
+# XNAT v1.3.2
 
-本次为较大的 Panel UI / UX 与用户自助能力升级。
+本次为 Panel + XNAT Android 正式接口整合更新。
 
-- Panel：v1.2.0
-- Host Agent：v1.0.0
+- Panel：v1.3.2
+- Host Agent：v1.1.0
 - Agent API：v1
-- 用户前端与管理后台新增独立深色 / 柔和明亮主题
-- 全面优化明亮主题对比度并清理暗色组件残留
-- 重构服务器管理与宿主机卡片，统一按钮、表单、Switch、Toast 与折叠交互
-- 宿主机新增剩余可分配资源展示，套餐绑定改为 iOS 风格 Switch
-- VPS 重装期间显示“重装中”，完成后自动恢复运行状态
-- 套餐购买优惠码与后台套餐表单重新整理并统一对齐
-- 新增付费自助流量重置；支持套餐独立配置重置价格、余额扣费、订单与余额流水
-- 新增统一 XNAT 网页确认 Modal，替代浏览器原生 confirm 弹窗
-- 正式支持 v1.1.1 → v1.2.0 原地升级；升级前自动备份并执行 additive schema migration
-- 升级保留 .env、SQLite、用户、余额、订单、VPS、Host、套餐、支付、通知、公告及已读记录
-- Host Agent 无需升级，继续保持 v1.0.0 / Agent API v1
+- 正式集成 Mobile API v1，供 XNAT Android v1.0.0 使用
+- Bearer Token 登录沿用既有账号、登录失败封禁、TOTP 与 LoginSession 安全策略
+- Android 支持账户/概览、服务器列表与详情、开机/关机/重启、NAT 端口管理、系统重装
+- Android 支持账务、工单、套餐目录、优惠码试算、余额购买与自动开通
+- 购买接口包含 request_id 幂等保护，避免网络重试造成重复扣款或重复开通
+- 浏览器 Web Panel 原有 Session + CSRF 流程保持不变
+- Mobile API v1 不改变 Agent API；Host Agent 继续保持 v1.1.0 / Agent API v1
+- 本次不包含破坏性数据库结构变更；Mobile API 复用现有业务表和任务队列
+- 正式支持 v1.3.1 → v1.3.2 原地升级，并继续保留 v1.3.0 / v1.2.0 additive migration 兼容路径
+- 升级前自动执行 SQLite quick_check，并备份数据库、.env、旧代码、systemd 与管理命令
+- 健康检查或完整性检查失败时使用既有自动回滚逻辑
 
-v1.1.1 Panel 推荐升级命令：
+v1.3.1 Panel 推荐升级命令：
 
-    xnat update 1.2.0
+    xnat update 1.3.2
 
-也可执行 xnat 后选择“检查 / 更新 Panel”。
+Host 已经运行 Agent v1.1.0 时，无需因为本次 Panel 更新重装或升级 Host。

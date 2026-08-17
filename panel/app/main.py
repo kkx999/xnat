@@ -45,6 +45,7 @@ from .models import (
     Notification, Order, PasswordResetToken, Plan, PortMapping, RechargeOrder, Server, SiteSetting,
     SystemImage, Ticket, TicketMessage, User,
 )
+from .mobile_api import router as mobile_api_router
 from .traffic import (
     THROTTLE_MBPS, apply_sample, collect_all as collect_traffic_all, configured_bandwidth_mbps,
     effective_bandwidth_mbps, enforce_traffic_policy, ensure_cycle, reset_cycle, traffic_bonus_gb,
@@ -844,6 +845,7 @@ app.add_middleware(
     max_age=60 * 60 * 24 * 14,
 )
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+app.include_router(mobile_api_router)
 
 def db_session():
     return SessionLocal()
@@ -4356,7 +4358,7 @@ def admin_backup_download(request:Request,backup_name:str):
 def health():
     return {
         "status": "ok",
-        "version": "1.3.1",
+        "version": "1.3.2",
         "provider": PROVIDER_NAME,
         "timezone": APP_TIMEZONE,
     }
