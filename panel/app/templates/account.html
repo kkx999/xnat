@@ -7,7 +7,18 @@
 <section class="client-panel"><div class="client-panel-head"><div><h2>个人资料与通知</h2><p>邮件和 Telegram 通知可分别开关</p></div></div>
 <form class="settings-form" method="post" action="/account/profile"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 <label>用户名<input value="{{ user.username }}" disabled></label><label>邮箱<input type="email" name="email" value="{{ user.email }}" required></label><label>Telegram Chat ID<input name="telegram_chat_id" value="{{ user.telegram_chat_id or '' }}" placeholder="例如 123456789"></label>
-<div class="check-row"><label><input type="checkbox" name="notify_email" {% if user.notify_email %}checked{% endif %}> 邮件通知</label><label><input type="checkbox" name="notify_telegram" {% if user.notify_telegram %}checked{% endif %}> Telegram 通知</label></div><button type="submit">保存资料</button></form></section>
+<div class="client-notification-preferences" aria-label="通知偏好">
+  <label class="client-notification-toggle">
+    <input type="checkbox" name="notify_email" {% if user.notify_email %}checked{% endif %}>
+    <span class="client-notification-copy"><strong>邮件通知</strong><small>接收账户与服务邮件</small></span>
+    <span class="client-toggle-control" aria-hidden="true"><span></span></span>
+  </label>
+  <label class="client-notification-toggle">
+    <input type="checkbox" name="notify_telegram" {% if user.notify_telegram %}checked{% endif %}>
+    <span class="client-notification-copy"><strong>Telegram 通知</strong><small>接收即时服务提醒</small></span>
+    <span class="client-toggle-control" aria-hidden="true"><span></span></span>
+  </label>
+</div><button type="submit">保存资料</button></form></section>
 
 <section class="client-panel"><div class="client-panel-head"><div><h2>修改登录密码</h2><p>修改后会自动退出其他设备</p></div></div>
 <form class="settings-form" method="post" action="/account/password"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>当前密码<input type="password" name="current_password" required></label><label>新密码<input type="password" name="new_password" minlength="10" required></label><button type="submit">修改密码</button></form></section>
@@ -19,8 +30,45 @@
 {% else %}<form method="post" action="/account/2fa/start"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">开始设置 2FA</button></form>{% endif %}
 </section>
 
-<div class="settings-grid lower-settings">
-<section class="client-panel"><div class="client-panel-head"><div><h2>登录会话</h2><p>可撤销其他浏览器和设备</p></div><form method="post" action="/account/sessions/revoke-others"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="small-action" type="submit">退出其他设备</button></form></div><div class="session-list">{% for s in sessions %}<div><strong>{{ s.ip }} {% if s.id == current_login_session_id %}<em>当前设备</em>{% endif %}</strong><span>{{ s.user_agent or '未知客户端' }}</span><small>{{ local_dt(s.last_seen_at).strftime('%Y-%m-%d %H:%M') }} · {{ '已撤销' if s.revoked_at else '有效' }}</small></div>{% else %}<p class="muted">暂无会话记录</p>{% endfor %}</div></section>
-<section class="client-panel"><div class="client-panel-head"><div><h2>最近登录</h2><p>最近 20 条安全记录</p></div></div><div class="session-list">{% for e in login_events %}<div><strong>{{ e.ip }} <em class="{{ 'success-text' if e.success else 'danger-text' }}">{{ '成功' if e.success else '失败' }}</em></strong><span>{{ e.reason or '-' }} · {{ e.user_agent or '未知客户端' }}</span><small>{{ local_dt(e.created_at).strftime('%Y-%m-%d %H:%M') }}</small></div>{% else %}<p class="muted">暂无登录记录</p>{% endfor %}</div></section>
+<div class="settings-grid lower-settings security-history-grid">
+<section class="client-panel security-history-panel">
+  <div class="client-panel-head">
+    <div><h2>登录会话</h2><p>默认显示最近 3 条，可展开查看历史会话</p></div>
+    <form method="post" action="/account/sessions/revoke-others"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="small-action" type="submit">退出其他设备</button></form>
+  </div>
+  <div class="session-list security-history-list">
+    {% for s in sessions[:3] %}
+      <div class="security-history-row"><strong>{{ s.ip }} {% if s.id == current_login_session_id %}<em>当前设备</em>{% endif %}</strong><span>{{ s.user_agent or '未知客户端' }}</span><small>{{ local_dt(s.last_seen_at).strftime('%Y-%m-%d %H:%M') }} · {{ '已撤销' if s.revoked_at else '有效' }}</small></div>
+    {% else %}<p class="muted">暂无会话记录</p>{% endfor %}
+    {% if sessions|length > 3 %}
+    <details class="security-history-more" id="session-history-more">
+      <summary><span>查看其余 {{ sessions|length - 3 }} 条会话</span><span class="security-history-chevron" aria-hidden="true"></span></summary>
+      <div class="security-history-extra">
+        {% for s in sessions[3:] %}
+        <div class="security-history-row"><strong>{{ s.ip }} {% if s.id == current_login_session_id %}<em>当前设备</em>{% endif %}</strong><span>{{ s.user_agent or '未知客户端' }}</span><small>{{ local_dt(s.last_seen_at).strftime('%Y-%m-%d %H:%M') }} · {{ '已撤销' if s.revoked_at else '有效' }}</small></div>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+  </div>
+</section>
+<section class="client-panel security-history-panel">
+  <div class="client-panel-head"><div><h2>最近登录</h2><p>默认显示最近 3 条，共保留最近 {{ login_events|length }} 条安全记录</p></div></div>
+  <div class="session-list security-history-list">
+    {% for e in login_events[:3] %}
+      <div class="security-history-row"><strong>{{ e.ip }} <em class="{{ 'success-text' if e.success else 'danger-text' }}">{{ '成功' if e.success else '失败' }}</em></strong><span>{{ e.reason or '-' }} · {{ e.user_agent or '未知客户端' }}</span><small>{{ local_dt(e.created_at).strftime('%Y-%m-%d %H:%M') }}</small></div>
+    {% else %}<p class="muted">暂无登录记录</p>{% endfor %}
+    {% if login_events|length > 3 %}
+    <details class="security-history-more" id="login-history-more">
+      <summary><span>查看其余 {{ login_events|length - 3 }} 条登录记录</span><span class="security-history-chevron" aria-hidden="true"></span></summary>
+      <div class="security-history-extra">
+        {% for e in login_events[3:] %}
+        <div class="security-history-row"><strong>{{ e.ip }} <em class="{{ 'success-text' if e.success else 'danger-text' }}">{{ '成功' if e.success else '失败' }}</em></strong><span>{{ e.reason or '-' }} · {{ e.user_agent or '未知客户端' }}</span><small>{{ local_dt(e.created_at).strftime('%Y-%m-%d %H:%M') }}</small></div>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+  </div>
+</section>
 </div>
 {% endblock %}

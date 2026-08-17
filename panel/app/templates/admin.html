@@ -405,7 +405,7 @@
       <div class="table-wrap">
       <table>
         <thead>
-        <tr><th>ID</th><th>用户</th><th>邮箱</th><th>余额</th><th>VPS</th><th>订单</th><th>安全</th><th>状态</th><th>余额调整</th><th>操作</th></tr>
+        <tr><th>ID</th><th>用户</th><th>邮箱</th><th>余额</th><th>VPS</th><th>订单</th><th>安全</th><th>状态</th><th>余额操作</th><th>操作</th></tr>
         </thead>
         <tbody>
         {% for u in users %}
@@ -419,11 +419,21 @@
           <td><span class="security-mini">2FA {{ "开" if u.totp_enabled else "关" }}</span><small>{{ user_stats[u.id].sessions }} 会话</small></td>
           <td><span class="user-state {% if not u.is_active %}disabled{% endif %}">{{ "正常" if u.is_active else "已停用" }}</span></td>
           <td>
-            <form class="inline balance-form" method="post" action="/admin/balance">
+            <form class="balance-action-form" method="post" action="/admin/balance">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="user_id" value="{{ u.id }}">
-              <input name="amount" placeholder="10 或 -5" required>
-              <button type="submit">提交</button>
+              <label class="balance-action-amount">
+                <input type="number" name="amount" min="0.01" step="0.01" inputmode="decimal" placeholder="金额" required aria-label="余额操作金额">
+              </label>
+              <div class="balance-action-buttons">
+                <button class="balance-action-button credit" type="submit" name="action" value="credit">增加余额</button>
+                <button class="balance-action-button debit" type="submit" name="action" value="debit"
+                  data-xnat-confirm data-confirm-tone="danger" data-confirm-kicker="DEDUCT BALANCE"
+                  data-confirm-title="扣除该用户余额？"
+                  data-confirm-message="将从 {{ u.username }} 的账户余额中扣除上方输入的金额，请确认金额无误。"
+                  data-confirm-note="扣除后余额不会低于 ¥0.00，操作会写入余额流水与审计日志。"
+                  data-confirm-label="确认扣除">扣除余额</button>
+              </div>
             </form>
           </td>
           <td>
@@ -811,9 +821,109 @@
       {% include "_admin_pagination.html" %}
 
     {% elif section == "tickets" %}
-      <form class="admin-search" method="get" action="/admin"><input type="hidden" name="section" value="tickets"><input name="q" value="{{ q }}" placeholder="搜索工单号、用户、标题、状态"><button>搜索</button>{% if q %}<a href="/admin?section=tickets">清除</a>{% endif %}</form>
-      <div class="result-meta">共 {{ total_rows }} 条结果</div>
-      <div class="admin-ticket-list">{% for t in tickets %}<article class="admin-ticket-card"><div class="admin-ticket-head"><div><strong>#{{ t.id }} · {{ t.subject }}</strong><span>{{ t.user.username }} · {{ t.user.email }} · {{ local_dt(t.updated_at).strftime('%Y-%m-%d %H:%M') }}</span></div><div><span class="priority {{ t.priority }}">{{ t.priority }}</span><span class="state-pill">{{ ticket_status_label(t.status) }}</span></div></div><div class="admin-ticket-preview">{% if t.messages %}{{ t.messages[-1].body[:500] }}{% else %}暂无消息{% endif %}</div>{% if t.status != 'closed' %}<form class="ticket-admin-reply" method="post" action="/admin/tickets/{{ t.id }}/reply"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><textarea name="body" rows="3" placeholder="管理员回复" required></textarea><button type="submit">发送回复</button></form><form method="post" action="/admin/tickets/{{ t.id }}/close"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="danger-lite" type="submit">关闭工单</button></form>{% endif %}</article>{% else %}<div class="empty">暂无工单</div>{% endfor %}</div>
+      <form class="admin-search" method="get" action="/admin"><input type="hidden" name="section" value="tickets"><input name="q" value="{{ q }}" placeholder="搜索工单号、用户、标题、状态、消息内容"><button>搜索</button>{% if q %}<a href="/admin?section=tickets">清除</a>{% endif %}</form>
+      {% set active_tickets = tickets|rejectattr('status', 'equalto', 'closed')|list %}
+      {% set closed_tickets = tickets|selectattr('status', 'equalto', 'closed')|list %}
+
+      <div class="ticket-queue-overview">
+        <div class="ticket-queue-stat active"><span>待处理队列</span><strong>{{ active_tickets|length }}</strong><small>当前页需要继续跟进</small></div>
+        <div class="ticket-queue-stat closed"><span>已关闭归档</span><strong>{{ closed_tickets|length }}</strong><small>当前页已完成工单</small></div>
+        <div class="ticket-queue-stat total"><span>搜索结果</span><strong>{{ total_rows }}</strong><small>{% if q %}匹配“{{ q }}”{% else %}全部工单{% endif %}</small></div>
+      </div>
+
+      <section class="admin-ticket-queue active-queue">
+        <div class="admin-ticket-section-head">
+          <div><span class="admin-ticket-section-dot"></span><strong>待处理 / 进行中</strong><small>优先展示需要管理员继续跟进的会话</small></div>
+          <span class="admin-ticket-section-count">{{ active_tickets|length }} 条</span>
+        </div>
+        <div class="admin-ticket-list">
+          {% for t in active_tickets %}
+          {% set thread = ticket_threads.get(t.id, []) %}
+          <article class="admin-ticket-card ticket-active">
+            <div class="admin-ticket-head">
+              <div class="admin-ticket-identity">
+                <div class="admin-ticket-title-row"><strong>#{{ t.id }} · {{ t.subject }}</strong><span class="ticket-live-indicator">进行中</span></div>
+                <span>{{ t.user.username }} · {{ t.user.email }} · 更新于 {{ local_dt(t.updated_at).strftime('%Y-%m-%d %H:%M') }}</span>
+              </div>
+              <div class="admin-ticket-badges"><span class="priority {{ t.priority }}">{{ t.priority }}</span><span class="state-pill">{{ ticket_status_label(t.status) }}</span></div>
+            </div>
+            <details class="admin-ticket-thread" open>
+              <summary>
+                <span class="admin-ticket-thread-title"><span class="admin-ticket-thread-icon" aria-hidden="true">↕</span>完整会话</span>
+                <span class="admin-ticket-thread-count">{{ thread|length }} 条消息</span>
+              </summary>
+              <div class="admin-ticket-messages">
+                {% for m in thread %}
+                <article class="admin-ticket-bubble {{ 'from-admin' if m.author_is_admin else 'from-customer' }}">
+                  <div class="admin-ticket-bubble-meta">
+                    <strong>{% if m.author_is_admin %}管理员{% else %}{{ t.user.username }}{% endif %}</strong>
+                    <span>{{ local_dt(m.created_at).strftime('%Y-%m-%d %H:%M') }}</span>
+                  </div>
+                  <p>{{ m.body }}</p>
+                </article>
+                {% else %}
+                <div class="admin-ticket-preview">暂无消息</div>
+                {% endfor %}
+              </div>
+            </details>
+            <div class="admin-ticket-compose">
+              <div class="admin-ticket-compose-head"><strong>回复工单</strong><span>你的回复会立即显示在用户端会话中</span></div>
+              <form class="ticket-admin-reply" method="post" action="/admin/tickets/{{ t.id }}/reply">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <textarea name="body" rows="3" placeholder="输入回复内容…" required></textarea>
+                <button type="submit">发送回复</button>
+              </form>
+              <form class="admin-ticket-close-form" method="post" action="/admin/tickets/{{ t.id }}/close">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="danger-lite" type="submit" data-xnat-confirm data-confirm-tone="danger" data-confirm-kicker="CLOSE TICKET" data-confirm-title="关闭这个工单？" data-confirm-message="关闭后用户与管理员都不能继续回复，但历史会话仍会保留。" data-confirm-note="如仍需沟通，请先发送最后一条回复" data-confirm-label="确认关闭">关闭工单</button>
+              </form>
+            </div>
+          </article>
+          {% else %}
+          <div class="ticket-queue-empty"><strong>当前没有待处理工单</strong><span>新的用户工单或用户再次回复后会出现在这里。</span></div>
+          {% endfor %}
+        </div>
+      </section>
+
+      <details class="admin-ticket-archive" {% if q and not active_tickets and closed_tickets %}open{% endif %}>
+        <summary>
+          <div><span class="admin-ticket-archive-icon">✓</span><span><strong>已关闭工单</strong><small>处理完成的工单集中归档，默认折叠</small></span></div>
+          <div class="admin-ticket-archive-side"><span>{{ closed_tickets|length }} 条</span><span class="admin-ticket-archive-chevron">⌄</span></div>
+        </summary>
+        <div class="admin-ticket-archive-body">
+          {% for t in closed_tickets %}
+          {% set thread = ticket_threads.get(t.id, []) %}
+          <article class="admin-ticket-card ticket-closed">
+            <div class="admin-ticket-head">
+              <div class="admin-ticket-identity">
+                <div class="admin-ticket-title-row"><strong>#{{ t.id }} · {{ t.subject }}</strong></div>
+                <span>{{ t.user.username }} · {{ t.user.email }} · 关闭于 {{ local_dt(t.updated_at).strftime('%Y-%m-%d %H:%M') }}</span>
+              </div>
+              <div class="admin-ticket-badges"><span class="priority {{ t.priority }}">{{ t.priority }}</span><span class="state-pill">{{ ticket_status_label(t.status) }}</span></div>
+            </div>
+            <details class="admin-ticket-thread closed-thread">
+              <summary>
+                <span class="admin-ticket-thread-title"><span class="admin-ticket-thread-icon" aria-hidden="true">↕</span>查看完整会话</span>
+                <span class="admin-ticket-thread-count">{{ thread|length }} 条消息</span>
+              </summary>
+              <div class="admin-ticket-messages">
+                {% for m in thread %}
+                <article class="admin-ticket-bubble {{ 'from-admin' if m.author_is_admin else 'from-customer' }}">
+                  <div class="admin-ticket-bubble-meta">
+                    <strong>{% if m.author_is_admin %}管理员{% else %}{{ t.user.username }}{% endif %}</strong>
+                    <span>{{ local_dt(m.created_at).strftime('%Y-%m-%d %H:%M') }}</span>
+                  </div>
+                  <p>{{ m.body }}</p>
+                </article>
+                {% else %}<div class="admin-ticket-preview">暂无消息</div>{% endfor %}
+              </div>
+            </details>
+          </article>
+          {% else %}
+          <div class="ticket-queue-empty compact"><strong>当前页没有已关闭工单</strong></div>
+          {% endfor %}
+        </div>
+      </details>
       {% include "_admin_pagination.html" %}
 
     {% elif section == "jobs" %}
@@ -832,7 +942,7 @@
       <div class="admin-section-actions backup-head-actions">
         <div>
           <strong>SQLite 自动备份</strong>
-          <span>自动保留最近 7 个每日备份和 4 个每周备份。恢复前会自动创建当前数据库快照，失败时自动回滚。</span>
+          <span>自动保留最近 7 个每日备份和 4 个每周备份。当前 {{ backup_rows|length }} 个备份，共 {{ human_bytes(backup_total_bytes) }}。恢复前会自动创建当前数据库快照，失败时自动回滚。</span>
         </div>
         <div class="backup-top-buttons">
           <form method="post" action="/admin/backups/create">
@@ -901,15 +1011,16 @@
           </div>
           <div class="backup-actions">
             <a href="/admin/backups/{{ b.name }}/download">下载</a>
-            <details class="backup-row-restore">
-              <summary>恢复</summary>
-              <form method="post" action="/admin/backups/{{ b.name }}/restore">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <div class="backup-row-danger">输入 <code>RESTORE</code> 确认</div>
-                <input name="confirm_text" autocomplete="off" placeholder="输入 RESTORE" required>
-                <button class="danger-button" type="submit">确认恢复</button>
-              </form>
-            </details>
+            <form class="backup-action-form" method="post" action="/admin/backups/{{ b.name }}/restore">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="confirm_text" value="" data-xnat-confirm-value>
+              <button class="backup-action-button restore" type="submit" data-xnat-confirm data-confirm-kicker="DATABASE RESTORE" data-confirm-title="恢复这个数据库备份？" data-confirm-message="将使用 {{ b.name }} 替换当前 panel.db；恢复前系统会自动创建当前数据库快照。" data-confirm-input="RESTORE" data-confirm-input-label="输入 RESTORE 确认恢复" data-confirm-input-placeholder="RESTORE" data-confirm-note="如果恢复失败，系统会自动回滚" data-confirm-label="确认恢复">恢复</button>
+            </form>
+            <form class="backup-action-form" method="post" action="/admin/backups/{{ b.name }}/delete">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="confirm_text" value="" data-xnat-confirm-value>
+              <button class="backup-action-button delete" type="submit" data-xnat-confirm data-confirm-tone="danger" data-confirm-kicker="DELETE BACKUP" data-confirm-title="删除这个备份？" data-confirm-message="{{ b.name }} · {{ human_bytes(b.size) }}。删除后文件会立即从服务器移除。" data-confirm-input="yes" data-confirm-input-label="输入 yes 确认删除" data-confirm-input-placeholder="yes" data-confirm-note="此操作不可恢复" data-confirm-label="确认删除">删除</button>
+            </form>
           </div>
         </article>
         {% else %}
@@ -1133,71 +1244,95 @@
             </div>
 
 
-            <div class="notification-config-grid">
-              <div class="notification-config-card">
-                <h4>SMTP 邮件</h4>
-                <div class="settings-fields two-col">
-                  <label>SMTP Host<input name="smtp_host" value="{{ site_settings.smtp_host }}" placeholder="smtp.example.com"></label>
-                  <label>SMTP Port<input type="number" name="smtp_port" value="{{ site_settings.smtp_port or '587' }}"></label>
-                  <label>用户名<input name="smtp_username" value="{{ site_settings.smtp_username }}" autocomplete="off"></label>
-                  <label>发件地址<input name="smtp_from" value="{{ site_settings.smtp_from }}" placeholder="noreply@example.com"></label>
+            <details class="notification-admin-fold">
+              <summary>
+                <span><strong>SMTP / Telegram 渠道配置</strong><small>服务器地址、凭据与发送通道设置</small></span>
+                <span class="notification-admin-fold-state">配置</span>
+              </summary>
+              <div class="notification-admin-fold-body">
+                <div class="notification-config-grid">
+                  <div class="notification-config-card">
+                    <h4>SMTP 邮件</h4>
+                    <div class="settings-fields two-col">
+                      <label>SMTP Host<input name="smtp_host" value="{{ site_settings.smtp_host }}" placeholder="smtp.example.com"></label>
+                      <label>SMTP Port<input type="number" name="smtp_port" value="{{ site_settings.smtp_port or '587' }}"></label>
+                      <label>用户名<input name="smtp_username" value="{{ site_settings.smtp_username }}" autocomplete="off"></label>
+                      <label>发件地址<input name="smtp_from" value="{{ site_settings.smtp_from }}" placeholder="noreply@example.com"></label>
+                    </div>
+                    <label>SMTP 密码
+                      <input type="password" name="smtp_password" autocomplete="new-password" placeholder="{{ '已保存，留空不修改' if env_status.smtp_password else '输入 SMTP 密码' }}">
+                    </label>
+                    <label>STARTTLS<select name="smtp_starttls"><option value="true" {% if site_settings.smtp_starttls %}selected{% endif %}>开启</option><option value="false" {% if not site_settings.smtp_starttls %}selected{% endif %}>关闭</option></select></label>
+                    {% if env_status.smtp_password %}<label class="secret-clear-row"><input type="checkbox" name="clear_smtp_password" value="true"> 清除已保存的 SMTP 密码</label>{% endif %}
+                  </div>
+
+                  <div class="notification-config-card">
+                    <h4>Telegram Bot</h4>
+                    <label>Bot Token
+                      <input type="password" name="telegram_bot_token" autocomplete="new-password" placeholder="{{ '已保存，留空不修改' if env_status.telegram else '输入 Telegram Bot Token' }}">
+                    </label>
+                    <p class="settings-note">用户自己的 Chat ID 仍在用户账户中心填写；这里配置整个站点共用的 Bot Token。</p>
+                    {% if env_status.telegram %}<label class="secret-clear-row"><input type="checkbox" name="clear_telegram_bot_token" value="true"> 清除已保存的 Bot Token</label>{% endif %}
+                  </div>
                 </div>
-                <label>SMTP 密码
-                  <input type="password" name="smtp_password" autocomplete="new-password" placeholder="{{ '已保存，留空不修改' if env_status.smtp_password else '输入 SMTP 密码' }}">
-                </label>
-                <label>STARTTLS<select name="smtp_starttls"><option value="true" {% if site_settings.smtp_starttls %}selected{% endif %}>开启</option><option value="false" {% if not site_settings.smtp_starttls %}selected{% endif %}>关闭</option></select></label>
-                {% if env_status.smtp_password %}<label class="secret-clear-row"><input type="checkbox" name="clear_smtp_password" value="true"> 清除已保存的 SMTP 密码</label>{% endif %}
               </div>
+            </details>
 
-              <div class="notification-config-card">
-                <h4>Telegram Bot</h4>
-                <label>Bot Token
-                  <input type="password" name="telegram_bot_token" autocomplete="new-password" placeholder="{{ '已保存，留空不修改' if env_status.telegram else '输入 Telegram Bot Token' }}">
-                </label>
-                <p class="settings-note">用户自己的 Chat ID 仍在用户账户中心填写；这里配置整个站点共用的 Bot Token。</p>
-                {% if env_status.telegram %}<label class="secret-clear-row"><input type="checkbox" name="clear_telegram_bot_token" value="true"> 清除已保存的 Bot Token</label>{% endif %}
+            <details class="notification-admin-fold">
+              <summary>
+                <span><strong>通知规则</strong><small>按事件控制 Email / Telegram 全站通道</small></span>
+                <span class="notification-admin-fold-state">7 类事件</span>
+              </summary>
+              <div class="notification-admin-fold-body notification-rule-block">
+                <div class="table-wrap"><table class="notification-rule-table">
+                  <thead><tr><th>事件</th><th>Email</th><th>Telegram</th></tr></thead>
+                  <tbody>
+                  {% for key, label in [('server','VPS / 开通 / 资源'),('traffic','流量告警'),('expiry','到期 / 续费'),('payment','充值 / 支付'),('ticket','工单'),('security','安全事件'),('system','系统通知')] %}
+                    <tr><td>{{ label }}</td><td><select name="notify_rule_{{ key }}_email"><option value="true" {% if site_settings['notify_rule_' ~ key ~ '_email'] %}selected{% endif %}>开启</option><option value="false" {% if not site_settings['notify_rule_' ~ key ~ '_email'] %}selected{% endif %}>关闭</option></select></td><td><select name="notify_rule_{{ key }}_telegram"><option value="true" {% if site_settings['notify_rule_' ~ key ~ '_telegram'] %}selected{% endif %}>开启</option><option value="false" {% if not site_settings['notify_rule_' ~ key ~ '_telegram'] %}selected{% endif %}>关闭</option></select></td></tr>
+                  {% endfor %}
+                  </tbody>
+                </table></div>
               </div>
-            </div>
-
-
-            <div class="notification-rule-block">
-              <div class="settings-section-head"><div><h4>通知规则</h4><p>这里是全站渠道开关；用户自己的“接收邮件 / Telegram”偏好仍会继续生效。</p></div></div>
-              <div class="table-wrap"><table class="notification-rule-table">
-                <thead><tr><th>事件</th><th>Email</th><th>Telegram</th></tr></thead>
-                <tbody>
-                {% for key, label in [('server','VPS / 开通 / 资源'),('traffic','流量告警'),('expiry','到期 / 续费'),('payment','充值 / 支付'),('ticket','工单'),('security','安全事件'),('system','系统通知')] %}
-                  <tr><td>{{ label }}</td><td><select name="notify_rule_{{ key }}_email"><option value="true" {% if site_settings['notify_rule_' ~ key ~ '_email'] %}selected{% endif %}>开启</option><option value="false" {% if not site_settings['notify_rule_' ~ key ~ '_email'] %}selected{% endif %}>关闭</option></select></td><td><select name="notify_rule_{{ key }}_telegram"><option value="true" {% if site_settings['notify_rule_' ~ key ~ '_telegram'] %}selected{% endif %}>开启</option><option value="false" {% if not site_settings['notify_rule_' ~ key ~ '_telegram'] %}selected{% endif %}>关闭</option></select></td></tr>
-                {% endfor %}
-                </tbody>
-              </table></div>
-            </div>
+            </details>
 
             <div class="settings-note">敏感值使用 APP_SECRET 加密写入数据库，页面不会回显明文；现有 .env 配置仍可作为兼容回退。</div>
             <div class="settings-save-row"><span>只保存通知服务</span><button type="submit">保存通知设置</button></div>
           </section>
         </form>
 
-        <section class="settings-section">
-          <div class="settings-section-head"><div><span class="eyebrow">TEST</span><h3>发送测试</h3><p>保存配置后可直接测试 SMTP 或 Telegram，不会创建用户通知记录。</p></div></div>
-          <div class="notification-test-grid">
-            <form method="post" action="/admin/notifications/test-email">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <label>测试收件邮箱<input type="email" name="to_address" placeholder="admin@example.com" required></label>
-              <button type="submit">发送测试邮件</button>
-            </form>
-            <form method="post" action="/admin/notifications/test-telegram">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <label>测试 Chat ID<input name="chat_id" placeholder="例如 123456789" required></label>
-              <button type="submit">发送 Telegram 测试</button>
-            </form>
+        <details class="settings-section notification-admin-fold notification-test-fold">
+          <summary>
+            <span><span class="eyebrow">TEST</span><strong>发送测试</strong><small>保存配置后测试 SMTP 或 Telegram，不创建用户通知记录</small></span>
+            <span class="notification-admin-fold-state">按需测试</span>
+          </summary>
+          <div class="notification-admin-fold-body">
+            <div class="notification-test-grid">
+              <form method="post" action="/admin/notifications/test-email">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <label>测试收件邮箱<input type="email" name="to_address" placeholder="admin@example.com" required></label>
+                <button type="submit">发送测试邮件</button>
+              </form>
+              <form method="post" action="/admin/notifications/test-telegram">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <label>测试 Chat ID<input name="chat_id" placeholder="例如 123456789" required></label>
+                <button type="submit">发送 Telegram 测试</button>
+              </form>
+            </div>
           </div>
-        </section>
+        </details>
       </div>
-      <div class="admin-section-actions"><div><strong>最近通知发送记录</strong><span>Email / Telegram 的最终状态会记录在这里，方便排查。</span></div></div>
-      <form class="admin-search" method="get" action="/admin"><input type="hidden" name="section" value="notifications"><input name="q" value="{{ q }}" placeholder="搜索用户、标题、类型、发送状态"><button>搜索</button>{% if q %}<a href="/admin?section=notifications">清除</a>{% endif %}</form>
-      <div class="result-meta">共 {{ total_rows }} 条通知记录</div>
-      <div class="table-wrap"><table><thead><tr><th>ID</th><th>用户</th><th>类型</th><th>标题</th><th>Email</th><th>Telegram</th><th>时间</th></tr></thead><tbody>{% for n in notification_rows %}<tr><td>#{{ n.id }}</td><td>{{ n.user.username if n.user else n.user_id }}</td><td>{{ n.kind }}</td><td>{{ n.title }}</td><td><code>{{ n.email_status }}</code></td><td><code>{{ n.telegram_status }}</code></td><td>{{ local_dt(n.created_at).strftime('%Y-%m-%d %H:%M:%S') }}</td></tr>{% else %}<tr><td colspan="7">暂无通知记录</td></tr>{% endfor %}</tbody></table></div>
-      {% include "_admin_pagination.html" %}
+      <details class="admin-record-fold" {% if q %}open{% endif %}>
+        <summary>
+          <span class="admin-record-fold-title"><strong>最近通知发送记录</strong><span>Email / Telegram 最终状态按需展开，避免记录列表占满页面。</span></span>
+          <span class="admin-record-fold-count">{{ total_rows }} 条</span>
+        </summary>
+        <div class="admin-record-fold-body">
+          <form class="admin-search" method="get" action="/admin"><input type="hidden" name="section" value="notifications"><input name="q" value="{{ q }}" placeholder="搜索用户、标题、类型、发送状态"><button>搜索</button>{% if q %}<a href="/admin?section=notifications">清除</a>{% endif %}</form>
+          <div class="result-meta">当前页 {{ notification_rows|length }} 条 · 共 {{ total_rows }} 条通知记录</div>
+          <div class="table-wrap"><table><thead><tr><th>ID</th><th>用户</th><th>类型</th><th>标题</th><th>Email</th><th>Telegram</th><th>时间</th></tr></thead><tbody>{% for n in notification_rows %}<tr><td>#{{ n.id }}</td><td>{{ n.user.username if n.user else n.user_id }}</td><td>{{ n.kind }}</td><td>{{ n.title }}</td><td><code>{{ n.email_status }}</code></td><td><code>{{ n.telegram_status }}</code></td><td>{{ local_dt(n.created_at).strftime('%Y-%m-%d %H:%M:%S') }}</td></tr>{% else %}<tr><td colspan="7">暂无通知记录</td></tr>{% endfor %}</tbody></table></div>
+          {% include "_admin_pagination.html" %}
+        </div>
+      </details>
     {% elif section == "announcements" %}
       <div class="admin-section-intro announcement-section-intro"><div><h2>公告中心</h2></div></div>
       <form class="admin-card announcement-editor" method="post" action="/admin/announcements">
@@ -1228,11 +1363,11 @@
         <form class="settings-section-form" method="post" action="/admin/settings">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="scope" value="homepage">
-          <section class="settings-section homepage-cms-section">
-            <div class="settings-section-head">
+          <details class="settings-section settings-fold homepage-cms-section">
+            <summary class="settings-section-head">
               <div><span class="eyebrow">HOMEPAGE CMS</span><h3>首页内容</h3><p>只修改文字内容，不开放颜色、尺寸和布局，避免运营配置破坏首页视觉。</p></div>
               <span class="settings-health">LIVE CONTENT</span>
-            </div>
+            </summary>
 
             <div class="homepage-settings-group">
               <div class="homepage-settings-group-head"><strong>Hero</strong><small>主标题、说明与按钮文字</small></div>
@@ -1288,16 +1423,16 @@
             </div>
 
             <div class="settings-save-row"><span>首页套餐选择与推荐标签在“套餐与库存”中管理</span><button type="submit">保存首页内容</button></div>
-          </section>
+          </details>
         </form>
 
         <form class="settings-section-form" method="post" action="/admin/settings">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="scope" value="site">
-          <section class="settings-section">
-            <div class="settings-section-head">
+          <details class="settings-section settings-fold" open>
+            <summary class="settings-section-head">
               <div><span class="eyebrow">SITE</span><h3>站点与注册</h3><p>本区域单独保存，不会检查支付、端口或通知配置。</p></div>
-            </div>
+            </summary>
             <div class="settings-fields two-col">
               <label>开放注册
                 <select name="registration_enabled"><option value="true" {% if site_settings.registration_enabled %}selected{% endif %}>开启</option><option value="false" {% if not site_settings.registration_enabled %}selected{% endif %}>关闭</option></select>
@@ -1309,18 +1444,18 @@
               <small>用于密码找回链接和站点生成的绝对 URL；域名与 HTTPS 本身仍通过 <code>xnat domain</code> 管理。</small>
             </label>
             <div class="settings-save-row"><span>保存站点基础设置</span><button type="submit">保存站点设置</button></div>
-          </section>
+          </details>
         </form>
 
-        <section class="settings-section deployment-settings-section">
-          <div class="settings-section-head">
+        <details class="settings-section settings-fold deployment-settings-section">
+          <summary class="settings-section-head">
             <div>
               <span class="eyebrow">DOMAIN & HTTPS</span>
               <h3>域名与 HTTPS</h3>
               <p>这里仅展示部署状态。域名、Nginx 和证书属于系统级配置，请通过 SSH 执行 <code>xnat domain</code> 管理。</p>
             </div>
             <span class="settings-health">{{ 'HTTPS ONLINE' if deployment.https_enabled else 'HTTP MODE' }}</span>
-          </div>
+          </summary>
 
           <div class="deployment-status-grid">
             <div><span>公网域名</span><strong>{{ deployment.domain or '未配置' }}</strong></div>
@@ -1344,16 +1479,16 @@
           {% else %}
           <div class="settings-note">使用 Cloudflare 橙色云后可执行 <code>xnat cloudflare refresh</code> 刷新可信代理 IP 段和检测状态。</div>
           {% endif %}
-        </section>
+        </details>
 
         <form class="settings-section-form" method="post" action="/admin/settings">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="scope" value="operations">
-          <section class="settings-section operations-settings-section">
-            <div class="settings-section-head">
+          <details class="settings-section settings-fold operations-settings-section">
+            <summary class="settings-section-head">
               <div><span class="eyebrow">OPERATIONS</span><h3>运营与生命周期</h3><p>到期策略、默认流量周期和节点告警在这里统一管理。自动删除默认关闭。</p></div>
               <span class="settings-health {% if site_settings.expiry_delete_enabled %}danger{% endif %}">{{ 'AUTO DELETE ON' if site_settings.expiry_delete_enabled else 'SAFE DEFAULT' }}</span>
-            </div>
+            </summary>
 
             <div class="operations-policy-grid">
               <div class="operations-policy-card">
@@ -1394,14 +1529,14 @@
             </div>
 
             <div class="settings-save-row"><span>自动删除默认关闭；保存只影响后续生命周期检查</span><button type="submit">保存运营策略</button></div>
-          </section>
+          </details>
         </form>
 
         <form class="settings-section-form" method="post" action="/admin/settings">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="scope" value="security">
-          <section class="settings-section">
-            <div class="settings-section-head"><div><span class="eyebrow">SECURITY</span><h3>登录与管理员安全</h3><p>仅校验本区域的登录安全参数。</p></div></div>
+          <details class="settings-section settings-fold">
+            <summary class="settings-section-head"><div><span class="eyebrow">SECURITY</span><h3>登录与管理员安全</h3><p>仅校验本区域的登录安全参数。</p></div></summary>
             <div class="settings-fields four-col">
               <label>失败次数<input type="number" name="login_max_failures" value="{{ site_settings.login_max_failures }}"></label>
               <label>统计窗口（分钟）<input type="number" name="login_window_minutes" value="{{ site_settings.login_window_minutes }}"></label>
@@ -1409,14 +1544,14 @@
               <label>管理员要求 2FA<select name="admin_require_2fa"><option value="true" {% if site_settings.admin_require_2fa %}selected{% endif %}>开启</option><option value="false" {% if not site_settings.admin_require_2fa %}selected{% endif %}>关闭</option></select></label>
             </div>
             <div class="settings-save-row"><span>只保存登录安全</span><button type="submit">保存安全设置</button></div>
-          </section>
+          </details>
         </form>
 
         <form class="settings-section-form" method="post" action="/admin/settings">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="scope" value="nat">
-          <section class="settings-section">
-            <div class="settings-section-head"><div><span class="eyebrow">NAT POLICY</span><h3>端口安全策略</h3><p>每个 Host 的公网端口范围在“宿主机节点”中独立配置；这里仅设置全局协议与禁止端口规则。</p></div></div>
+          <details class="settings-section settings-fold">
+            <summary class="settings-section-head"><div><span class="eyebrow">NAT POLICY</span><h3>端口安全策略</h3><p>每个 Host 的公网端口范围在“宿主机节点”中独立配置；这里仅设置全局协议与禁止端口规则。</p></div></summary>
             <div class="settings-fields three-col">
               <label>允许 TCP<select name="port_tcp_enabled"><option value="true" {% if site_settings.port_tcp_enabled %}selected{% endif %}>允许</option><option value="false" {% if not site_settings.port_tcp_enabled %}selected{% endif %}>禁止</option></select></label>
               <label>允许 UDP<select name="port_udp_enabled"><option value="true" {% if site_settings.port_udp_enabled %}selected{% endif %}>允许</option><option value="false" {% if not site_settings.port_udp_enabled %}selected{% endif %}>禁止</option></select></label>
@@ -1424,7 +1559,7 @@
               <label>禁止公网端口<input name="port_blocked_public" value="{{ site_settings.port_blocked_public }}" placeholder="20080,20100-20110"></label>
             </div>
             <div class="settings-save-row"><span>只保存 NAT 策略</span><button type="submit">保存端口策略</button></div>
-          </section>
+          </details>
         </form>
 
       </div>

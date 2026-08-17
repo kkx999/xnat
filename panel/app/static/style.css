@@ -8424,23 +8424,1435 @@ html[data-admin-theme="light"] body.admin-body .admin-plan-fold-body{border-top-
   .client-balance-pill{padding:0 8px}
 }
 
-html[data-client-theme="light"] body.client-body .client-sidebar-close,
-html[data-client-theme="light"] body.client-body .client-mobile-menu{
-  background:#f5f8fc;border-color:#cbd9e7;
+@media(max-width:760px){
+  html[data-client-theme="light"] body.client-body .client-sidebar-close,
+  html[data-client-theme="light"] body.client-body .client-mobile-menu{
+    background:#f5f8fc;border-color:#cbd9e7;
+  }
+  html[data-client-theme="light"] body.client-body .client-sidebar-close span,
+  html[data-client-theme="light"] body.client-body .client-mobile-menu span{background:#547397}
+  html[data-client-theme="light"] body.client-body .client-nav-group.is-open{
+    background:rgba(225,236,248,.72);border-color:rgba(188,207,228,.76);
+  }
+  html[data-client-theme="light"] body.client-body .client-nav-label{color:#6c8099!important}
+  html[data-client-theme="light"] body.client-body .client-nav-label:hover,
+  html[data-client-theme="light"] body.client-body .client-nav-label:active{background:#e7f0fa;color:#315e91!important}
+  html[data-client-theme="light"] body.client-body .client-nav-group.is-current>.client-nav-label{color:#315e91!important}
+  html[data-client-theme="light"] body.client-body .client-nav-chevron{color:#7790ad}
+  html[data-client-theme="light"] body.client-body .client-sidebar-backdrop{background:rgba(23,40,61,.28)}
 }
-html[data-client-theme="light"] body.client-body .client-sidebar-close span,
-html[data-client-theme="light"] body.client-body .client-mobile-menu span{background:#547397}
-html[data-client-theme="light"] body.client-body .client-nav-group.is-open{
-  background:rgba(225,236,248,.72);border-color:rgba(188,207,228,.76);
-}
-html[data-client-theme="light"] body.client-body .client-nav-label{color:#6c8099!important}
-html[data-client-theme="light"] body.client-body .client-nav-label:hover,
-html[data-client-theme="light"] body.client-body .client-nav-label:active{background:#e7f0fa;color:#315e91!important}
-html[data-client-theme="light"] body.client-body .client-nav-group.is-current>.client-nav-label{color:#315e91!important}
-html[data-client-theme="light"] body.client-body .client-nav-chevron{color:#7790ad}
-html[data-client-theme="light"] body.client-body .client-sidebar-backdrop{background:rgba(23,40,61,.28)}
 
 @media(prefers-reduced-motion:reduce){
   .client-sidebar,.client-sidebar-backdrop,.client-nav-group-items,.client-nav-chevron,
   .client-mobile-menu,.client-sidebar-close{transition:none!important}
+}
+
+/* v1.4.0 admin support + backup interaction polish */
+body.admin-body .admin-ticket-list{gap:14px}
+body.admin-body .admin-ticket-card{
+  padding:0;overflow:hidden;border:1px solid #2b3444;border-radius:14px;
+  background:linear-gradient(180deg,#171b24,#151922);box-shadow:0 10px 30px rgba(0,0,0,.10)
+}
+body.admin-body .admin-ticket-head{align-items:flex-start;padding:16px 18px 14px}
+body.admin-body .admin-ticket-head>div:first-child{min-width:0}
+body.admin-body .admin-ticket-head strong{color:#e7edf6;font-size:13px;line-height:1.35}
+body.admin-body .admin-ticket-head span{margin-top:5px;color:#77879b;font-size:9px}
+body.admin-body .admin-ticket-head>div:last-child{flex:0 0 auto;padding-top:1px}
+
+body.admin-body .admin-ticket-thread{
+  margin:0;border:0;border-top:1px solid #263140;border-radius:0;background:#111722;overflow:hidden
+}
+body.admin-body .admin-ticket-thread>summary{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:42px;padding:0 18px;
+  cursor:pointer;list-style:none;background:#131b27;color:#9db1c9;font-size:9.5px;font-weight:760
+}
+body.admin-body .admin-ticket-thread>summary::-webkit-details-marker{display:none}
+body.admin-body .admin-ticket-thread-title{display:inline-flex;align-items:center;gap:8px;color:#bfd0e4}
+body.admin-body .admin-ticket-thread-icon{width:22px;height:22px;display:grid;place-items:center;border:1px solid #34475e;border-radius:7px;background:#172235;color:#7fa5d2;font-size:10px}
+body.admin-body .admin-ticket-thread-count{padding:4px 8px;border:1px solid #303f52;border-radius:999px;color:#7890aa;font-size:8.5px;font-weight:700}
+body.admin-body .admin-ticket-messages{
+  display:flex;flex-direction:column;gap:12px;max-height:520px;overflow:auto;padding:16px 18px 18px;
+  scrollbar-width:thin;scrollbar-color:#394a60 transparent
+}
+body.admin-body .admin-ticket-message-row{display:flex;align-items:flex-end;gap:8px;width:100%}
+body.admin-body .admin-ticket-message-row.from-admin{flex-direction:row-reverse}
+body.admin-body .admin-ticket-message-avatar{
+  width:28px;height:28px;flex:0 0 28px;display:grid;place-items:center;border:1px solid #34475d;border-radius:9px;
+  background:#182333;color:#92abc8;font-size:9px;font-weight:850;box-shadow:0 4px 12px rgba(0,0,0,.12)
+}
+body.admin-body .admin-ticket-message-row.from-admin .admin-ticket-message-avatar{border-color:#416795;background:#1a3150;color:#b9d7fb}
+body.admin-body .admin-ticket-message{
+  width:fit-content;max-width:min(74%,780px);min-width:150px;box-sizing:border-box;padding:11px 13px;
+  border:1px solid #2e3b4d;border-radius:13px 13px 13px 4px;background:#19212c;box-shadow:0 6px 18px rgba(0,0,0,.08)
+}
+body.admin-body .admin-ticket-message-row.from-admin .admin-ticket-message{
+  border-color:#3d5f86;border-radius:13px 13px 4px 13px;background:linear-gradient(145deg,#1a2b42,#1b314e)
+}
+body.admin-body .admin-ticket-message-meta{display:flex;align-items:center;justify-content:space-between;gap:16px}
+body.admin-body .admin-ticket-message-meta strong{color:#dce7f4;font-size:9px;font-weight:800}
+body.admin-body .admin-ticket-message-meta span{color:#667a91;font-size:8px;white-space:nowrap}
+body.admin-body .admin-ticket-message p{margin:7px 0 0;color:#b8c4d2;font-size:10.5px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
+body.admin-body .admin-ticket-message-row.from-admin .admin-ticket-message p{color:#c7d9ed}
+
+body.admin-body .admin-ticket-compose{padding:14px 18px 16px;border-top:1px solid #263140;background:#161b25}
+body.admin-body .admin-ticket-compose-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:9px}
+body.admin-body .admin-ticket-compose-head strong{color:#d9e5f2;font-size:10px}
+body.admin-body .admin-ticket-compose-head span{color:#697b90;font-size:8.5px}
+body.admin-body .ticket-admin-reply{grid-template-columns:minmax(0,1fr) 104px;gap:9px;margin:0}
+body.admin-body .ticket-admin-reply textarea{
+  min-height:72px;margin:0;padding:11px 12px;border-radius:10px;resize:vertical;background:#101722;border-color:#2c3a4b;font-size:10.5px;line-height:1.55
+}
+body.admin-body .ticket-admin-reply button{align-self:stretch;min-height:44px;border-radius:10px;font-size:10px;font-weight:800}
+body.admin-body .admin-ticket-close-form{display:flex;justify-content:flex-end;margin-top:8px}
+body.admin-body .admin-ticket-close-form .danger-lite{min-height:30px;padding:4px 9px;border-radius:8px;font-size:8.5px}
+
+body.admin-body .backup-list{gap:10px}
+body.admin-body .backup-list article{padding:14px 16px;border-radius:12px;border-color:#30394a;background:#171b24}
+body.admin-body .backup-meta{min-width:0;flex:1}
+body.admin-body .backup-meta strong{overflow:hidden;color:#e4ebf4;text-overflow:ellipsis;white-space:nowrap}
+body.admin-body .backup-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+body.admin-body .backup-action-form{margin:0}
+body.admin-body .backup-actions>a,
+body.admin-body .backup-action-button{
+  width:72px;height:36px;min-height:36px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;
+  margin:0;padding:0;border:1px solid #3b4a5e;border-radius:9px;background:#171f2b;color:#9fbbd9;
+  font:inherit;font-size:9.5px;font-weight:750;text-decoration:none;cursor:pointer;transition:.16s ease
+}
+body.admin-body .backup-actions>a:hover,
+body.admin-body .backup-action-button:hover{border-color:#587596;background:#1b2a3c;color:#d1e5fb;transform:translateY(-1px)}
+body.admin-body .backup-action-button.restore{border-color:#365779;background:#17263a;color:#a8c9ed}
+body.admin-body .backup-action-button.delete{border-color:#5d3c45;background:#21181d;color:#d98995}
+body.admin-body .backup-action-button.delete:hover{border-color:#8a4d59;background:#2d1c23;color:#ffb5bf}
+
+.xnat-confirm-input-wrap{display:block;margin:0 0 14px}
+.xnat-confirm-input-wrap[hidden]{display:none!important}
+.xnat-confirm-input-wrap>span{display:block;margin-bottom:7px;color:#879ab2;font-size:9.5px;font-weight:750}
+.xnat-confirm-input{
+  width:100%;min-height:42px;box-sizing:border-box;margin:0;padding:9px 11px;border:1px solid #2e4562;border-radius:10px;
+  outline:none;background:#0c1726;color:#e4eefb;font:inherit;font-size:12px;transition:.16s ease
+}
+.xnat-confirm-input:focus{border-color:#6b9bd4;box-shadow:0 0 0 3px rgba(83,137,202,.12)}
+.xnat-confirm-input-wrap small{display:block;min-height:15px;margin-top:5px;color:#7d8da3;font-size:8.5px}
+.xnat-confirm-input-wrap.has-error .xnat-confirm-input{border-color:#c85f70;box-shadow:0 0 0 3px rgba(200,95,112,.11)}
+.xnat-confirm-input-wrap.has-error small{color:#e58794}
+
+@media(max-width:720px){
+  body.admin-body .admin-ticket-head{padding:14px}
+  body.admin-body .admin-ticket-head{flex-direction:column}
+  body.admin-body .admin-ticket-thread>summary{padding:0 14px}
+  body.admin-body .admin-ticket-messages{padding:14px}
+  body.admin-body .admin-ticket-message{max-width:88%;min-width:0}
+  body.admin-body .admin-ticket-compose{padding:13px 14px 14px}
+  body.admin-body .admin-ticket-compose-head{align-items:flex-start;flex-direction:column;gap:3px}
+  body.admin-body .ticket-admin-reply{grid-template-columns:1fr}
+  body.admin-body .ticket-admin-reply button{min-height:40px}
+  body.admin-body .backup-list article{align-items:flex-start;flex-direction:column}
+  body.admin-body .backup-actions{width:100%}
+  body.admin-body .backup-actions>a,body.admin-body .backup-action-form{flex:1}
+  body.admin-body .backup-action-button{width:100%}
+}
+
+html[data-admin-theme="light"] body.admin-body .admin-ticket-card{border-color:#ccd9e6;background:#f9fbfd;box-shadow:0 8px 24px rgba(45,72,100,.06)}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-head strong{color:#21364e}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-head span{color:#647b93}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-thread{border-top-color:#d4dfe9;background:#eef4f9}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-thread>summary{background:#f2f7fb;color:#526d89}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-thread-title{color:#3b5f83}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-thread-icon{border-color:#c1d2e2;background:#e7f0f8;color:#4f78a3}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-thread-count{border-color:#cad7e4;color:#6a8197}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-message-avatar{border-color:#c9d6e3;background:#f7fafc;color:#5d7895}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-message-row.from-admin .admin-ticket-message-avatar{border-color:#b5cde5;background:#dfecf9;color:#35618e}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-message{border-color:#cbd8e4;background:#fff;box-shadow:0 5px 16px rgba(58,82,106,.06)}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-message-row.from-admin .admin-ticket-message{border-color:#b8cee4;background:linear-gradient(145deg,#edf5fd,#e6f0fb)}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-message-meta strong{color:#304d69}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-message-meta span{color:#75899d}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-message p{color:#415970}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-message-row.from-admin .admin-ticket-message p{color:#35536f}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-compose{border-top-color:#d5e0ea;background:#f5f8fb}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-compose-head strong{color:#2c4661}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-compose-head span{color:#73889e}
+html[data-admin-theme="light"] body.admin-body .ticket-admin-reply textarea{border-color:#c8d6e3;background:#fff;color:#274057}
+html[data-admin-theme="light"] body.admin-body .backup-list article{border-color:#cbd8e5;background:#f8fafc}
+html[data-admin-theme="light"] body.admin-body .backup-meta strong{color:#29445f}
+html[data-admin-theme="light"] body.admin-body .backup-actions>a,
+html[data-admin-theme="light"] body.admin-body .backup-action-button{border-color:#bfd0df;background:#eef5fb;color:#3f6b95}
+html[data-admin-theme="light"] body.admin-body .backup-action-button.restore{border-color:#b7cde2;background:#e9f3fc;color:#356994}
+html[data-admin-theme="light"] body.admin-body .backup-action-button.delete{border-color:#dfb8be;background:#fff4f5;color:#a44d5a}
+html[data-admin-theme="light"] body.admin-body .backup-action-button.delete:hover{border-color:#d08c97;background:#ffecee;color:#8f3442}
+html[data-client-theme="light"] body.client-body .xnat-confirm-input,
+html[data-admin-theme="light"] body.admin-body .xnat-confirm-input{border-color:#c4d5e6;background:#fff;color:#263d56}
+html[data-client-theme="light"] body.client-body .xnat-confirm-input-wrap>span,
+html[data-admin-theme="light"] body.admin-body .xnat-confirm-input-wrap>span{color:#5d748c}
+
+
+
+/* ==========================================================================\n   v1.4.0 corrective polish\n   - Admin ticket thread mirrors the client conversation hierarchy.\n   - Backup actions use equal geometry.\n   - Generic confirm optional sections truly disappear when hidden.\n   ========================================================================== */
+
+/* Optional confirm sections must obey the HTML hidden attribute even though
+   their normal rules define display:grid/block. */
+.xnat-confirm-money[hidden],
+.xnat-confirm-effects[hidden],
+.xnat-confirm-note[hidden],
+.xnat-confirm-input-wrap[hidden]{display:none!important}
+
+/* Admin ticket: deliberately match the client-side conversation rhythm.
+   Customer = broad left bubble; administrator = compact right bubble. */
+body.admin-body .admin-ticket-messages{
+  display:flex;
+  flex-direction:column;
+  gap:14px;
+  max-height:560px;
+  overflow:auto;
+  padding:18px;
+  background:#111722;
+}
+body.admin-body .admin-ticket-bubble{
+  box-sizing:border-box;
+  padding:12px 14px;
+  border:1px solid #2e4055;
+  border-radius:12px;
+  background:#151f2b;
+  box-shadow:0 5px 16px rgba(0,0,0,.06);
+}
+body.admin-body .admin-ticket-bubble.from-customer{
+  width:min(82%,1320px);
+  align-self:flex-start;
+}
+body.admin-body .admin-ticket-bubble.from-admin{
+  width:fit-content;
+  min-width:180px;
+  max-width:min(64%,900px);
+  align-self:flex-end;
+  border-color:#3c628d;
+  background:#172b45;
+}
+body.admin-body .admin-ticket-bubble-meta{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:18px;
+}
+body.admin-body .admin-ticket-bubble-meta strong{
+  color:#dce8f5;
+  font-size:10px;
+  font-weight:800;
+}
+body.admin-body .admin-ticket-bubble-meta span{
+  color:#71869e;
+  font-size:9px;
+  white-space:nowrap;
+}
+body.admin-body .admin-ticket-bubble p{
+  margin:9px 0 0;
+  color:#b9c8d8;
+  font-size:11px;
+  line-height:1.65;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+}
+body.admin-body .admin-ticket-bubble.from-admin p{color:#c9dcef}
+
+/* Backup toolbar and per-row actions: fixed, identical geometry. */
+body.admin-body .backup-top-buttons{
+  display:grid;
+  grid-template-columns:repeat(2,124px);
+  gap:10px;
+  justify-content:end;
+  align-items:center;
+}
+body.admin-body .backup-top-buttons>form,
+body.admin-body .backup-top-buttons>.backup-upload-panel{
+  width:124px;
+  margin:0;
+}
+body.admin-body .backup-top-buttons>form>button,
+body.admin-body .backup-upload-panel>summary{
+  width:124px!important;
+  min-width:124px!important;
+  height:42px!important;
+  min-height:42px!important;
+  box-sizing:border-box!important;
+  margin:0!important;
+  padding:0 12px!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+}
+body.admin-body .backup-actions{
+  display:grid;
+  grid-template-columns:repeat(3,78px);
+  gap:8px;
+  align-items:center;
+  justify-content:end;
+  min-width:250px;
+}
+body.admin-body .backup-actions>a,
+body.admin-body .backup-action-form,
+body.admin-body .backup-action-form>button{
+  width:78px!important;
+  min-width:78px!important;
+  max-width:78px!important;
+  height:36px!important;
+  min-height:36px!important;
+  max-height:36px!important;
+  box-sizing:border-box!important;
+  margin:0!important;
+}
+body.admin-body .backup-action-form{display:block}
+body.admin-body .backup-actions>a,
+body.admin-body .backup-action-form>button{
+  padding:0!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  border-radius:9px!important;
+  line-height:1!important;
+  font-size:9.5px!important;
+  font-weight:780!important;
+}
+body.admin-body .backup-action-button.delete{
+  border-color:#d8a9b1;
+  background:transparent;
+  color:#b45b68;
+}
+body.admin-body .backup-action-button.delete:hover{
+  border-color:#ca7e8a;
+  background:#331d23;
+  color:#ffc0c8;
+}
+
+@media(max-width:720px){
+  body.admin-body .admin-ticket-bubble.from-customer,
+  body.admin-body .admin-ticket-bubble.from-admin{width:100%;max-width:100%;min-width:0}
+  body.admin-body .backup-top-buttons{grid-template-columns:1fr 1fr;width:100%}
+  body.admin-body .backup-top-buttons>form,
+  body.admin-body .backup-top-buttons>.backup-upload-panel,
+  body.admin-body .backup-top-buttons>form>button,
+  body.admin-body .backup-upload-panel>summary{width:100%!important;min-width:0!important}
+  body.admin-body .backup-actions{width:100%;min-width:0;grid-template-columns:repeat(3,minmax(0,1fr))}
+  body.admin-body .backup-actions>a,
+  body.admin-body .backup-action-form,
+  body.admin-body .backup-action-form>button{width:100%!important;min-width:0!important;max-width:none!important}
+}
+
+html[data-admin-theme="light"] body.admin-body .admin-ticket-messages{background:#f7f9fc}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-bubble{
+  border-color:#ccdbea;
+  background:#f6f9fd;
+  box-shadow:0 5px 16px rgba(58,82,106,.04)
+}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-bubble.from-admin{
+  border-color:#b9d2ee;
+  background:#edf5ff
+}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-bubble-meta strong{color:#23374e}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-bubble-meta span{color:#6d8096}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-bubble p{color:#435970}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-bubble.from-admin p{color:#35536f}
+html[data-admin-theme="light"] body.admin-body .backup-action-button.delete{
+  border-color:#ddaeb6;background:#fff;color:#a84d5b
+}
+html[data-admin-theme="light"] body.admin-body .backup-action-button.delete:hover{
+  border-color:#cf8994;background:#fff0f2;color:#913642
+}
+
+/* ==========================================================================
+   v1.4.0 admin ticket workflow polish
+   - Active support queue and closed archive are visually/structurally separate.
+   - Closed tickets are folded by default; their conversations are also folded.
+   - Active cards remain conversation-first for fast operator handling.
+   ========================================================================== */
+body.admin-body .ticket-queue-overview{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:2px 0 16px
+}
+body.admin-body .ticket-queue-stat{
+  min-width:0;padding:13px 15px;border:1px solid #2b3545;border-radius:12px;background:#151a23
+}
+body.admin-body .ticket-queue-stat span,body.admin-body .ticket-queue-stat strong,body.admin-body .ticket-queue-stat small{display:block}
+body.admin-body .ticket-queue-stat span{color:#788ca3;font-size:8.5px;font-weight:760}
+body.admin-body .ticket-queue-stat strong{margin-top:5px;color:#e1ebf7;font-size:18px;line-height:1}
+body.admin-body .ticket-queue-stat small{margin-top:6px;overflow:hidden;color:#63768b;font-size:8px;text-overflow:ellipsis;white-space:nowrap}
+body.admin-body .ticket-queue-stat.active{border-color:#315071;background:linear-gradient(145deg,#162233,#151d29)}
+body.admin-body .ticket-queue-stat.active strong{color:#a9caf0}
+body.admin-body .ticket-queue-stat.closed{border-color:#303944;background:#141920}
+body.admin-body .ticket-queue-stat.closed strong{color:#a5b3c1}
+
+body.admin-body .admin-ticket-queue{margin-top:2px}
+body.admin-body .admin-ticket-section-head{
+  display:flex;align-items:center;justify-content:space-between;gap:14px;margin:0 0 10px;padding:0 2px
+}
+body.admin-body .admin-ticket-section-head>div{display:grid;grid-template-columns:auto auto;align-items:center;column-gap:8px;row-gap:2px}
+body.admin-body .admin-ticket-section-dot{width:7px;height:7px;border-radius:999px;background:#65a4eb;box-shadow:0 0 0 4px rgba(101,164,235,.10)}
+body.admin-body .admin-ticket-section-head strong{color:#dbe8f5;font-size:11px}
+body.admin-body .admin-ticket-section-head small{grid-column:2;color:#65798f;font-size:8px}
+body.admin-body .admin-ticket-section-count{padding:4px 9px;border:1px solid #31445a;border-radius:999px;color:#7f9dbc;font-size:8px;font-weight:760}
+
+body.admin-body .admin-ticket-card.ticket-active{border-color:#2d3c4f}
+body.admin-body .admin-ticket-title-row{display:flex;align-items:center;gap:8px;min-width:0}
+body.admin-body .admin-ticket-title-row>strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body.admin-body .ticket-live-indicator{
+  flex:0 0 auto!important;margin:0!important;padding:3px 7px;border:1px solid #315982;border-radius:999px!important;
+  background:#172b42;color:#83b8f0!important;font-size:7.5px!important;font-weight:800
+}
+body.admin-body .admin-ticket-badges{display:flex!important;align-items:center!important;gap:6px!important}
+
+body.admin-body .ticket-queue-empty{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:120px;padding:22px;
+  border:1px dashed #2d3948;border-radius:13px;background:#141922;text-align:center
+}
+body.admin-body .ticket-queue-empty strong{color:#9fb1c4;font-size:10px}
+body.admin-body .ticket-queue-empty span{margin-top:6px;color:#65778a;font-size:8.5px}
+body.admin-body .ticket-queue-empty.compact{min-height:76px}
+
+body.admin-body .admin-ticket-archive{
+  margin-top:18px;border:1px solid #29323f;border-radius:14px;background:#131820;overflow:hidden
+}
+body.admin-body .admin-ticket-archive>summary{
+  min-height:58px;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:0 16px;
+  cursor:pointer;list-style:none;background:#151a22;transition:.16s ease
+}
+body.admin-body .admin-ticket-archive>summary::-webkit-details-marker{display:none}
+body.admin-body .admin-ticket-archive>summary:hover{background:#171e28}
+body.admin-body .admin-ticket-archive>summary>div:first-child{display:flex;align-items:center;gap:10px}
+body.admin-body .admin-ticket-archive-icon{
+  width:28px;height:28px;display:grid;place-items:center;border:1px solid #34404d;border-radius:9px;background:#19212a;color:#8294a6;font-size:10px;font-weight:850
+}
+body.admin-body .admin-ticket-archive>summary strong,body.admin-body .admin-ticket-archive>summary small{display:block}
+body.admin-body .admin-ticket-archive>summary strong{color:#b8c6d4;font-size:10.5px}
+body.admin-body .admin-ticket-archive>summary small{margin-top:3px;color:#667687;font-size:8px}
+body.admin-body .admin-ticket-archive-side{display:flex;align-items:center;gap:10px;color:#778a9d;font-size:8.5px;font-weight:750}
+body.admin-body .admin-ticket-archive-chevron{font-size:14px;transition:transform .16s ease}
+body.admin-body .admin-ticket-archive[open] .admin-ticket-archive-chevron{transform:rotate(180deg)}
+body.admin-body .admin-ticket-archive-body{display:flex;flex-direction:column;gap:10px;padding:12px;border-top:1px solid #27303c;background:#11161d}
+body.admin-body .admin-ticket-card.ticket-closed{border-color:#29323e;background:#141920;box-shadow:none;opacity:.92}
+body.admin-body .admin-ticket-card.ticket-closed .admin-ticket-head{padding:13px 15px}
+body.admin-body .admin-ticket-card.ticket-closed .admin-ticket-head strong{color:#b7c4d2}
+body.admin-body .admin-ticket-card.ticket-closed .admin-ticket-thread{background:#10151c}
+body.admin-body .admin-ticket-card.ticket-closed .admin-ticket-thread>summary{min-height:38px;background:#121820;color:#8295a9}
+body.admin-body .admin-ticket-card.ticket-closed .admin-ticket-thread:not([open])>summary{border-top:0}
+body.admin-body .admin-ticket-card.ticket-closed .admin-ticket-thread-count{opacity:.82}
+
+@media(max-width:760px){
+  body.admin-body .ticket-queue-overview{grid-template-columns:1fr}
+  body.admin-body .admin-ticket-section-head{align-items:flex-start}
+  body.admin-body .admin-ticket-title-row{align-items:flex-start;flex-direction:column;gap:5px}
+  body.admin-body .ticket-live-indicator{align-self:flex-start}
+  body.admin-body .admin-ticket-archive>summary{padding:11px 13px}
+  body.admin-body .admin-ticket-archive>summary small{max-width:210px}
+}
+
+html[data-admin-theme="light"] body.admin-body .ticket-queue-stat{border-color:#cad7e4;background:#f8fafc}
+html[data-admin-theme="light"] body.admin-body .ticket-queue-stat.active{border-color:#bdd3e9;background:#f0f6fc}
+html[data-admin-theme="light"] body.admin-body .ticket-queue-stat span{color:#657d95}
+html[data-admin-theme="light"] body.admin-body .ticket-queue-stat strong{color:#29445f}
+html[data-admin-theme="light"] body.admin-body .ticket-queue-stat.active strong{color:#386b9d}
+html[data-admin-theme="light"] body.admin-body .ticket-queue-stat small{color:#7890a7}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-section-head strong{color:#2c4864}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-section-head small{color:#74899e}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-section-count{border-color:#c7d6e4;color:#66809a}
+html[data-admin-theme="light"] body.admin-body .ticket-live-indicator{border-color:#bdd4eb;background:#edf6ff;color:#3d78af!important}
+html[data-admin-theme="light"] body.admin-body .ticket-queue-empty{border-color:#cad7e4;background:#f8fafc}
+html[data-admin-theme="light"] body.admin-body .ticket-queue-empty strong{color:#506b85}
+html[data-admin-theme="light"] body.admin-body .ticket-queue-empty span{color:#7a8fa3}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-archive{border-color:#ccd8e3;background:#f5f8fb}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-archive>summary{background:#f3f7fa}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-archive>summary:hover{background:#edf3f8}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-archive-icon{border-color:#c8d5e0;background:#eaf0f5;color:#6d8297}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-archive>summary strong{color:#425e78}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-archive>summary small{color:#7a8da0}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-archive-side{color:#70859a}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-archive-body{border-top-color:#d5dfe8;background:#f6f8fb}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-card.ticket-closed{border-color:#d1dce7;background:#fbfcfd}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-card.ticket-closed .admin-ticket-head strong{color:#51677d}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-card.ticket-closed .admin-ticket-thread{background:#f4f7fa}
+html[data-admin-theme="light"] body.admin-body .admin-ticket-card.ticket-closed .admin-ticket-thread>summary{background:#f4f7fa;color:#657d95}
+
+/* ==========================================================================
+   v1.4.0 customer interaction system
+   - Remove the desktop "square blue blocks" leaked from the mobile accordion.
+   - Give navigation, controls and actionable cards softer geometry and motion.
+   - Add lightweight route/theme feedback without changing business behavior.
+   ========================================================================== */
+body.client-body{
+  --xnat-motion-fast:140ms;
+  --xnat-motion:220ms;
+  --xnat-motion-slow:300ms;
+  --xnat-ease:cubic-bezier(.2,.78,.2,1);
+  --xnat-ease-pop:cubic-bezier(.2,.86,.22,1.08);
+  -webkit-tap-highlight-color:transparent;
+}
+
+/* Desktop navigation is a clean list. Mobile-only accordion group surfaces must
+   never paint behind the always-expanded desktop navigation. */
+@media(min-width:761px){
+  body.client-body .client-nav-group,
+  body.client-body .client-nav-group.is-open,
+  html[data-client-theme="light"] body.client-body .client-nav-group,
+  html[data-client-theme="light"] body.client-body .client-nav-group.is-open{
+    background:transparent!important;
+    border-color:transparent!important;
+    border-radius:0!important;
+    box-shadow:none!important;
+  }
+  body.client-body .client-nav-label,
+  body.client-body .client-nav-label:hover,
+  body.client-body .client-nav-label:active,
+  html[data-client-theme="light"] body.client-body .client-nav-label,
+  html[data-client-theme="light"] body.client-body .client-nav-label:hover,
+  html[data-client-theme="light"] body.client-body .client-nav-label:active{
+    background:transparent!important;
+  }
+}
+
+/* Sidebar links: rounded active capsule, soft glow, small lateral response. */
+body.client-body .client-nav-group-items a{
+  position:relative;
+  isolation:isolate;
+  overflow:hidden;
+  border-radius:12px!important;
+  transition:
+    transform var(--xnat-motion) var(--xnat-ease),
+    background-color var(--xnat-motion) var(--xnat-ease),
+    border-color var(--xnat-motion) var(--xnat-ease),
+    color var(--xnat-motion-fast) ease,
+    box-shadow var(--xnat-motion) var(--xnat-ease)!important;
+}
+body.client-body .client-nav-group-items a::before{
+  content:"";
+  position:absolute;
+  left:4px;
+  top:8px;
+  bottom:8px;
+  width:3px;
+  border-radius:999px;
+  background:#68a9ff;
+  opacity:0;
+  transform:scaleY(.35);
+  transition:opacity var(--xnat-motion-fast) ease,transform var(--xnat-motion) var(--xnat-ease-pop);
+  pointer-events:none;
+}
+body.client-body .client-nav-group-items a:hover{
+  transform:translateX(3px);
+  background:#142945!important;
+  border-color:#315274!important;
+  box-shadow:0 7px 18px rgba(0,0,0,.11);
+}
+body.client-body .client-nav-group-items a:active{
+  transform:translateX(2px) scale(.985)!important;
+  transition-duration:80ms!important;
+}
+body.client-body .client-nav-group-items a.active{
+  transform:none!important;
+  background:linear-gradient(100deg,rgba(57,111,190,.42),rgba(32,70,123,.24) 72%,rgba(21,46,81,.15))!important;
+  border-color:rgba(92,150,226,.58)!important;
+  color:#f3f8ff!important;
+  box-shadow:0 8px 22px rgba(13,41,78,.22),inset 0 1px 0 rgba(255,255,255,.035)!important;
+}
+body.client-body .client-nav-group-items a.active::before{opacity:1;transform:scaleY(1)}
+body.client-body .client-nav-group-items a.is-route-pending{
+  background:linear-gradient(100deg,rgba(74,137,221,.50),rgba(38,80,139,.30))!important;
+  border-color:#5f98dc!important;
+  box-shadow:0 8px 24px rgba(31,91,163,.22)!important;
+}
+
+html[data-client-theme="light"] body.client-body .client-nav-group-items a:hover{
+  background:linear-gradient(100deg,#edf5fd,#e6f0fb)!important;
+  border-color:#bfd3e8!important;
+  color:#244d78!important;
+  box-shadow:0 7px 18px rgba(48,92,142,.08);
+}
+html[data-client-theme="light"] body.client-body .client-nav-group-items a.active{
+  background:linear-gradient(100deg,rgba(76,142,228,.18),rgba(119,174,238,.10) 72%,rgba(255,255,255,.18))!important;
+  border-color:#a9c9ed!important;
+  color:#1d5f9f!important;
+  box-shadow:0 8px 22px rgba(48,104,173,.10),inset 0 1px 0 rgba(255,255,255,.72)!important;
+}
+html[data-client-theme="light"] body.client-body .client-nav-group-items a.active::before{background:#4289dd}
+html[data-client-theme="light"] body.client-body .client-nav-group-items a.is-route-pending{
+  background:linear-gradient(100deg,#deedff,#e9f4ff)!important;
+  border-color:#8eb7e5!important;
+}
+
+/* Mobile accordion remains grouped, but the group surface is softer and fully rounded. */
+@media(max-width:760px){
+  body.client-body .client-nav-group{border-radius:13px}
+  body.client-body .client-nav-group.is-open{
+    background:linear-gradient(180deg,rgba(20,44,75,.50),rgba(12,31,55,.36));
+    border-color:rgba(65,104,149,.32);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.018);
+  }
+  html[data-client-theme="light"] body.client-body .client-nav-group.is-open{
+    background:linear-gradient(180deg,rgba(231,240,249,.88),rgba(239,245,251,.70));
+    border-color:#c8d9e9;
+    box-shadow:0 5px 16px rgba(50,84,120,.04);
+  }
+}
+
+/* Shared tactile motion for customer-facing controls. */
+body.client-body .btn,
+body.client-body button,
+body.client-body .client-balance-pill,
+body.client-body .client-round-avatar,
+body.client-body .client-manage-btn,
+body.client-body .client-detail-link,
+body.client-body .client-quick-actions a,
+body.client-body .client-bottom-actions a,
+body.client-body .client-plan-card,
+body.client-body .client-server-card,
+body.client-body .announcement-history-toggle{
+  transition:
+    transform var(--xnat-motion-fast) var(--xnat-ease),
+    background-color var(--xnat-motion) var(--xnat-ease),
+    border-color var(--xnat-motion) var(--xnat-ease),
+    color var(--xnat-motion-fast) ease,
+    box-shadow var(--xnat-motion) var(--xnat-ease),
+    filter var(--xnat-motion-fast) ease;
+}
+body.client-body button:not(:disabled):active,
+body.client-body .btn:not(.disabled):active,
+body.client-body .client-balance-pill:active,
+body.client-body .client-round-avatar:active,
+body.client-body .client-manage-btn:active,
+body.client-body .client-detail-link:active,
+body.client-body .client-quick-actions a:active,
+body.client-body .client-bottom-actions a:active{
+  transform:translateY(1px) scale(.985);
+  transition-duration:70ms;
+}
+body.client-body button:disabled,
+body.client-body .is-loading{cursor:wait!important;transform:none!important;filter:saturate(.72)}
+
+/* Action cards react to intent, not merely to pointer presence on static panels. */
+body.client-body .client-quick-actions a:hover{
+  transform:translateY(-2px);
+  box-shadow:0 10px 24px rgba(0,0,0,.14);
+}
+body.client-body .client-server-card:hover,
+body.client-body .client-plan-card:hover{
+  transform:translateY(-2px);
+  border-color:#395473;
+  box-shadow:0 12px 30px rgba(0,0,0,.11);
+}
+html[data-client-theme="light"] body.client-body .client-server-card:hover,
+html[data-client-theme="light"] body.client-body .client-plan-card:hover{
+  border-color:#b1c9df;
+  box-shadow:0 12px 28px rgba(48,76,108,.08);
+}
+
+/* Inputs now have a soft focus lift instead of a hard border snap. */
+body.client-body input,
+body.client-body select,
+body.client-body textarea{
+  transition:border-color var(--xnat-motion-fast) ease,box-shadow var(--xnat-motion) var(--xnat-ease),background-color var(--xnat-motion) ease;
+}
+body.client-body input:focus,
+body.client-body select:focus,
+body.client-body textarea:focus{
+  border-color:#5f91c9!important;
+  box-shadow:0 0 0 3px rgba(84,139,201,.10),0 7px 20px rgba(0,0,0,.055)!important;
+}
+html[data-client-theme="light"] body.client-body input:focus,
+html[data-client-theme="light"] body.client-body select:focus,
+html[data-client-theme="light"] body.client-body textarea:focus{
+  border-color:#76a4d1!important;
+  box-shadow:0 0 0 3px rgba(74,137,200,.09),0 7px 18px rgba(52,81,112,.045)!important;
+}
+
+/* Fold rows and secondary actions no longer snap between states. */
+body.client-body .client-detail-section>summary,
+body.client-body .plan-coupon-fold summary,
+body.client-body .announcement-history-toggle,
+body.client-body .detail-summary-action{
+  transition:background-color var(--xnat-motion) var(--xnat-ease),border-color var(--xnat-motion) var(--xnat-ease),color var(--xnat-motion-fast) ease,transform var(--xnat-motion-fast) var(--xnat-ease);
+}
+body.client-body .client-detail-section>summary:hover{background:rgba(44,86,137,.075)}
+html[data-client-theme="light"] body.client-body .client-detail-section>summary:hover{background:rgba(82,131,183,.055)}
+body.client-body .client-detail-section>summary:active .detail-summary-action{transform:scale(.96)}
+
+/* Loading keeps the current label but adds a tiny spinner for clear feedback. */
+body.client-body button.is-loading::after,
+body.client-body .btn.is-loading::after{
+  content:"";
+  width:11px;height:11px;display:inline-block;margin-left:7px;vertical-align:-1px;
+  border:1.5px solid currentColor;border-right-color:transparent;border-radius:50%;
+  animation:xnat-client-spin .72s linear infinite;
+}
+@keyframes xnat-client-spin{to{transform:rotate(360deg)}}
+
+/* Subtle content entry + route progress. Navigation delay is only 70ms in JS. */
+body.client-body .client-content.xnat-page-enter{animation:xnat-client-page-in .22s var(--xnat-ease) both}
+@keyframes xnat-client-page-in{
+  from{opacity:.72;transform:translateY(5px)}
+  to{opacity:1;transform:none}
+}
+body.client-body::before{
+  content:"";position:fixed;left:0;top:0;z-index:12050;width:0;height:2px;
+  opacity:0;background:linear-gradient(90deg,#5f9df2,#80c9ff);
+  box-shadow:0 0 12px rgba(92,164,255,.46);pointer-events:none;
+}
+body.client-body.client-route-leaving::before{opacity:1;animation:xnat-client-route-progress .62s var(--xnat-ease) forwards}
+body.client-body.client-route-leaving .client-main{opacity:.985}
+@keyframes xnat-client-route-progress{
+  0%{width:0}
+  55%{width:68%}
+  100%{width:92%}
+}
+
+/* Theme changes blend surfaces for a fraction of a second instead of flashing. */
+html.client-theme-switching body.client-body,
+html.client-theme-switching body.client-body .client-main,
+html.client-theme-switching body.client-body .client-sidebar,
+html.client-theme-switching body.client-body .client-panel,
+html.client-theme-switching body.client-body .client-metric,
+html.client-theme-switching body.client-body .client-server-card,
+html.client-theme-switching body.client-body .client-plan-card,
+html.client-theme-switching body.client-body .client-page-toolbar,
+html.client-theme-switching body.client-body .client-account-card,
+html.client-theme-switching body.client-body .client-account-balance,
+html.client-theme-switching body.client-body .client-topbar{
+  transition:background var(--xnat-motion-slow) var(--xnat-ease),background-color var(--xnat-motion-slow) var(--xnat-ease),border-color var(--xnat-motion-slow) var(--xnat-ease),color var(--xnat-motion) ease,box-shadow var(--xnat-motion) ease!important;
+}
+
+/* Strong keyboard focus without the old hard rectangle. */
+body.client-body :is(a,button,input,select,textarea,summary):focus-visible{
+  outline:2px solid rgba(94,157,232,.82);
+  outline-offset:2px;
+}
+
+@media(prefers-reduced-motion:reduce){
+  body.client-body .client-nav-group-items a,
+  body.client-body .btn,
+  body.client-body button,
+  body.client-body .client-balance-pill,
+  body.client-body .client-round-avatar,
+  body.client-body .client-manage-btn,
+  body.client-body .client-detail-link,
+  body.client-body .client-quick-actions a,
+  body.client-body .client-server-card,
+  body.client-body .client-plan-card,
+  body.client-body input,
+  body.client-body select,
+  body.client-body textarea,
+  body.client-body .client-content.xnat-page-enter,
+  html.client-theme-switching body.client-body *{
+    animation:none!important;transition:none!important;transform:none!important
+  }
+  body.client-body.client-route-leaving::before{animation:none!important;width:80%}
+}
+
+@media(hover:none){
+  body.client-body .client-quick-actions a:hover,
+  body.client-body .client-server-card:hover,
+  body.client-body .client-plan-card:hover{transform:none}
+}
+
+/* ========================================================================== 
+   v1.4.0 interaction polish
+   - Compact security history: show three rows first and reveal the rest on demand.
+   - Bring the admin console's micro-interactions in line with the approved client UI.
+   ========================================================================== */
+
+/* Account security history stays informative without turning into two very tall cards. */
+body.client-body .security-history-panel{overflow:hidden}
+body.client-body .security-history-list{gap:0}
+body.client-body .security-history-row{
+  position:relative;
+  padding:11px 2px!important;
+  border-bottom:1px solid #243852;
+  transition:background-color .16s ease,border-color .16s ease;
+}
+body.client-body .security-history-more{
+  margin-top:2px;
+  border-top:1px solid #243852;
+}
+body.client-body .security-history-more>summary{
+  min-height:42px;
+  padding:0 3px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  color:#8ca6c4;
+  cursor:pointer;
+  list-style:none;
+  font-size:9.5px;
+  font-weight:800;
+  user-select:none;
+  transition:color .16s ease,background-color .16s ease;
+}
+body.client-body .security-history-more>summary::-webkit-details-marker{display:none}
+body.client-body .security-history-more>summary:hover{color:#b9d8fa}
+body.client-body .security-history-chevron{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:22px;
+  height:22px;
+  border:1px solid #2d4764;
+  border-radius:999px;
+  color:#7fa8d4;
+  font-size:15px;
+  line-height:1;
+  transform:rotate(90deg);
+  transition:transform .18s ease,border-color .16s ease,background-color .16s ease;
+}
+body.client-body .security-history-more[open] .security-history-chevron{transform:rotate(-90deg)}
+body.client-body .security-history-extra{animation:xnat-security-history-in .2s ease both}
+body.client-body .security-history-extra .security-history-row:last-child{border-bottom:0}
+@keyframes xnat-security-history-in{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}
+
+html[data-client-theme="light"] body.client-body .security-history-row,
+html[data-client-theme="light"] body.client-body .security-history-more{border-color:#dde6ef}
+html[data-client-theme="light"] body.client-body .security-history-more>summary{color:#637c95}
+html[data-client-theme="light"] body.client-body .security-history-more>summary:hover{color:#315f91}
+html[data-client-theme="light"] body.client-body .security-history-chevron{border-color:#c9d8e7;background:#f3f8fc;color:#4e7ead}
+
+/* Admin console: soft page entrance and consistent feedback without changing
+   any backend action, form endpoint, CSRF or business semantics. */
+body.admin-body .admin-main{animation:xnat-admin-page-in .2s ease both}
+@keyframes xnat-admin-page-in{from{opacity:.55;transform:translateY(5px)}to{opacity:1;transform:none}}
+
+body.admin-body .admin-nav a,
+body.admin-body .admin-nav-group>summary,
+body.admin-body button,
+body.admin-body .btn,
+body.admin-body input,
+body.admin-body select,
+body.admin-body textarea,
+body.admin-body .pagination a,
+body.admin-body .backup-upload-panel>summary{
+  transition:border-color .16s ease,background-color .16s ease,color .16s ease,box-shadow .18s ease,transform .16s ease,opacity .16s ease!important;
+}
+
+body.admin-body .admin-nav a,
+body.admin-body .admin-nav-group>summary{border-radius:10px!important}
+body.admin-body .admin-nav a.active{
+  box-shadow:0 5px 16px rgba(8,10,28,.18),inset 0 1px 0 rgba(255,255,255,.035);
+}
+body.admin-body .admin-nav-group>summary{position:relative}
+body.admin-body .admin-nav-group[open]>summary{box-shadow:inset 0 1px 0 rgba(255,255,255,.025)}
+
+@media(hover:hover) and (pointer:fine){
+  body.admin-body .admin-nav a:hover{transform:translateX(2px)}
+  body.admin-body .admin-nav-group>summary:hover{transform:translateX(1px)}
+  body.admin-body .card:hover,
+  body.admin-body .admin-card:hover,
+  body.admin-body .dash-card:hover,
+  body.admin-body .idc-metric-card:hover,
+  body.admin-body .admin-plan-card:hover,
+  body.admin-body .node-admin-card:hover,
+  body.admin-body .v112-server-card:hover,
+  body.admin-body .admin-ticket-card.ticket-active:hover,
+  body.admin-body .site-settings-card:hover,
+  body.admin-body .manual-provision-card:hover,
+  body.admin-body .notification-config-card:hover,
+  body.admin-body .payment-chain-card:hover,
+  body.admin-body .operations-policy-card:hover,
+  body.admin-body .settings-relocated-card:hover{
+    transform:translateY(-2px);
+    box-shadow:0 12px 28px rgba(0,0,0,.13);
+  }
+  body.admin-body tbody tr{transition:background-color .14s ease}
+  body.admin-body tbody tr:hover{background:rgba(82,118,163,.075)}
+}
+
+body.admin-body button:active:not(:disabled),
+body.admin-body .btn:active,
+body.admin-body .pagination a:active,
+body.admin-body .backup-upload-panel>summary:active{transform:scale(.985)}
+body.admin-body input:focus,
+body.admin-body select:focus,
+body.admin-body textarea:focus{
+  outline:none!important;
+  border-color:#496f9a!important;
+  box-shadow:0 0 0 3px rgba(70,116,166,.13)!important;
+}
+body.admin-body details[open]>:not(summary){animation:xnat-admin-reveal .18s ease both}
+@keyframes xnat-admin-reveal{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+
+body.admin-body button.is-loading{
+  position:relative;
+  cursor:wait!important;
+  opacity:.82;
+}
+body.admin-body button.is-loading::before{
+  content:"";
+  width:12px;
+  height:12px;
+  margin-right:7px;
+  display:inline-block;
+  vertical-align:-2px;
+  border:2px solid currentColor;
+  border-right-color:transparent;
+  border-radius:999px;
+  animation:xnat-admin-spin .7s linear infinite;
+}
+@keyframes xnat-admin-spin{to{transform:rotate(360deg)}}
+
+/* A 2px hand-off line confirms internal admin/client navigation immediately. */
+.xnat-route-progress{
+  position:fixed;
+  z-index:5000;
+  top:0;
+  left:0;
+  width:0;
+  height:2px;
+  border-radius:0 999px 999px 0;
+  background:linear-gradient(90deg,#5e9eea,#8bc6ff);
+  box-shadow:0 0 10px rgba(91,158,234,.38);
+  opacity:0;
+  pointer-events:none;
+  transition:width .16s ease,opacity .12s ease;
+}
+.xnat-route-progress.is-active{width:72%;opacity:1}
+body.admin-body.xnat-route-leaving .admin-main{opacity:.88;transform:translateY(1px);transition:opacity .08s ease,transform .08s ease}
+
+/* Make admin light-theme motion feel as restrained as the client light theme. */
+html.xnat-admin-theme-shifting body.admin-body,
+html.xnat-admin-theme-shifting body.admin-body .admin-sidebar,
+html.xnat-admin-theme-shifting body.admin-body .admin-main,
+html.xnat-admin-theme-shifting body.admin-body .card,
+html.xnat-admin-theme-shifting body.admin-body .admin-card,
+html.xnat-admin-theme-shifting body.admin-body input,
+html.xnat-admin-theme-shifting body.admin-body select,
+html.xnat-admin-theme-shifting body.admin-body textarea,
+html.xnat-admin-theme-shifting body.admin-body button{
+  transition:background-color .32s ease,border-color .32s ease,color .32s ease,box-shadow .32s ease!important;
+}
+
+html[data-admin-theme="light"] body.admin-body .admin-nav a.active{
+  box-shadow:0 5px 15px rgba(54,98,146,.08),inset 0 1px 0 rgba(255,255,255,.75)!important;
+}
+html[data-admin-theme="light"] body.admin-body tbody tr:hover{background:#f0f6fc!important}
+
+@media(max-width:760px){
+  body.admin-body .admin-main{animation-duration:.16s}
+}
+
+@media(prefers-reduced-motion:reduce){
+  body.client-body .security-history-extra,
+  body.admin-body .admin-main,
+  body.admin-body details[open]>:not(summary){animation:none!important}
+  body.admin-body .admin-nav a,
+  body.admin-body .admin-nav-group>summary,
+  body.admin-body button,
+  body.admin-body .card,
+  body.admin-body .admin-card,
+  .xnat-route-progress{transition:none!important;transform:none!important}
+}
+
+/* ========================================================================== 
+   v1.4.0 compact admin surfaces
+   - Preserve the verified client motion system while extending admin interactions.
+   - Equalise account security cards and use a geometry-based centered chevron.
+   - Collapse long admin notification records and site-setting groups.
+   - Remove the hard separator above save actions.
+   ========================================================================== */
+
+/* Security history cards share a stable height inside the two-column grid. */
+body.client-body .security-history-grid{align-items:stretch}
+body.client-body .security-history-panel{
+  min-height:0;
+  height:100%;
+  display:flex;
+  flex-direction:column;
+}
+body.client-body .security-history-panel .security-history-list{
+  min-height:0;
+  flex:1 1 auto;
+  display:flex;
+  flex-direction:column;
+}
+body.client-body .security-history-panel .security-history-more{margin-top:auto}
+
+/* Do not use a font glyph for the fold arrow: its baseline varies by browser. */
+body.client-body .security-history-chevron{
+  display:grid!important;
+  place-items:center;
+  width:24px;
+  height:24px;
+  flex:0 0 24px;
+  transform:none!important;
+  font-size:0!important;
+  line-height:0!important;
+}
+body.client-body .security-history-chevron::before{
+  content:"";
+  width:6px;
+  height:6px;
+  border-right:1.8px solid currentColor;
+  border-bottom:1.8px solid currentColor;
+  transform:rotate(45deg) translate(-1px,-1px);
+  transform-origin:center;
+  transition:transform .18s var(--xnat-ease, ease);
+}
+body.client-body .security-history-more[open] .security-history-chevron::before{
+  transform:rotate(225deg) translate(-1px,-1px);
+}
+
+/* Settings save actions should not be separated by a hard black rule. */
+body.admin-body .settings-save-row{
+  border-top:0!important;
+  padding-top:3px!important;
+  margin-top:16px!important;
+}
+
+/* Long site settings become a compact native accordion. */
+body.admin-body .settings-fold{
+  padding:0!important;
+  overflow:hidden;
+}
+body.admin-body .settings-fold>.settings-section-head{
+  position:relative;
+  min-height:68px;
+  margin:0!important;
+  padding:15px 48px 15px 15px;
+  align-items:center;
+  cursor:pointer;
+  list-style:none;
+  user-select:none;
+  transition:background-color .18s ease,border-color .18s ease,color .18s ease;
+}
+body.admin-body .settings-fold>.settings-section-head::-webkit-details-marker{display:none}
+body.admin-body .settings-fold>.settings-section-head::after{
+  content:"";
+  position:absolute;
+  right:18px;
+  top:50%;
+  width:7px;
+  height:7px;
+  border-right:2px solid #66819f;
+  border-bottom:2px solid #66819f;
+  transform:translateY(-65%) rotate(45deg);
+  transition:transform .18s ease,border-color .18s ease;
+}
+body.admin-body .settings-fold[open]>.settings-section-head::after{
+  transform:translateY(-25%) rotate(225deg);
+}
+body.admin-body .settings-fold>.settings-section-head:hover{background:rgba(72,108,148,.06)}
+body.admin-body .settings-fold[open]>.settings-section-head{border-bottom:1px solid rgba(65,86,111,.28)}
+body.admin-body .settings-fold>:not(summary){margin-left:15px;margin-right:15px}
+body.admin-body .settings-fold>.settings-save-row{margin-bottom:15px}
+body.admin-body .settings-fold>.settings-note:last-child{margin-bottom:15px}
+body.admin-body .settings-fold>.deployment-status-grid{margin-top:15px}
+body.admin-body .settings-fold>.deployment-command-row:last-child{margin-bottom:15px}
+
+html[data-admin-theme="light"] body.admin-body .settings-fold>.settings-section-head::after{border-color:#6f88a1}
+html[data-admin-theme="light"] body.admin-body .settings-fold>.settings-section-head:hover{background:#f4f8fc}
+html[data-admin-theme="light"] body.admin-body .settings-fold[open]>.settings-section-head{border-bottom-color:#dce6ef}
+
+/* Notification history is useful for diagnostics, but should not dominate the page. */
+body.admin-body .admin-record-fold{
+  margin-top:14px;
+  overflow:hidden;
+  border:1px solid #2d3c50;
+  border-radius:13px;
+  background:#101a29;
+}
+body.admin-body .admin-record-fold>summary{
+  position:relative;
+  min-height:66px;
+  padding:13px 54px 13px 16px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:18px;
+  cursor:pointer;
+  list-style:none;
+  user-select:none;
+  transition:background-color .18s ease;
+}
+body.admin-body .admin-record-fold>summary::-webkit-details-marker{display:none}
+body.admin-body .admin-record-fold>summary::after{
+  content:"";
+  position:absolute;
+  right:20px;
+  top:50%;
+  width:7px;
+  height:7px;
+  border-right:2px solid #7093ba;
+  border-bottom:2px solid #7093ba;
+  transform:translateY(-65%) rotate(45deg);
+  transition:transform .18s ease;
+}
+body.admin-body .admin-record-fold[open]>summary::after{transform:translateY(-25%) rotate(225deg)}
+body.admin-body .admin-record-fold>summary:hover{background:rgba(61,103,151,.08)}
+body.admin-body .admin-record-fold-title strong,
+body.admin-body .admin-record-fold-title span{display:block}
+body.admin-body .admin-record-fold-title strong{font-size:12px}
+body.admin-body .admin-record-fold-title span{margin-top:4px;color:#7489a2;font-size:9px}
+body.admin-body .admin-record-fold-count{
+  flex:0 0 auto;
+  min-width:56px;
+  padding:5px 9px;
+  border:1px solid #38516d;
+  border-radius:999px;
+  color:#91add0;
+  font-size:9px;
+  font-weight:800;
+  text-align:center;
+}
+body.admin-body .admin-record-fold-body{
+  padding:14px 16px 16px;
+  border-top:1px solid #26384d;
+}
+body.admin-body .admin-record-fold-body .admin-search{margin-top:0}
+body.admin-body .admin-record-fold-body .pagination{margin-bottom:0}
+
+html[data-admin-theme="light"] body.admin-body .admin-record-fold{border-color:#d4e0eb;background:#fbfdff}
+html[data-admin-theme="light"] body.admin-body .admin-record-fold>summary:hover{background:#f4f8fc}
+html[data-admin-theme="light"] body.admin-body .admin-record-fold-count{border-color:#c7d8e8;color:#557795;background:#f2f7fb}
+html[data-admin-theme="light"] body.admin-body .admin-record-fold-body{border-top-color:#dce6ef}
+
+/* Small screens keep the compact folds usable without squeezing status chips. */
+@media(max-width:760px){
+  body.admin-body .settings-fold>.settings-section-head{padding-right:42px;align-items:flex-start}
+  body.admin-body .settings-fold>.settings-section-head .settings-health{margin-top:3px}
+  body.admin-body .admin-record-fold>summary{align-items:flex-start;flex-direction:column;padding-right:48px}
+  body.admin-body .admin-record-fold-count{align-self:flex-start}
+}
+
+
+/* ========================================================================== 
+   v1.4.0 targeted interaction fixes
+   - Keep the verified client motion system intact.
+   - Make account history cards independent after one side expands.
+   - Replace raw notification checkboxes with equal-size polished toggles.
+   - Compact the admin notification page into deliberate folds and remove the
+     remaining hard separator line.
+   ========================================================================== */
+
+/* The two security cards should match while closed, but opening one must not
+   visually stretch/open its neighbour. Grid track height may grow, items do not. */
+body.client-body .security-history-grid{align-items:start!important}
+body.client-body .security-history-panel{
+  width:100%;
+  min-height:318px;
+  height:auto!important;
+  align-self:start;
+}
+body.client-body .security-history-panel .security-history-list{flex:1 1 auto}
+body.client-body .security-history-more[open]{margin-top:2px}
+@media(max-width:760px){
+  body.client-body .security-history-panel{min-height:0}
+}
+
+/* Account notification preferences: two equal cards with a real switch affordance. */
+body.client-body .client-notification-preferences{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+  width:100%;
+}
+body.client-body .client-notification-toggle{
+  position:relative;
+  min-width:0;
+  min-height:58px;
+  margin:0!important;
+  padding:10px 12px!important;
+  display:flex!important;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  border:1px solid #2c4059;
+  border-radius:12px;
+  background:#111c2d;
+  cursor:pointer;
+  user-select:none;
+  transition:border-color .17s ease,background-color .17s ease,box-shadow .18s ease,transform .15s ease!important;
+}
+body.client-body .client-notification-toggle:hover{
+  border-color:#3c638a;
+  background:#142238;
+  box-shadow:0 7px 18px rgba(3,12,24,.16);
+}
+body.client-body .client-notification-toggle:active{transform:scale(.992)}
+body.client-body .client-notification-toggle>input{
+  position:absolute!important;
+  width:1px!important;
+  height:1px!important;
+  min-height:0!important;
+  margin:0!important;
+  padding:0!important;
+  opacity:0;
+  pointer-events:none;
+}
+body.client-body .client-notification-copy{min-width:0}
+body.client-body .client-notification-copy strong,
+body.client-body .client-notification-copy small{display:block}
+body.client-body .client-notification-copy strong{color:#eaf3ff;font-size:10.5px;line-height:1.25}
+body.client-body .client-notification-copy small{margin-top:4px;color:#7f96b1;font-size:8.5px;line-height:1.35}
+body.client-body .client-toggle-control{
+  position:relative;
+  width:42px;
+  height:24px;
+  flex:0 0 42px;
+  border:1px solid #3c526b;
+  border-radius:999px;
+  background:#1b2b3f;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.18);
+  transition:border-color .18s ease,background-color .18s ease,box-shadow .18s ease;
+}
+body.client-body .client-toggle-control>span{
+  position:absolute;
+  top:3px;
+  left:3px;
+  width:16px;
+  height:16px;
+  border-radius:50%;
+  background:#a6b6c8;
+  box-shadow:0 2px 5px rgba(0,0,0,.24);
+  transition:transform .2s cubic-bezier(.2,.7,.2,1),background-color .18s ease;
+}
+body.client-body .client-notification-toggle>input:checked~.client-toggle-control{
+  border-color:#4b93df;
+  background:linear-gradient(135deg,#367fce,#5ca8ef);
+  box-shadow:0 0 0 3px rgba(79,153,229,.08),inset 0 1px 0 rgba(255,255,255,.12);
+}
+body.client-body .client-notification-toggle>input:checked~.client-toggle-control>span{
+  transform:translateX(18px);
+  background:#fff;
+}
+body.client-body .client-notification-toggle>input:focus-visible~.client-toggle-control{
+  outline:none;
+  box-shadow:0 0 0 3px rgba(88,163,238,.22);
+}
+body.client-body .client-notification-toggle:has(input:checked){border-color:#345f8b;background:#13243a}
+
+html[data-client-theme="light"] body.client-body .client-notification-toggle{
+  border-color:#ccdbe9;
+  background:#f8fbfe;
+}
+html[data-client-theme="light"] body.client-body .client-notification-toggle:hover{
+  border-color:#a9c4df;
+  background:#f2f8fd;
+  box-shadow:0 8px 18px rgba(48,91,137,.08);
+}
+html[data-client-theme="light"] body.client-body .client-notification-copy strong{color:#223a55}
+html[data-client-theme="light"] body.client-body .client-notification-copy small{color:#70869c}
+html[data-client-theme="light"] body.client-body .client-toggle-control{border-color:#b8c9da;background:#dfe9f2}
+html[data-client-theme="light"] body.client-body .client-notification-toggle:has(input:checked){border-color:#aac8e6;background:#f2f8ff}
+@media(max-width:620px){
+  body.client-body .client-notification-preferences{grid-template-columns:1fr}
+}
+
+/* The only remaining hard settings separator was the notification rule block. */
+body.admin-body .notification-rule-block{
+  margin-top:0!important;
+  padding-top:0!important;
+  border-top:0!important;
+}
+
+/* Notification setup is operationally important but rarely edited. Keep status
+   visible, and fold configuration/rules/tests into compact, independent cards. */
+body.admin-body .notification-admin-fold{
+  margin-top:12px;
+  overflow:hidden;
+  border:1px solid #2d3d51;
+  border-radius:12px;
+  background:#111b2a;
+}
+body.admin-body .notification-admin-fold>summary{
+  position:relative;
+  min-height:60px;
+  padding:12px 48px 12px 14px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  cursor:pointer;
+  list-style:none;
+  user-select:none;
+  transition:background-color .18s ease,border-color .18s ease,color .18s ease;
+}
+body.admin-body .notification-admin-fold>summary::-webkit-details-marker{display:none}
+body.admin-body .notification-admin-fold>summary>span:first-child{min-width:0}
+body.admin-body .notification-admin-fold>summary strong,
+body.admin-body .notification-admin-fold>summary small{display:block}
+body.admin-body .notification-admin-fold>summary strong{color:#e6edf7;font-size:11px;line-height:1.25}
+body.admin-body .notification-admin-fold>summary small{margin-top:4px;color:#788da6;font-size:8.5px;line-height:1.35}
+body.admin-body .notification-admin-fold>summary::after{
+  content:"";
+  position:absolute;
+  right:18px;
+  top:50%;
+  width:7px;
+  height:7px;
+  border-right:2px solid #7196bc;
+  border-bottom:2px solid #7196bc;
+  transform:translateY(-65%) rotate(45deg);
+  transition:transform .18s ease,border-color .18s ease;
+}
+body.admin-body .notification-admin-fold[open]>summary::after{transform:translateY(-25%) rotate(225deg)}
+body.admin-body .notification-admin-fold>summary:hover{background:rgba(71,113,159,.07)}
+body.admin-body .notification-admin-fold[open]>summary{border-bottom:1px solid #27394d}
+body.admin-body .notification-admin-fold-state{
+  flex:0 0 auto;
+  margin-right:4px;
+  padding:5px 9px;
+  border:1px solid #3a526e;
+  border-radius:999px;
+  color:#91add0;
+  font-size:8.5px;
+  font-weight:800;
+  line-height:1;
+}
+body.admin-body .notification-admin-fold-body{padding:14px}
+body.admin-body .notification-admin-fold-body .notification-config-grid{margin-top:0}
+body.admin-body .notification-test-fold{padding:0!important}
+body.admin-body .notification-test-fold>summary .eyebrow{margin-bottom:5px}
+body.admin-body .notification-test-fold .notification-test-grid{margin:0}
+
+html[data-admin-theme="light"] body.admin-body .notification-admin-fold{
+  border-color:#d2deea;
+  background:#fbfdff;
+}
+html[data-admin-theme="light"] body.admin-body .notification-admin-fold>summary strong{color:#243a52}
+html[data-admin-theme="light"] body.admin-body .notification-admin-fold>summary small{color:#71859b}
+html[data-admin-theme="light"] body.admin-body .notification-admin-fold>summary:hover{background:#f3f8fc}
+html[data-admin-theme="light"] body.admin-body .notification-admin-fold[open]>summary{border-bottom-color:#dce6ef}
+html[data-admin-theme="light"] body.admin-body .notification-admin-fold-state{border-color:#c7d8e8;color:#557795;background:#f2f7fb}
+
+@media(max-width:760px){
+  body.admin-body .notification-admin-fold>summary{align-items:flex-start;flex-direction:column;padding-right:44px}
+  body.admin-body .notification-admin-fold-state{align-self:flex-start}
+}
+
+@media(prefers-reduced-motion:reduce){
+  body.client-body .client-notification-toggle,
+  body.client-body .client-toggle-control,
+  body.client-body .client-toggle-control>span,
+  body.admin-body .notification-admin-fold>summary,
+  body.admin-body .notification-admin-fold>summary::after{transition:none!important;transform:none!important}
+  body.admin-body .notification-admin-fold[open]>summary::after{transform:rotate(180deg)!important}
+}
+
+/* ========================================================================== 
+   v1.4.0 admin balance actions
+   - Keep the verified interaction layer unchanged.
+   - Make credit/debit explicit, equal-size controls instead of signed amounts.
+   ========================================================================== */
+body.admin-body .balance-action-form{
+  display:grid;
+  grid-template-columns:112px minmax(176px,1fr);
+  align-items:center;
+  gap:8px;
+  min-width:296px;
+  margin:0;
+}
+body.admin-body .balance-action-amount{display:block;margin:0!important;min-width:0}
+body.admin-body .balance-action-amount input{
+  width:100%!important;
+  min-width:0;
+  height:36px;
+  min-height:36px;
+  margin:0!important;
+  padding:0 10px;
+  text-align:center;
+  border-radius:9px;
+}
+body.admin-body .balance-action-buttons{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:7px;
+  min-width:0;
+}
+body.admin-body .balance-action-button{
+  width:100%;
+  min-width:0;
+  height:36px;
+  min-height:36px;
+  margin:0!important;
+  padding:0 10px!important;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:9px;
+  white-space:nowrap;
+  font-size:9px;
+  font-weight:800;
+  line-height:1;
+}
+body.admin-body .balance-action-button.credit{
+  border-color:#31577c;
+  background:#17304a;
+  color:#b9d7f4;
+}
+body.admin-body .balance-action-button.debit{
+  border-color:#77424a;
+  background:#311d25;
+  color:#f0bbc2;
+}
+body.admin-body .balance-action-button.credit:hover{border-color:#4c7eaa;background:#1b3957;color:#d7eaff}
+body.admin-body .balance-action-button.debit:hover{border-color:#a15a65;background:#3c222b;color:#ffd8dd}
+html[data-admin-theme="light"] body.admin-body .balance-action-button.credit{
+  border-color:#b6d2ed;background:#edf6ff;color:#28629b;
+}
+html[data-admin-theme="light"] body.admin-body .balance-action-button.debit{
+  border-color:#e7c2c7;background:#fff4f5;color:#a13d49;
+}
+html[data-admin-theme="light"] body.admin-body .balance-action-button.credit:hover{border-color:#8fbbe2;background:#e4f2ff}
+html[data-admin-theme="light"] body.admin-body .balance-action-button.debit:hover{border-color:#d9959e;background:#ffeaed}
+@media(max-width:760px){
+  body.admin-body .balance-action-form{grid-template-columns:1fr;min-width:240px}
+  body.admin-body .balance-action-amount input{text-align:left}
+}
+
+/* ========================================================================== 
+   v1.4.0 admin users polish
+   - Keep the verified interaction layer and balance semantics.
+   - Align the users search field/button and compact balance action controls.
+   ========================================================================== */
+body.admin-body .admin-search{
+  align-items:stretch!important;
+}
+body.admin-body .admin-search input{
+  height:42px!important;
+  min-height:42px!important;
+  margin:0!important;
+  box-sizing:border-box;
+}
+body.admin-body .admin-search button{
+  height:42px!important;
+  min-height:42px!important;
+  margin:0!important;
+  box-sizing:border-box;
+  align-self:stretch;
+}
+body.admin-body .balance-action-form{
+  grid-template-columns:96px auto;
+  gap:7px;
+  min-width:0;
+  width:max-content;
+}
+body.admin-body .balance-action-amount input{
+  width:96px!important;
+  height:34px;
+  min-height:34px;
+  padding:0 9px;
+}
+body.admin-body .balance-action-buttons{
+  grid-template-columns:repeat(2,80px);
+  gap:6px;
+  width:max-content;
+}
+body.admin-body .balance-action-button{
+  width:80px;
+  height:34px;
+  min-height:34px;
+  padding:0 8px!important;
+  border-radius:8px;
+  font-size:9px;
+}
+@media(max-width:760px){
+  body.admin-body .balance-action-form{
+    width:100%;
+    grid-template-columns:minmax(0,1fr);
+  }
+  body.admin-body .balance-action-amount input{width:100%!important}
+  body.admin-body .balance-action-buttons{
+    width:100%;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  body.admin-body .balance-action-button{width:100%}
 }

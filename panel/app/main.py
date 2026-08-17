@@ -29,7 +29,7 @@ from .auth import (
 )
 from .crypto import decrypt_secret, encrypt_secret
 from .audit import write_audit
-from .backups import BACKUP_DIR, create_backup, create_scheduled_backup_if_due, list_backups, restore_backup, store_uploaded_backup, validate_backup_file
+from .backups import BACKUP_DIR, create_backup, create_scheduled_backup_if_due, delete_backup, list_backups, restore_backup, store_uploaded_backup, validate_backup_file
 from .jobs import enqueue_job, process_jobs
 from .notifications import process_pending_notifications, queue_notification, queue_admin_notification, send_email_address, send_telegram_chat
 from .runtime_config import notification_runtime_config, runtime_plain, runtime_secret
@@ -2320,16 +2320,19 @@ def admin_page(
         plans=[]; system_images=[]; coupons=[]; users=[]; servers=[]; orders=[]
         recharge_orders=[]; tickets=[]; jobs=[]; audit_logs=[]; balance_ledger=[]; hosts=[]; notification_rows=[]; announcement_admin_rows=[]
         dashboard_recent_orders=[]; dashboard_recent_servers=[]; dashboard_stock=[]
-        inventories={}; user_stats={}; site_settings={}; backup_rows=[]; backup_preview=None; plan_host_map={}; host_port_stats={}; host_schedule_states={}
+        inventories={}; user_stats={}; site_settings={}; backup_rows=[]; backup_preview=None; backup_total_bytes=0; plan_host_map={}; host_port_stats={}; host_schedule_states={}
+        ticket_threads={}
         repair_order=None; repair_preview=None; repair_error=None; repair_tx=""
         total_rows=0; total_pages=1
 
-        def finish_page(stmt, *, order_by):
+        def finish_page(stmt, *, order_by, page_size: int | None = None):
             nonlocal total_rows, total_pages, page
+            size = max(1, int(page_size or per_page))
             total_rows = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
-            total_pages = max(1, (total_rows + per_page - 1)//per_page)
+            total_pages = max(1, (total_rows + size - 1)//size)
             page = min(page, total_pages)
-            return db.scalars(stmt.order_by(order_by).offset((page-1)*per_page).limit(per_page)).all()
+            order_items = order_by if isinstance(order_by, (tuple, list)) else (order_by,)
+            return db.scalars(stmt.order_by(*order_items).offset((page-1)*size).limit(size)).all()
 
         if section in {"dashboard", "plans", "provision", "nodes"}:
             plans = db.scalars(select(Plan).order_by(Plan.sort_order, Plan.id)).all()
@@ -2394,7 +2397,7 @@ def admin_page(
             if q:
                 like=f"%{q}%"
                 stmt=stmt.where(or_(Notification.title.ilike(like), Notification.kind.ilike(like), Notification.email_status.ilike(like), Notification.telegram_status.ilike(like), User.username.ilike(like), User.email.ilike(like)))
-            notification_rows=finish_page(stmt, order_by=Notification.id.desc())
+            notification_rows=finish_page(stmt, order_by=Notification.id.desc(), page_size=12)
         elif section == "announcements":
             stmt=select(Announcement)
             if q:
@@ -2405,10 +2408,26 @@ def admin_page(
             stmt=select(Ticket).join(User, Ticket.user_id==User.id)
             if q:
                 like=f"%{q}%"
-                cond=[Ticket.subject.ilike(like), Ticket.status.ilike(like), Ticket.priority.ilike(like), User.username.ilike(like), User.email.ilike(like)]
+                cond=[
+                    Ticket.subject.ilike(like), Ticket.status.ilike(like), Ticket.priority.ilike(like),
+                    User.username.ilike(like), User.email.ilike(like),
+                    Ticket.messages.any(TicketMessage.body.ilike(like)),
+                ]
                 if q.lstrip("#").isdigit(): cond.append(Ticket.id==int(q.lstrip("#")))
                 stmt=stmt.where(or_(*cond))
-            tickets=finish_page(stmt, order_by=Ticket.updated_at.desc())
+            # Keep active conversations ahead of archived/closed tickets so the
+            # support queue follows the operator workflow instead of mixing both states.
+            tickets=finish_page(stmt, order_by=((Ticket.status == "closed").asc(), Ticket.updated_at.desc()))
+            ticket_ids=[row.id for row in tickets]
+            if ticket_ids:
+                message_rows=db.scalars(
+                    select(TicketMessage)
+                    .where(TicketMessage.ticket_id.in_(ticket_ids))
+                    .order_by(TicketMessage.ticket_id, TicketMessage.id)
+                ).all()
+                ticket_threads={ticket_id: [] for ticket_id in ticket_ids}
+                for message in message_rows:
+                    ticket_threads.setdefault(message.ticket_id, []).append(message)
         elif section == "jobs":
             stmt=select(Job)
             if q:
@@ -2435,6 +2454,7 @@ def admin_page(
         elif section == "backups":
             backup_rows=list_backups()
             total_rows=len(backup_rows)
+            backup_total_bytes=sum(int(row.get("size") or 0) for row in backup_rows)
             restore_candidate=(request.query_params.get("restore_candidate") or "").strip()
             if restore_candidate:
                 try:
@@ -2497,7 +2517,7 @@ def admin_page(
         return render(request,"admin.html",db,
             section=section,q=q,page=page,per_page=per_page,total_rows=total_rows,total_pages=total_pages,
             stats=stats,node=node,business=business,plans=plans,system_images=system_images,coupons=coupons,users=users,servers=servers,orders=orders,
-            recharge_orders=recharge_orders,tickets=tickets,jobs=jobs,audit_logs=audit_logs,balance_ledger=balance_ledger,backup_rows=backup_rows,backup_preview=backup_preview,hosts=hosts,notification_rows=notification_rows,announcement_admin_rows=announcement_admin_rows,
+            recharge_orders=recharge_orders,tickets=tickets,ticket_threads=ticket_threads,jobs=jobs,audit_logs=audit_logs,balance_ledger=balance_ledger,backup_rows=backup_rows,backup_preview=backup_preview,backup_total_bytes=backup_total_bytes,hosts=hosts,notification_rows=notification_rows,announcement_admin_rows=announcement_admin_rows,
             inventories=inventories,user_stats=user_stats,site_settings=site_settings,payment_cfg=payment_cfg,env_status=env_status,deployment=deployment,plan_host_map=plan_host_map,host_port_stats=host_port_stats,host_schedule_states=host_schedule_states,
             lifecycle_cfg=lifecycle_config(db),
             repair_order=repair_order,repair_preview=repair_preview,repair_error=repair_error,repair_tx=repair_tx,
@@ -2838,20 +2858,61 @@ def admin_delete_node(request: Request, node_id: int, confirm_name: str = Form(.
     return RedirectResponse("/admin?section=nodes",status_code=303)
 
 @app.post("/admin/balance")
-def admin_balance(request: Request, user_id: int = Form(...), amount: str = Form(...), csrf_token: str = Form(...)):
+def admin_balance(request: Request, user_id: int = Form(...), amount: str = Form(...), action: str = Form("adjust"), csrf_token: str = Form(...)):
     validate_csrf(request, csrf_token)
+    action=(action or "adjust").strip().lower()
     try:
-        delta_cents=int(Decimal(amount.strip())*100)
-        if delta_cents == 0: raise ValueError
+        value=Decimal(amount.strip())
+        if not value.is_finite():
+            raise ValueError
+        cents_value=value*Decimal("100")
+        if cents_value != cents_value.to_integral_value():
+            raise ValueError
+        entered_cents=int(cents_value)
+        if action in {"credit","debit"}:
+            if entered_cents <= 0:
+                raise ValueError
+            delta_cents=entered_cents if action == "credit" else -entered_cents
+        elif action == "adjust":
+            # Backward compatibility for older admin forms that submitted a signed amount.
+            delta_cents=entered_cents
+            if delta_cents == 0:
+                raise ValueError
+        else:
+            raise ValueError
     except Exception:
-        flash(request,"余额调整金额格式错误。","error"); return RedirectResponse("/admin?section=users",status_code=303)
+        flash(request,"余额操作金额格式错误，请输入大于 0 且最多两位小数的金额。","error")
+        return RedirectResponse("/admin?section=users",status_code=303)
     with db_session() as db:
         admin=admin_required(request,db); target=db.get(User,user_id)
         if not target: raise HTTPException(404,"用户不存在")
-        change_balance(db,target,delta_cents,kind="admin_adjustment",reference_type="user",reference_id=target.id,note=f"管理员 {admin.username} 手动调整")
-        queue_notification(db,target,title="账户余额已调整",body=f"管理员调整余额 {money(delta_cents)}，当前余额 {money(target.balance_cents)}。",kind="billing",severity="info",event_key=f"admin-balance:{target.id}:{int(datetime.utcnow().timestamp())}")
-        write_audit(db,actor=admin,request=request,action="admin.balance.adjust",target_type="user",target_id=target.id,target_name=target.username,detail={"delta_cents":delta_cents,"balance_after":target.balance_cents})
-        db.commit(); flash(request,f"{target.username} 余额已调整 {money(delta_cents)}，当前 {money(target.balance_cents)}。","success")
+        if action == "debit" and entered_cents > int(target.balance_cents or 0):
+            flash(request,f"{target.username} 当前余额仅 {money(target.balance_cents)}，不能扣除 {money(entered_cents)}。","error")
+            return RedirectResponse("/admin?section=users",status_code=303)
+
+        if action == "credit":
+            verb="增加"; audit_action="admin.balance.credit"; title="账户余额已增加"
+        elif action == "debit":
+            verb="扣除"; audit_action="admin.balance.debit"; title="账户余额已扣除"
+        else:
+            verb="调整"; audit_action="admin.balance.adjust"; title="账户余额已调整"
+
+        change_balance(
+            db,target,delta_cents,kind="admin_adjustment",reference_type="user",reference_id=target.id,
+            note=f"管理员 {admin.username} 手动{verb}余额",
+        )
+        queue_notification(
+            db,target,title=title,
+            body=f"管理员{verb}余额 {money(abs(delta_cents))}，当前余额 {money(target.balance_cents)}。",
+            kind="billing",severity="info",
+            event_key=f"admin-balance-{action}:{target.id}:{int(datetime.utcnow().timestamp())}",
+        )
+        write_audit(
+            db,actor=admin,request=request,action=audit_action,target_type="user",target_id=target.id,target_name=target.username,
+            detail={"delta_cents":delta_cents,"balance_before_cents":int(target.balance_cents or 0)-delta_cents,"balance_after_cents":target.balance_cents},
+        )
+        db.commit()
+        flash(request,f"{target.username} 已{verb}余额 {money(abs(delta_cents))}，当前 {money(target.balance_cents)}。","success")
     return RedirectResponse("/admin?section=users",status_code=303)
 
 
@@ -4346,6 +4407,56 @@ def admin_backup_restore(
     return RedirectResponse("/admin?section=backups", status_code=303)
 
 
+@app.post("/admin/backups/{backup_name}/delete")
+def admin_backup_delete(
+    request: Request,
+    backup_name: str,
+    confirm_text: str = Form(...),
+    csrf_token: str = Form(...),
+):
+    validate_csrf(request, csrf_token)
+    if confirm_text.strip().lower() != "yes":
+        flash(request, "删除确认失败：请输入 yes。", "error")
+        return RedirectResponse("/admin?section=backups", status_code=303)
+
+    safe_name = Path(backup_name).name
+    with db_session() as db:
+        admin = admin_required(request, db)
+        actor_username = admin.username
+    try:
+        info = delete_backup(safe_name)
+        with db_session() as db:
+            write_audit(
+                db,
+                actor_username=actor_username,
+                request=request,
+                action="admin.backup.delete",
+                target_type="backup",
+                target_name=info["name"],
+                detail={"sha256": info["sha256"], "size": info["size"]},
+            )
+            db.commit()
+        flash(request, f"备份 {info['name']} 已删除，释放 {human_bytes(info['size'])}。", "success")
+    except Exception as exc:
+        try:
+            with db_session() as db:
+                write_audit(
+                    db,
+                    actor_username=actor_username,
+                    request=request,
+                    action="admin.backup.delete",
+                    target_type="backup",
+                    target_name=safe_name,
+                    detail={"error": str(exc)[:500]},
+                    success=False,
+                )
+                db.commit()
+        except Exception:
+            pass
+        flash(request, f"删除失败：{str(exc)[:180]}", "error")
+    return RedirectResponse("/admin?section=backups", status_code=303)
+
+
 @app.get("/admin/backups/{backup_name}/download")
 def admin_backup_download(request:Request,backup_name:str):
     with db_session() as db: admin=admin_required(request,db); write_audit(db,actor=admin,request=request,action="admin.backup.download",target_type="backup",target_name=Path(backup_name).name); db.commit()
@@ -4358,7 +4469,7 @@ def admin_backup_download(request:Request,backup_name:str):
 def health():
     return {
         "status": "ok",
-        "version": "1.3.2",
+        "version": "1.4.0",
         "provider": PROVIDER_NAME,
         "timezone": APP_TIMEZONE,
     }

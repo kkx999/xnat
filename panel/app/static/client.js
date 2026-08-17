@@ -186,6 +186,13 @@
   const themeToggle = document.querySelector("[data-client-theme-toggle]");
   const themeLabel = document.querySelector("[data-client-theme-label]");
   const normalizeTheme = (value) => value === "light" ? "light" : "dark";
+  let clientThemeTransitionTimer = null;
+  const beginClientThemeTransition = () => {
+    if (!root.classList.contains("client-body") || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    window.clearTimeout(clientThemeTransitionTimer);
+    themeRoot.classList.add("client-theme-switching");
+    clientThemeTransitionTimer = window.setTimeout(() => themeRoot.classList.remove("client-theme-switching"), 340);
+  };
   const updateThemeButton = () => {
     if (!themeToggle) return;
     const current = normalizeTheme(themeRoot.dataset.clientTheme);
@@ -200,6 +207,7 @@
     themeToggle.addEventListener("click", () => {
       const current = normalizeTheme(themeRoot.dataset.clientTheme);
       const next = current === "light" ? "dark" : "light";
+      beginClientThemeTransition();
       themeRoot.dataset.clientTheme = next;
       try { localStorage.setItem(themeStorageKey, next); } catch (_) {}
       updateThemeButton();
@@ -207,9 +215,42 @@
   }
   window.addEventListener("storage", (event) => {
     if (event.key !== themeStorageKey) return;
+    beginClientThemeTransition();
     themeRoot.dataset.clientTheme = normalizeTheme(event.newValue);
     updateThemeButton();
   });
+
+  // Customer navigation feedback: a very short route hand-off gives pointer/touch
+  // interactions time to render their pressed state and a thin top progress line.
+  // Only normal same-origin GET links are delayed; modifier clicks, downloads,
+  // targets, anchors and external URLs keep native browser behavior.
+  if (root.classList.contains("client-body")) {
+    const clientContent = document.querySelector(".client-content");
+    requestAnimationFrame(() => clientContent?.classList.add("xnat-page-enter"));
+
+    document.addEventListener("click", (event) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const link = event.target.closest?.("a[href]");
+      if (!link || !root.contains(link) || link.hasAttribute("download")) return;
+      const target = (link.getAttribute("target") || "").toLowerCase();
+      if (target && target !== "_self") return;
+      const rawHref = (link.getAttribute("href") || "").trim();
+      if (!rawHref || rawHref.startsWith("#") || /^(mailto:|tel:|javascript:)/i.test(rawHref)) return;
+      let url;
+      try { url = new URL(link.href, window.location.href); } catch (_) { return; }
+      if (url.origin !== window.location.origin || url.href === window.location.href) return;
+
+      event.preventDefault();
+      link.classList.add("is-route-pending");
+      root.classList.add("client-route-leaving");
+      window.setTimeout(() => window.location.assign(url.href), 70);
+    });
+
+    window.addEventListener("pageshow", () => {
+      root.classList.remove("client-route-leaving");
+      document.querySelectorAll(".is-route-pending").forEach((link) => link.classList.remove("is-route-pending"));
+    });
+  }
 
   // Admin theme uses its own preference so an operator can keep the customer
   // area and control panel in different modes. The light palette mirrors the
@@ -340,6 +381,11 @@
             <div><span>扣除后</span><strong data-xnat-confirm-after></strong></div>
           </div>
           <div class="xnat-confirm-effects" data-xnat-confirm-effects hidden></div>
+          <label class="xnat-confirm-input-wrap" data-xnat-confirm-input-wrap hidden>
+            <span data-xnat-confirm-input-label>输入确认内容</span>
+            <input class="xnat-confirm-input" data-xnat-confirm-input-field autocomplete="off" spellcheck="false">
+            <small data-xnat-confirm-input-error></small>
+          </label>
           <div class="xnat-confirm-note" data-xnat-confirm-note hidden></div>
           <div class="xnat-confirm-actions">
             <button class="xnat-confirm-cancel" type="button" data-xnat-confirm-cancel>返回</button>
@@ -378,6 +424,10 @@
       const moneyBox = backdrop.querySelector("[data-xnat-confirm-money]");
       const effects = backdrop.querySelector("[data-xnat-confirm-effects]");
       const note = backdrop.querySelector("[data-xnat-confirm-note]");
+      const inputWrap = backdrop.querySelector("[data-xnat-confirm-input-wrap]");
+      const inputLabel = backdrop.querySelector("[data-xnat-confirm-input-label]");
+      const inputField = backdrop.querySelector("[data-xnat-confirm-input-field]");
+      const inputError = backdrop.querySelector("[data-xnat-confirm-input-error]");
       const submit = backdrop.querySelector("[data-xnat-confirm-submit]");
       const tone = button.dataset.confirmTone || "default";
 
@@ -396,6 +446,14 @@
       effects.hidden = items.length === 0;
       effects.innerHTML = items.map((item) => `<div><span aria-hidden="true">✓</span><p>${item.replace(/[&<>\"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[ch]))}</p></div>`).join("");
 
+      const expectedInput = button.dataset.confirmInput || "";
+      inputWrap.hidden = !expectedInput;
+      inputLabel.textContent = button.dataset.confirmInputLabel || `输入 ${expectedInput} 确认`;
+      inputField.value = "";
+      inputField.placeholder = button.dataset.confirmInputPlaceholder || expectedInput;
+      inputError.textContent = "";
+      inputWrap.classList.remove("has-error");
+
       const noteText = button.dataset.confirmNote || "";
       note.hidden = !noteText;
       note.textContent = noteText;
@@ -405,14 +463,14 @@
       const icon = backdrop.querySelector(".xnat-confirm-icon span");
       icon.textContent = tone === "danger" ? "!" : tone === "billing" ? "↻" : "i";
 
-      active = {form, button};
+      active = {form, button, expectedInput};
       previousFocus = document.activeElement;
       backdrop.hidden = false;
       document.body.classList.add("xnat-confirm-open");
       requestAnimationFrame(() => {
         backdrop.classList.add("is-open");
         card.classList.add("is-ready");
-        submit.focus({preventScroll:true});
+        (expectedInput ? inputField : submit).focus({preventScroll:true});
       });
     };
 
@@ -431,7 +489,26 @@
       const submit = event.target.closest("[data-xnat-confirm-submit]");
       if (submit && active) {
         event.preventDefault();
-        const {form, button} = active;
+        const {form, button, expectedInput} = active;
+        if (expectedInput) {
+          const backdrop = document.querySelector("[data-xnat-confirm-backdrop]");
+          const inputWrap = backdrop?.querySelector("[data-xnat-confirm-input-wrap]");
+          const inputField = backdrop?.querySelector("[data-xnat-confirm-input-field]");
+          const inputError = backdrop?.querySelector("[data-xnat-confirm-input-error]");
+          const actual = (inputField?.value || "").trim();
+          const matches = expectedInput.toLowerCase() === "yes"
+            ? actual.toLowerCase() === "yes"
+            : actual === expectedInput;
+          if (!matches) {
+            inputWrap?.classList.add("has-error");
+            if (inputError) inputError.textContent = `请输入 ${expectedInput} 后再确认`;
+            inputField?.focus({preventScroll:true});
+            inputField?.select();
+            return;
+          }
+          const hiddenConfirm = form.querySelector('[name="confirm_text"][data-xnat-confirm-value]');
+          if (hiddenConfirm) hiddenConfirm.value = actual;
+        }
         close();
         form.dataset.xnatConfirmed = "true";
         window.setTimeout(() => form.requestSubmit(button), 40);
@@ -448,6 +525,9 @@
       if (event.key === "Escape") {
         event.preventDefault();
         close();
+      } else if (event.key === "Enter" && event.target.matches?.("[data-xnat-confirm-input-field]")) {
+        event.preventDefault();
+        backdrop.querySelector("[data-xnat-confirm-submit]")?.click();
       }
     });
     document.addEventListener("submit", (event) => {
@@ -550,3 +630,89 @@ document.addEventListener('DOMContentLoaded', () => {
     sync();
   });
 });
+
+// v1.4.0: admin console micro-interactions. This is deliberately UI-only:
+// routes, CSRF handling and backend form semantics remain unchanged.
+document.addEventListener('DOMContentLoaded', () => {
+  const adminBody = document.body?.classList.contains('admin-body') ? document.body : null;
+  if (!adminBody) return;
+
+  // Give admin theme changes the same soft hand-off as the approved client UI.
+  const adminThemeToggle = document.querySelector('[data-admin-theme-toggle]');
+  adminThemeToggle?.addEventListener('click', () => {
+    document.documentElement.classList.add('xnat-admin-theme-shifting');
+    window.setTimeout(() => document.documentElement.classList.remove('xnat-admin-theme-shifting'), 360);
+  }, {capture:true});
+
+  // Normal admin POSTs show immediate progress and are protected from double-clicks.
+  // Buttons that still need the shared confirmation modal are left untouched until
+  // the modal has actually confirmed the request.
+  document.querySelectorAll('.admin-body form').forEach((form) => {
+    form.addEventListener('submit', (event) => {
+      if (event.defaultPrevented || form.dataset.noLoading === 'true') return;
+      const submitter = event.submitter || form.querySelector('button[type="submit"], button:not([type])');
+      if (!submitter || submitter.disabled) return;
+      if (submitter.matches('[data-xnat-confirm]') && form.dataset.xnatConfirmed !== 'true') return;
+      submitter.dataset.originalText = submitter.textContent;
+      submitter.classList.add('is-loading');
+      submitter.disabled = true;
+      submitter.textContent = submitter.getAttribute('data-loading-label') || '处理中…';
+    });
+  });
+
+  // Internal GET navigation gets a very short visual acknowledgement before the
+  // next server-rendered admin page loads. Native modifier-click/new-tab/download
+  // behaviour is never intercepted.
+  let navigating = false;
+  let routeProgress = null;
+  const ensureRouteProgress = () => {
+    if (routeProgress) return routeProgress;
+    routeProgress = document.createElement('div');
+    routeProgress.className = 'xnat-route-progress';
+    routeProgress.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(routeProgress);
+    return routeProgress;
+  };
+  document.addEventListener('click', (event) => {
+    if (navigating || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const link = event.target.closest('.admin-body a[href]');
+    if (!link || link.target || link.hasAttribute('download')) return;
+    const raw = link.getAttribute('href') || '';
+    if (!raw || raw.startsWith('#') || raw.startsWith('javascript:') || raw.startsWith('mailto:') || raw.startsWith('tel:')) return;
+    let url;
+    try { url = new URL(link.href, window.location.href); } catch (_) { return; }
+    if (url.origin !== window.location.origin) return;
+    if (/(?:\/download|\/export)(?:\/|$)/.test(url.pathname)) return;
+    if (url.pathname === window.location.pathname && url.search === window.location.search && url.hash) return;
+    event.preventDefault();
+    navigating = true;
+    adminBody.classList.add('xnat-route-leaving');
+    const bar = ensureRouteProgress();
+    requestAnimationFrame(() => bar.classList.add('is-active'));
+    window.setTimeout(() => { window.location.href = url.href; }, 70);
+  });
+
+  window.addEventListener('pageshow', () => {
+    navigating = false;
+    adminBody.classList.remove('xnat-route-leaving');
+    document.querySelectorAll('.admin-body button.is-loading').forEach((button) => {
+      button.disabled = false;
+      button.classList.remove('is-loading');
+      if (button.dataset.originalText) button.textContent = button.dataset.originalText;
+    });
+    routeProgress?.classList.remove('is-active');
+  });
+});
+
+
+// v1.4.0: keep the client interaction layer isolated from admin
+// enhancements. Native <details> handles settings/record folding; this block only
+// adds a tiny state marker for styling/accessibility and does not change form logic.
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.admin-body details.settings-fold, .admin-body details.admin-record-fold').forEach((details) => {
+    const sync = () => details.classList.toggle('is-expanded', details.open);
+    sync();
+    details.addEventListener('toggle', sync);
+  });
+});
+

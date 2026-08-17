@@ -214,6 +214,15 @@ def safe_backup_path(backup_name: str) -> Path:
     return candidate
 
 
+def delete_backup(backup_name: str) -> dict:
+    """Delete one stored SQLite backup after applying the same path guard as restore/download."""
+    with BACKUP_LOCK:
+        path = safe_backup_path(backup_name)
+        info = _backup_row(path)
+        path.unlink()
+        return info
+
+
 def store_uploaded_backup(fileobj, original_name: str) -> dict:
     """Store an uploaded .db into BACKUP_DIR and validate it before keeping it."""
     original = Path(original_name or "").name

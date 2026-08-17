@@ -48,7 +48,7 @@ def host_request(host: HostNode, method: str, path: str, *, payload=None, timeou
         "X-NAT-Timestamp": ts,
         "X-NAT-Signature": _signature(token, ts, method, path, body),
         "Content-Type": "application/json",
-        "User-Agent": "XNAT-Panel/1.3.2",
+        "User-Agent": "XNAT-Panel/1.4.0",
     }
     try:
         with httpx.Client(verify=bool(host.verify_tls), timeout=timeout) as client:

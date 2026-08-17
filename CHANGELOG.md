@@ -1,5 +1,37 @@
 # Changelog
 
+## v1.4.0
+
+- 统一增强 Panel / Host `xnat` 运维体验：在 v1.3.3 已验证 CLI 基础上新增升级预检、增强系统诊断和 `xnat doctor report` 脱敏诊断报告。
+- 升级预检在写入系统前检查 Debian 12、磁盘空间、备份目录、systemd 与 Release 完整性；Panel 额外检查 SQLite `quick_check` 和已启用 Host 的 Agent API 兼容性，Host 额外检查 Incus、Agent `.env`、TLS 与 Agent API。
+- Panel 系统诊断新增数据库大小、最近备份、Nginx、HTTPS 证书剩余有效期等；Host 新增 Agent 端口、实例数量、NAT 端口池、LXC/KVM、`/dev/kvm` 与 Panel 白名单检查。
+- 新增 root-only (`0600`) 脱敏诊断报告，自动屏蔽 Token、Password、Secret、API Key、Authorization/Bearer、JWT、Bot Token 与 URL 凭据。
+- 管理后台工单升级为完整会话视图，按时间顺序展示用户与管理员全部历史消息，并支持消息正文搜索；活动工单与已关闭归档分区显示，已关闭工单默认折叠。
+- SQLite 备份管理新增手动删除，输入 `yes` 二次确认，保留 CSRF、路径校验和审计日志，并显示备份数量与总占用空间。
+- 用户前端完成交互与视觉收口：桌面侧栏取消大块分组蓝底，当前项采用圆润高亮；保留移动端 Drawer/折叠逻辑，并统一 hover、press、focus、页面进入、内部跳转进度与明暗主题过渡。
+- 账户安全页“登录会话 / 最近登录”默认各显示最近 3 条，其余 20 条安全记录可独立展开；双卡关闭状态等高，展开互不牵连，折叠箭头跨浏览器居中。
+- “邮件通知 / Telegram 通知”改为等宽等高 Switch 卡片，字段与后端语义保持不变。
+- 管理后台补齐与用户端一致但更克制的微交互，表单提交提供 loading / 防重复点击反馈，内部 GET 页面跳转提供轻量进度提示，并保留下载、外链、新窗口与 modifier-click 原生行为。
+- 后台通知服务、站点设置和长记录页面按功能分区折叠；通知发送记录默认折叠并限制单页 12 条；移除设置保存区和通知规则区域遗留的硬黑分隔线。
+- 管理后台用户余额操作明确拆分为“增加余额 / 扣除余额”，金额输入与两个操作按钮紧凑对齐；扣除使用统一确认弹窗，后端禁止余额变负，并继续写入余额流水、用户通知和审计日志。
+- 为兼容升级期间可能残留的旧页面缓存，后台余额接口继续接受旧版 signed amount `adjust` 请求；新版 UI 只提交明确的 credit/debit 正金额操作。
+- Panel 升级至 v1.4.0；Mobile API 保持 v1，Web Session + CSRF、购买与扣费链路保持兼容，不引入破坏性数据库迁移。
+- Host Agent 保持 v1.1.1 / Agent API v1；Host 更新只同步本 Release 的 CLI、预检与诊断能力，不改变 Agent 核心协议。
+- 正式支持 v1.3.3 → v1.4.0，并继续支持 v1.3.2 通过 additive migration 路径直接升级到 v1.4.0；升级前自动备份，失败继续使用既有回滚保护。
+
+## v1.3.3
+
+- 统一重构 Panel / Host 的 `xnat` 管理脚本交互层级，菜单标题、分隔、编号和输入提示保持一致。
+- 主菜单新增组件、组件版本、XNAT Release、服务运行状态展示；Host 额外显示 Agent API。
+- 等待输入统一使用醒目的 `▶ 请输入选项 [范围]`，成功 / 提示 / 错误使用 ✓ / ! / ✗ 区分，终端支持时自动使用颜色。
+- 非交互终端或设置 `NO_COLOR=1` 时自动关闭 ANSI 颜色，避免日志、管道和自动化任务出现转义字符。
+- 菜单操作完成后增加 `按 Enter 返回...` 停顿，避免执行结果立即被下一轮菜单覆盖；无效输入也会明确提示。
+- 实时日志明确提示 `Ctrl+C` 退出并返回菜单，避免退出 `journalctl -f` 时直接结束整个管理脚本。
+- 更新检查同时显示组件版本与 XNAT Release，并为后续“组件版本不变但同步管理脚本 / Release 文件”保留兼容路径。
+- Panel v1.3.3 不引入破坏性数据库结构变更，Mobile API 继续保持 v1，Web Session + CSRF 流程不变。
+- Host Agent 升级至 v1.1.1，仅用于向既有 Host 正式分发新的统一管理 CLI；Agent 核心运行逻辑与 Agent API 继续保持 v1。
+- 正式支持 v1.3.2 → v1.3.3 Panel 原地升级；升级前 quick_check、完整备份、健康检查与失败回滚逻辑保持不变。
+
 ## v1.3.2
 
 - 正式集成 XNAT Mobile API v1，为 XNAT Android v1.0.0 提供稳定的 `/api/v1` 接口。

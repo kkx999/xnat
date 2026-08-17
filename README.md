@@ -4,7 +4,32 @@
 
 XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、多宿主机节点、套餐、用户、流量、通知及日常运维。
 
-当前版本：**v1.3.2**
+当前版本：**v1.4.0**
+
+
+## v1.4.0 运维、交互与后台管理
+
+v1.4.0 在 v1.3.3 已验证的统一 `xnat` CLI 基础上，重点强化升级安全与服务器排障能力。Panel 与 Host 的“系统诊断”现在可检查磁盘、服务、端口、防火墙及组件关键状态，并可一键导出自动脱敏的诊断报告。
+
+升级流程新增 **升级预检**：正式写入文件前先下载并验证 Release 源码，检查 Debian 12、磁盘空间、备份目录、systemd、SQLite、Agent API 兼容、Incus/TLS 与升级脚本完整性；存在阻断问题时不会继续更新。
+
+同时，本版本完成了前后台体验收口：管理后台工单可查看完整历史会话并按状态分区归档；SQLite 备份支持安全删除；账户登录记录默认仅显示最近 3 条并可独立展开；通知偏好改为等尺寸 Switch；通知服务、站点设置与长记录页面按功能折叠；后台用户余额操作明确拆分为“增加余额 / 扣除余额”，扣除不会允许余额变负。用户前端和管理后台均保留实机验证通过的 hover / press / focus / 页面跳转进度与主题过渡反馈。
+
+Panel 与 Host 都建议同步到本 Release：
+
+```bash
+xnat update 1.4.0
+```
+
+需要导出排障信息时：
+
+```bash
+xnat doctor report
+```
+
+报告默认保存到 `/root/xnat-diagnostics/`，并自动脱敏 Token、密码、API Key、Authorization/Bearer、JWT 等敏感内容。
+
+版本关系：**XNAT Release v1.4.0 / Panel v1.4.0 / Mobile API v1 / Host Agent v1.1.1 / Agent API v1**。Host Agent 运行核心与 Agent API 不变；Host 更新主要同步 v1.4.0 的管理 CLI、预检和诊断能力。
 
 
 ## v1.3.2 Android / Mobile API v1
@@ -76,7 +101,7 @@ Panel 与 Host 都需要执行更新；Host 首次升级到 Agent v1.1.0 时会�
 - 用户端与管理后台独立深色 / 明亮主题
 - 统一 Toast、Switch、网页确认 Modal 与操作反馈
 - 独立公告中心：历史公告、未读提示、首次登录重点公告与后台公告管理
-- `xnat` 统一管理命令
+- `xnat` 统一管理命令、升级预检、增强系统诊断与脱敏诊断报告
 
 ---
 
@@ -128,23 +153,44 @@ Host 连接 Panel 成功后，在 Panel 后台节点设置中配置 NAT 端口�
 
 ---
 
-# 指定 v1.3.2 安装
+# 指定 v1.4.0 安装
 
 Panel：
 
 ```bash
-XNAT_VERSION=1.3.2 \
+XNAT_VERSION=1.4.0 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
 Host：
 
 ```bash
-XNAT_VERSION=1.3.2 \
+XNAT_VERSION=1.4.0 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-host.sh)
 ```
 
-> `XNAT_VERSION=1.3.2` 指 XNAT Release 版本。XNAT v1.3.2 使用 **Panel v1.3.2 / Mobile API v1 / Host Agent v1.1.0 / Agent API v1**。
+> `XNAT_VERSION=1.4.0` 指 XNAT Release 版本。XNAT v1.4.0 使用 **Panel v1.4.0 / Mobile API v1 / Host Agent v1.1.1 / Agent API v1**。
+
+---
+
+# 从 v1.3.2 / v1.3.3 升级到 v1.4.0
+
+Panel：
+
+```bash
+xnat update 1.4.0
+```
+
+Host：
+
+```bash
+xnat update 1.4.0
+```
+
+更新命令会先执行 v1.4.0 升级预检并验证下载的 Release，再询问是否继续。Panel 会保留 `.env`、SQLite、用户、余额、订单、VPS、Host、套餐、端口、工单与支付数据，并继续执行升级前后 `PRAGMA quick_check`、完整备份、健康检查与失败回滚。Host 会保留 Agent Token、TLS、Incus、natpool、虚拟化配置和现有 VPS。
+
+Host Agent 仍为 **v1.1.1 / Agent API v1**；已经运行 v1.1.1 的 Host 仍建议执行本次 Release 更新，以同步新的升级预检、增强诊断和脱敏报告能力。
+
 
 ---
 
