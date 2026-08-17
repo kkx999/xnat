@@ -1,4 +1,4 @@
-# XNAT v1.3.2 详细使用文档
+# XNAT v1.4.0 详细使用文档
 
 > 本文档负责详细说明 XNAT 的安装和运维。  
 > 根目录 `README.md` 保持简洁，具体操作以这里为准。
@@ -72,15 +72,15 @@ bash <(...)
 # 3. 指定版本安装 Panel
 
 ```bash
-XNAT_VERSION=1.3.2 \
+XNAT_VERSION=1.4.0 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
 ```text
-XNAT_VERSION=1.3.2
+XNAT_VERSION=1.4.0
 ```
 
-表示固定安装 Release `v1.3.2`，不自动跟随以后发布的新版本。
+表示固定安装 Release `v1.4.0`，不自动跟随以后发布的新版本。
 
 ---
 
@@ -1551,3 +1551,39 @@ v1.3.2 正式集成 `/api/v1` Mobile API v1。升级保留 `.env`、SQLite、用
 如果 v1.3.1 已经手工应用 Mobile API dev1～dev5，也直接执行同一升级命令即可。正式版会统一覆盖代码，不需要清理旧 API 文件或重建数据库。
 
 Host Agent 仍为 v1.1.0 / Agent API v1，不需要更新。Mobile API 详细接口见 `docs/MOBILE_API.md`。
+
+# 37. v1.3.2 → v1.3.3 与统一管理 CLI
+
+现有 v1.3.2 Panel：
+
+```bash
+xnat update 1.3.3
+```
+
+现有 Host Agent v1.1.0：
+
+```bash
+xnat update 1.3.3
+```
+
+v1.3.3 统一 Panel / Host 的 `xnat` 管理脚本交互。主菜单显示组件、组件版本、XNAT Release 和运行状态；Host 额外显示 Agent API。等待输入统一使用 `▶ 请输入选项 [范围]`，操作结束后按 Enter 返回，成功 / 提示 / 错误使用独立状态符号和终端颜色。设置 `NO_COLOR=1` 可关闭颜色。
+
+Panel 升级到 v1.3.3，不增加破坏性数据库迁移；Mobile API 继续保持 v1。Host Agent 升级到 v1.1.1，主要用于让现有 v1.1.0 Host 通过原有更新机制获得新版管理 CLI；Agent API 继续保持 v1，Agent Token、TLS、Incus、natpool、虚拟化配置和现有 VPS 均保留。
+
+
+
+# 38. v1.4.0 运维可靠性升级
+
+现有 Panel / Host：
+
+```bash
+xnat update 1.4.0
+```
+
+v1.4.0 在 v1.3.3 统一 CLI 基础上增加三项运维能力：
+
+- **升级预检**：下载 Release 后、写入系统前检查 Debian 12、磁盘空间、备份目录、systemd、SQLite、Agent API 兼容、Incus/TLS 和 Release 升级脚本完整性；阻断项未通过时不会执行升级。
+- **增强系统诊断**：Panel 增加磁盘、数据库大小、最近备份、Nginx、HTTPS 证书剩余天数等检查；Host 增加 Agent 端口、实例数量、NAT 端口池、虚拟化模式、KVM、Panel 白名单等检查。
+- **脱敏诊断报告**：`xnat doctor report` 或管理菜单“系统诊断 → 导出脱敏诊断报告”生成 `/root/xnat-diagnostics/xnat-diagnostic-*.txt`，权限为 600。报告包含版本、服务、磁盘、数据库/Incus、防火墙与最近日志，并自动屏蔽 Token、密码、API Key、Bearer/JWT 等敏感信息。
+
+版本关系：XNAT Release v1.4.0 / Panel v1.4.0 / Mobile API v1 / Host Agent v1.1.1 / Agent API v1。v1.4.0 不改变 Host Agent API，不引入破坏性数据库迁移。

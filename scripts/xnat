@@ -30,13 +30,133 @@ AGENT_API_VERSION_FILE="${XNAT_AGENT_API_VERSION_FILE:-${AGENT_DIR}/API_VERSION}
 COMPONENT_FILE="${XNAT_COMPONENT_FILE:-${XNAT_ETC_DIR}/component}"
 VERSION_FILE="${XNAT_VERSION_FILE:-${XNAT_ETC_DIR}/version}"
 RELEASE_FILE="${XNAT_RELEASE_FILE:-${XNAT_ETC_DIR}/release}"
+DIAGNOSTIC_DIR="${XNAT_DIAGNOSTIC_DIR:-/root/xnat-diagnostics}"
+UPDATE_MIN_FREE_MB="${XNAT_UPDATE_MIN_FREE_MB:-512}"
+OS_RELEASE_FILE="${XNAT_OS_RELEASE_FILE:-/etc/os-release}"
+NODE_CONFIG_FILE="${XNAT_NODE_CONFIG_FILE:-/etc/xnat/node.json}"
 
-info(){ echo; echo "==== $* ===="; }
-warn(){ echo "[WARN] $*" >&2; }
-die(){ echo "[ERROR] $*" >&2; exit 1; }
+# CLI colors are enabled only for an interactive terminal. Set NO_COLOR=1 to disable.
+XNAT_RESET=""
+XNAT_BOLD=""
+XNAT_DIM=""
+XNAT_CYAN=""
+XNAT_GREEN=""
+XNAT_YELLOW=""
+XNAT_RED=""
+if [[ -t 1 && "${TERM:-}" != "dumb" && -z "${NO_COLOR:-}" ]]; then
+  XNAT_RESET=$'\033[0m'
+  XNAT_BOLD=$'\033[1m'
+  XNAT_DIM=$'\033[2m'
+  XNAT_CYAN=$'\033[36m'
+  XNAT_GREEN=$'\033[32m'
+  XNAT_YELLOW=$'\033[33m'
+  XNAT_RED=$'\033[31m'
+fi
+
+info(){ echo; printf '%b\n' "${XNAT_CYAN}${XNAT_BOLD}==== $* ====${XNAT_RESET}"; }
+warn(){ printf '%b\n' "${XNAT_YELLOW}! $*${XNAT_RESET}" >&2; }
+die(){ printf '%b\n' "${XNAT_RED}✗ $*${XNAT_RESET}" >&2; exit 1; }
 need_root(){ [[ ${EUID:-$(id -u)} -eq 0 ]] || die "请使用 root 运行 xnat 管理命令"; }
 
 have(){ command -v "$1" >/dev/null 2>&1; }
+
+ui_rule(){ printf '%b\n' "${XNAT_DIM}----------------------------------------------------${XNAT_RESET}"; }
+ui_success(){ printf '%b\n' "${XNAT_GREEN}✓${XNAT_RESET} $*"; }
+ui_notice(){ printf '%b\n' "${XNAT_YELLOW}!${XNAT_RESET} $*"; }
+ui_error(){ printf '%b\n' "${XNAT_RED}✗${XNAT_RESET} $*"; }
+ui_section(){
+  echo
+  printf '%b\n' "${XNAT_CYAN}${XNAT_BOLD}$*${XNAT_RESET}"
+  ui_rule
+}
+prompt_choice(){
+  local range="$1" __name="$2" value=""
+  printf '%b' "${XNAT_YELLOW}${XNAT_BOLD}▶${XNAT_RESET} 请输入选项 ${XNAT_DIM}[${range}]${XNAT_RESET}："
+  IFS= read -r value || return 1
+  printf -v "$__name" '%s' "$value"
+}
+pause_return(){
+  [[ -t 0 ]] || return 0
+  echo
+  printf '%b' "${XNAT_DIM}按 Enter 返回...${XNAT_RESET}"
+  IFS= read -r _ || true
+}
+
+human_bytes(){
+  local bytes="${1:-0}"
+  if have numfmt; then
+    numfmt --to=iec-i --suffix=B "$bytes" 2>/dev/null || printf '%s bytes\n' "$bytes"
+  else
+    python3 - "$bytes" <<'PY'
+import sys
+try:
+    n=float(sys.argv[1])
+except Exception:
+    n=0
+units=['B','KiB','MiB','GiB','TiB']
+i=0
+while n >= 1024 and i < len(units)-1:
+    n /= 1024
+    i += 1
+print(f"{n:.1f} {units[i]}" if i else f"{int(n)} {units[i]}")
+PY
+  fi
+}
+
+fs_available_mb(){
+  local path="${1:-/}"
+  df -Pm "$path" 2>/dev/null | awk 'NR==2 {print $4}'
+}
+
+latest_panel_backup(){
+  local root="${PANEL_DIR}/data/backups"
+  [[ -d "$root" ]] || return 0
+  find "$root" -maxdepth 1 -type f -name 'panel-*.db' -printf '%T@\t%p\n' 2>/dev/null \
+    | sort -nr | sed -n '1p' | cut -f2-
+}
+
+certificate_days_remaining(){
+  local cert="$1" end epoch now
+  [[ -s "$cert" ]] || return 1
+  end="$(openssl x509 -enddate -noout -in "$cert" 2>/dev/null | cut -d= -f2-)"
+  [[ -n "$end" ]] || return 1
+  epoch="$(date -d "$end" +%s 2>/dev/null || true)"
+  [[ "$epoch" =~ ^[0-9]+$ ]] || return 1
+  now="$(date +%s)"
+  echo $(( (epoch - now) / 86400 ))
+}
+
+host_instance_count(){
+  have incus || { echo 0; return 0; }
+  incus list --format csv -c n 2>/dev/null | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' '
+}
+
+host_nat_pool_summary(){
+  python3 - "$NODE_CONFIG_FILE" <<'PY'
+import json, sys
+try:
+    data=json.load(open(sys.argv[1], encoding='utf-8'))
+    start=int(data.get('nat_port_start'))
+    end=int(data.get('nat_port_end'))
+    if not 1024 <= start <= end <= 65535:
+        raise ValueError
+    print(f"{start}-{end}|{end-start+1}")
+except Exception:
+    print("未配置|0")
+PY
+}
+
+host_used_nat_ports(){
+  have incus || { echo 0; return 0; }
+  local name
+  {
+    while IFS= read -r name; do
+      [[ -n "$name" ]] || continue
+      incus config show "$name" --expanded 2>/dev/null \
+        | sed -nE 's/^[[:space:]]*listen:[[:space:]]*(tcp|udp):.*:([0-9]+)[[:space:]]*$/\2/p'
+    done < <(incus list --format csv -c n 2>/dev/null || true)
+  } | sort -nu | wc -l | tr -d ' '
+}
 
 ensure_packages(){
   local missing=()
@@ -774,6 +894,39 @@ current_agent_api_version(){
   echo "${v:-unknown}"
 }
 
+current_release(){
+  local v=""
+  [[ -f "$RELEASE_FILE" ]] && v="$(tr -d '[:space:]' < "$RELEASE_FILE" 2>/dev/null || true)"
+  echo "${v:-unknown}"
+}
+
+print_menu_header(){
+  local role="$1" service="" version release
+  version="$(current_version "$role")"
+  release="$(current_release)"
+  case "$role" in
+    panel) service="$PANEL_SERVICE" ;;
+    host) service="$AGENT_SERVICE" ;;
+  esac
+
+  echo
+  printf '%b\n' "${XNAT_CYAN}${XNAT_BOLD}XNAT 管理脚本${XNAT_RESET}"
+  ui_rule
+  printf '组件       %s\n' "$(component_label "$role")"
+  printf '版本       v%s\n' "$version"
+  [[ "$release" != unknown ]] && printf 'Release    v%s\n' "$release"
+  if [[ "$role" == host ]]; then
+    printf 'Agent API  v%s\n' "$(current_agent_api_version)"
+  fi
+  printf '状态       '
+  if systemctl is-active --quiet "$service" 2>/dev/null; then
+    printf '%b\n' "${XNAT_GREEN}● 运行中${XNAT_RESET}"
+  else
+    printf '%b\n' "${XNAT_RED}● 未运行${XNAT_RESET}"
+  fi
+  ui_rule
+}
+
 write_runtime_meta(){
   local role="$1" version="$2" release="${3:-}"
   install -d -m 0755 "$XNAT_ETC_DIR"
@@ -912,37 +1065,202 @@ target_component_version(){
   esac
 }
 
+preflight_ok(){ ui_success "$*"; }
+preflight_fail(){ ui_error "$*"; return 1; }
+preflight_warn(){ ui_notice "$*"; }
+
+verify_release_tree(){
+  local tree="$1" release="$2" role="$3" target="$4" script meta_release meta_target
+  [[ -f "$tree/VERSION" && -f "$tree/release.json" ]] || return 1
+  [[ "$(tr -d '[:space:]' < "$tree/VERSION")" == "$release" ]] || return 1
+  meta_release="$(python3 - "$tree/release.json" <<'PY'
+import json,sys
+try: print(json.load(open(sys.argv[1], encoding='utf-8')).get('release_version',''))
+except Exception: print('')
+PY
+)"
+  [[ "$meta_release" == "$release" ]] || return 1
+  case "$role" in
+    panel) script="scripts/upgrade-panel.sh"; meta_target="$(python3 - "$tree/release.json" <<'PY'
+import json,sys
+try: print(json.load(open(sys.argv[1], encoding='utf-8')).get('panel_version',''))
+except Exception: print('')
+PY
+)" ;;
+    host) script="scripts/upgrade-host-agent.sh"; meta_target="$(python3 - "$tree/release.json" <<'PY'
+import json,sys
+try: print(json.load(open(sys.argv[1], encoding='utf-8')).get('agent_version',''))
+except Exception: print('')
+PY
+)" ;;
+  esac
+  [[ "$meta_target" == "$target" ]] || return 1
+  [[ -f "$tree/$script" && -f "$tree/scripts/xnat" && -f "$tree/scripts/xnat-firewall" ]] || return 1
+  bash -n "$tree/$script" "$tree/scripts/xnat" "$tree/scripts/xnat-firewall" >/dev/null 2>&1
+}
+
+panel_agent_api_preflight(){
+  local release="$1" supported raw unknown seen api bad=0
+  supported="$(release_meta_value "$release" supported_agent_api_versions 2>/dev/null || true)"
+  [[ -n "$supported" ]] || { preflight_warn "Release 未声明 supported_agent_api_versions"; return 0; }
+  [[ -f "$PANEL_DB" ]] || { preflight_fail "未找到 Panel 数据库"; return 1; }
+  if ! raw="$(sqlite3 "$PANEL_DB" "SELECT DISTINCT COALESCE(agent_api_version,'') FROM host_nodes WHERE enabled=1 AND COALESCE(agent_api_version,'')<>'' ORDER BY 1;" 2>/dev/null)"; then
+    preflight_fail "无法读取 Host Agent API 版本"
+    return 1
+  fi
+  if ! unknown="$(sqlite3 "$PANEL_DB" "SELECT COUNT(*) FROM host_nodes WHERE enabled=1 AND COALESCE(agent_api_version,'')='';" 2>/dev/null)"; then
+    preflight_fail "无法统计未上报 Agent API 的启用节点"
+    return 1
+  fi
+  [[ "$unknown" =~ ^[0-9]+$ ]] || unknown=0
+  (( unknown > 0 )) && preflight_warn "有 ${unknown} 个启用节点尚未上报 Agent API，无法确认其兼容性"
+  if [[ -z "$raw" ]]; then
+    preflight_ok "Agent API：当前没有已上报 API 版本的启用节点"
+    return 0
+  fi
+  while IFS= read -r api; do
+    [[ -n "$api" ]] || continue
+    if [[ ",${supported}," == *",${api},"* ]]; then
+      seen="${seen:+$seen, }v${api}"
+    else
+      preflight_fail "Agent API v${api} 不在 Release v${release} 支持范围（${supported}）" || true
+      bad=1
+    fi
+  done <<< "$raw"
+  ((bad == 0)) && preflight_ok "Agent API 兼容：${seen:-v?}"
+  return "$bad"
+}
+
+run_update_preflight(){
+  local role="$1" release="$2" target="$3" tree="${4:-}" fails=0 available db_bytes db_mb required_mb tmpcheck api current_api service load_state
+  ui_section "升级预检"
+  printf '组件              %s\n' "$(component_label "$role")"
+  printf '当前组件版本      v%s\n' "$(current_version "$role")"
+  printf '目标 XNAT Release v%s\n' "$release"
+  printf '目标组件版本      v%s\n' "$target"
+  echo
+
+  if [[ -r "$OS_RELEASE_FILE" ]] && grep -q '^ID=debian' "$OS_RELEASE_FILE" && grep -q '^VERSION_CODENAME=bookworm' "$OS_RELEASE_FILE"; then
+    preflight_ok "Debian 12 Bookworm"
+  else
+    preflight_fail "当前正式版要求 Debian 12 Bookworm" || true; ((fails+=1))
+  fi
+
+  available="$(fs_available_mb /root)"
+  available="${available:-0}"
+  required_mb="$UPDATE_MIN_FREE_MB"
+  if [[ "$role" == panel && -f "$PANEL_DB" ]]; then
+    db_bytes="$(stat -c %s "$PANEL_DB" 2>/dev/null || echo 0)"
+    db_mb=$(( (db_bytes + 1048575) / 1048576 ))
+    (( db_mb * 3 + 256 > required_mb )) && required_mb=$(( db_mb * 3 + 256 ))
+  fi
+  if [[ "$available" =~ ^[0-9]+$ ]] && (( available >= required_mb )); then
+    preflight_ok "磁盘空间：${available} MB 可用（需要至少 ${required_mb} MB）"
+  else
+    preflight_fail "磁盘空间不足：${available} MB 可用，至少需要 ${required_mb} MB" || true; ((fails+=1))
+  fi
+
+  install -d -m 0700 /root/xnat-backups
+  tmpcheck="/root/xnat-backups/.xnat-write-test.$$"
+  if (umask 077; : > "$tmpcheck") 2>/dev/null; then
+    rm -f "$tmpcheck"
+    preflight_ok "升级备份目录可写"
+  else
+    preflight_fail "升级备份目录不可写：/root/xnat-backups" || true; ((fails+=1))
+  fi
+
+  case "$role" in panel) service="$PANEL_SERVICE" ;; host) service="$AGENT_SERVICE" ;; esac
+  load_state="$(systemctl show "$service" -p LoadState --value 2>/dev/null || true)"
+  if [[ "$load_state" == loaded ]]; then
+    preflight_ok "systemd 服务已加载：${service}"
+  else
+    preflight_fail "systemd 服务未加载：${service}" || true; ((fails+=1))
+  fi
+
+  if [[ "$role" == panel ]]; then
+    if [[ -f "$PANEL_DB" ]] && sqlite3 "$PANEL_DB" 'PRAGMA quick_check;' 2>/dev/null | grep -qx 'ok'; then
+      preflight_ok "SQLite quick_check"
+    else
+      preflight_fail "SQLite quick_check 失败" || true; ((fails+=1))
+    fi
+    if panel_agent_api_preflight "$release"; then :; else ((fails+=1)); fi
+    [[ -f "$PANEL_ENV" ]] && preflight_ok "Panel .env 存在" || { preflight_fail "Panel .env 缺失" || true; ((fails+=1)); }
+  else
+    current_api="$(current_agent_api_version)"
+    api="$(release_meta_value "$release" agent_api_version 2>/dev/null || true)"
+    if [[ -n "$api" && "$api" == "$current_api" ]]; then
+      preflight_ok "Agent API：v${current_api} → v${api}（兼容）"
+    elif [[ -n "$api" && "${XNAT_ALLOW_AGENT_API_CHANGE:-0}" == 1 ]]; then
+      preflight_warn "Agent API 将从 v${current_api} 变为 v${api}；已通过 XNAT_ALLOW_AGENT_API_CHANGE=1 放行"
+    elif [[ -n "$api" ]]; then
+      preflight_fail "Agent API 将从 v${current_api} 变为 v${api}；为避免与旧 Panel 不兼容，默认阻止。确认 Panel 已兼容后可设置 XNAT_ALLOW_AGENT_API_CHANGE=1" || true; ((fails+=1))
+    else
+      preflight_fail "Release 缺少 Agent API 版本" || true; ((fails+=1))
+    fi
+    have incus && incus version >/dev/null 2>&1 && preflight_ok "Incus 可用" || { preflight_fail "Incus 不可用" || true; ((fails+=1)); }
+    [[ -f "$AGENT_ENV" ]] && preflight_ok "Agent .env 存在" || { preflight_fail "Agent .env 缺失" || true; ((fails+=1)); }
+    [[ -s "$AGENT_DIR/tls/agent.crt" && -s "$AGENT_DIR/tls/agent.key" ]] && preflight_ok "Agent TLS 文件存在" || { preflight_fail "Agent TLS 文件缺失" || true; ((fails+=1)); }
+  fi
+
+  if [[ -n "$tree" ]]; then
+    if verify_release_tree "$tree" "$release" "$role" "$target"; then
+      preflight_ok "Release 源码与升级脚本完整性检查"
+    else
+      preflight_fail "Release 源码完整性检查失败" || true; ((fails+=1))
+    fi
+  fi
+
+  echo
+  if ((fails == 0)); then
+    ui_success "升级预检全部通过；执行更新前会自动创建完整备份"
+    return 0
+  fi
+  ui_error "升级预检发现 ${fails} 个阻断问题，已停止更新"
+  return 1
+}
+
 show_update_check(){
-  local role current release target api
+  local role current current_rel release target api
   role="$(detect_role)"
   current="$(current_version "$role")"
+  current_rel="$(current_release)"
   release="$(resolve_latest_release)"
   target="$(target_component_version "$release" "$role")"
   [[ -n "$target" ]] || die "Release v${release} 缺少组件版本信息"
 
-  echo "组件：$(component_label "$role")"
-  echo "当前组件版本：v${current}"
-  echo "最新 XNAT Release：v${release}"
-  echo "该 Release 中的组件版本：v${target}"
+  ui_section "检查结果"
+  printf '组件             %s\n' "$(component_label "$role")"
+  printf '当前组件版本     v%s\n' "$current"
+  [[ "$current_rel" != unknown ]] && printf '当前 XNAT Release v%s\n' "$current_rel"
+  printf '最新 XNAT Release v%s\n' "$release"
+  printf 'Release 组件版本 v%s\n' "$target"
   if [[ "$role" == host ]]; then
     api="$(release_meta_value "$release" agent_api_version)"
-    echo "Agent API：v${api:-?}"
+    printf 'Agent API        v%s\n' "${api:-?}"
   fi
+  echo
 
-  if [[ "$current" == "$target" ]]; then
-    echo "状态：当前组件无需更新"
+  if [[ "$current" == "$target" && "$current_rel" == "$release" ]]; then
+    ui_success "当前组件已是最新版本"
+  elif [[ "$current" == "$target" ]]; then
+    if [[ "$current_rel" == unknown ]]; then
+      ui_notice "组件版本相同，但当前 Release 记录缺失；可同步到 Release v${release} 的管理脚本与发布文件"
+    else
+      ui_notice "组件版本相同，但当前 Release 为 v${current_rel}；可同步到 Release v${release} 的管理脚本与发布文件"
+    fi
   elif [[ "$current" != unknown ]] && dpkg --compare-versions "$target" lt "$current"; then
-    echo "状态：当前组件版本高于该 Release"
+    ui_notice "当前组件版本高于该 Release"
   else
-    echo "状态：发现组件更新"
+    ui_notice "发现组件更新：v${current} → v${target}"
   fi
 }
 
 cmd_update(){
   need_root
-  local arg="${1:-}" role current release target script tmp top answer installed
+  local arg="${1:-}" role current current_rel release target script tmp top tree answer installed
   role="$(detect_role)"
   current="$(current_version "$role")"
+  current_rel="$(current_release)"
 
   if [[ "$arg" == check ]]; then
     show_update_check
@@ -960,54 +1278,70 @@ cmd_update(){
   [[ -n "$target" ]] || die "Release v${release} 缺少组件版本信息"
   valid_version "$target" || die "Release v${release} 的组件版本无效：$target"
 
-  echo "XNAT 更新"
+  ui_section "XNAT 更新"
   echo "组件：$(component_label "$role")"
   echo "当前组件：v${current}"
+  [[ "$current_rel" != unknown ]] && echo "当前 Release：v${current_rel}"
   echo "目标 Release：v${release}"
   echo "目标组件：v${target}"
 
-  if [[ "$current" == "$target" ]]; then
-    echo "该 Release 不包含当前组件的新版本，无需更新。"
+  if [[ "$current" == "$target" && "$current_rel" == "$release" ]]; then
+    ui_success "当前组件与 Release 均无需更新"
     return 0
+  fi
+
+  if [[ "$current" == "$target" ]]; then
+    if [[ "$current_rel" != unknown ]] && valid_version "$current_rel" && dpkg --compare-versions "$release" lt "$current_rel" && [[ "${XNAT_ALLOW_DOWNGRADE:-0}" != 1 ]]; then
+      die "目标 XNAT Release 低于当前 Release。若确需降级，请设置 XNAT_ALLOW_DOWNGRADE=1。"
+    fi
+    ui_notice "组件版本保持 v${target}，将同步 Release v${release} 的管理脚本与发布文件"
   fi
 
   if [[ "$current" != unknown ]] && dpkg --compare-versions "$target" lt "$current" && [[ "${XNAT_ALLOW_DOWNGRADE:-0}" != 1 ]]; then
     die "目标组件版本低于当前版本。若确需降级，请设置 XNAT_ALLOW_DOWNGRADE=1。"
   fi
 
-  if [[ "${XNAT_UPDATE_ASSUME_YES:-0}" != 1 ]]; then
-    if [[ -t 0 ]]; then
-      read -r -p "确认更新 $(component_label "$role") 到 v${target}？[y/N]: " answer
-      [[ "$answer" =~ ^[Yy]$ ]] || { echo "已取消。"; return 0; }
-    else
-      die "非交互更新请设置 XNAT_UPDATE_ASSUME_YES=1"
-    fi
-  fi
-
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' RETURN
-  echo "正在下载 XNAT Release v${release}..."
+  echo
+  echo "正在下载并验证 XNAT Release v${release}..."
   curl -fL --retry 3 --connect-timeout 15 \
     "https://github.com/${XNAT_REPO}/archive/refs/tags/v${release}.tar.gz" \
     -o "$tmp/xnat.tar.gz"
   top="$(tar -tzf "$tmp/xnat.tar.gz" | awk -F/ 'NR == 1 { print $1 }')"
   [[ -n "$top" ]] || die "无法解析 XNAT 源码包"
   tar -xzf "$tmp/xnat.tar.gz" -C "$tmp"
+  tree="$tmp/$top"
 
   case "$role" in
     panel) script="scripts/upgrade-panel.sh" ;;
     host) script="scripts/upgrade-host-agent.sh" ;;
   esac
-  [[ -f "$tmp/$top/$script" ]] || die "目标 Release 缺少更新脚本：$script"
 
-  XNAT_UPDATE_TARGET_RELEASE="$release" bash "$tmp/$top/$script"
+  run_update_preflight "$role" "$release" "$target" "$tree" || return 1
+
+  if [[ "${XNAT_UPDATE_ASSUME_YES:-0}" != 1 ]]; then
+    if [[ -t 0 ]]; then
+      if [[ "$current" == "$target" ]]; then
+        printf '%b' "${XNAT_YELLOW}${XNAT_BOLD}▶${XNAT_RESET} 确认同步 $(component_label "$role") 到 XNAT Release v${release}？[y/N]: "
+      else
+        printf '%b' "${XNAT_YELLOW}${XNAT_BOLD}▶${XNAT_RESET} 确认更新 $(component_label "$role") 到 v${target}？[y/N]: "
+      fi
+      IFS= read -r answer || answer=""
+      [[ "$answer" =~ ^[Yy]$ ]] || { echo "已取消。"; rm -rf "$tmp"; trap - RETURN; return 0; }
+    else
+      die "非交互更新请设置 XNAT_UPDATE_ASSUME_YES=1"
+    fi
+  fi
+
+  XNAT_UPDATE_TARGET_RELEASE="$release" bash "$tree/$script"
   rm -rf "$tmp"
   trap - RETURN
 
   installed="$(current_version "$role")"
   write_runtime_meta "$role" "$installed" "$release"
   echo
-  echo "更新完成：$(component_label "$role") v${installed}"
+  ui_success "更新完成：$(component_label "$role") v${installed} / XNAT Release v${release}"
 }
 
 cmd_firewall(){
@@ -1020,63 +1354,291 @@ cmd_firewall(){
   fi
 }
 
-doctor_ok(){ printf '  [OK]   %s\n' "$*"; }
-doctor_fail(){ printf '  [FAIL] %s\n' "$*"; return 1; }
-doctor_warn(){ printf '  [WARN] %s\n' "$*"; }
+doctor_ok(){ printf '  %b✓%b %s\n' "$XNAT_GREEN" "$XNAT_RESET" "$*"; }
+doctor_fail(){ printf '  %b✗%b %s\n' "$XNAT_RED" "$XNAT_RESET" "$*"; return 1; }
+doctor_warn(){ printf '  %b!%b %s\n' "$XNAT_YELLOW" "$XNAT_RESET" "$*"; }
 
 cmd_doctor(){
   need_root
-  local role fails=0 port pool bridge
+  local role fails=0 port pool bridge available db_bytes backup backup_time domain https cert days
+  local instances nat_summary nat_range nat_total used modes kvm panel_cidr
   role="$(detect_role)"
   echo "XNAT 系统诊断"
-  echo "组件：$(component_label "$role") v$(current_version "$role")"
+  echo "组件：$(component_label "$role") v$(current_version "$role") / Release v$(current_release)"
+  [[ "$role" == host ]] && echo "Agent API：v$(current_agent_api_version)"
+  echo
 
-  if [[ -r /etc/os-release ]] && grep -q '^VERSION_CODENAME=bookworm' /etc/os-release; then
+  if [[ -r "$OS_RELEASE_FILE" ]] && grep -q '^ID=debian' "$OS_RELEASE_FILE" && grep -q '^VERSION_CODENAME=bookworm' "$OS_RELEASE_FILE"; then
     doctor_ok "Debian 12 Bookworm"
   else
     doctor_warn "当前系统不是 Debian 12 Bookworm"
   fi
 
+  available="$(fs_available_mb /)"; available="${available:-0}"
+  if [[ "$available" =~ ^[0-9]+$ ]] && (( available >= 1024 )); then
+    doctor_ok "系统磁盘：${available} MB 可用"
+  else
+    doctor_warn "系统磁盘剩余空间偏低：${available} MB"
+  fi
+
   if [[ "$role" == panel ]]; then
     systemctl is-active --quiet "$PANEL_SERVICE" && doctor_ok "Panel service 运行中" || { doctor_fail "Panel service 未运行" || true; ((fails+=1)); }
     curl -fsS --max-time 3 "http://${PANEL_BIND}:${PANEL_PORT}/health" >/dev/null 2>&1 && doctor_ok "Panel /health 正常" || { doctor_fail "Panel /health 失败" || true; ((fails+=1)); }
-    if ss -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)127\\.0\\.0\\.1:${PANEL_PORT}$|^127\\.0\\.0\\.1:${PANEL_PORT}$"; then
+    if ss -lntH 2>/dev/null | awk -v p="127.0.0.1:${PANEL_PORT}" '$4==p {found=1} END{exit !found}'; then
       doctor_ok "Panel 仅监听 ${PANEL_BIND}:${PANEL_PORT}"
-    elif ss -lnt 2>/dev/null | grep -q ":${PANEL_PORT} "; then
+    elif ss -lntH 2>/dev/null | awk -v p=":${PANEL_PORT}" '$4 ~ p"$" {found=1} END{exit !found}'; then
       doctor_fail "Panel ${PANEL_PORT} 不是 loopback-only，请立即检查" || true; ((fails+=1))
     else
       doctor_fail "未发现 Panel ${PANEL_PORT} 监听" || true; ((fails+=1))
     fi
+    systemctl is-active --quiet nginx && doctor_ok "Nginx service 运行中" || { doctor_fail "Nginx service 未运行" || true; ((fails+=1)); }
     nginx -t >/dev/null 2>&1 && doctor_ok "Nginx 配置正常" || { doctor_fail "Nginx 配置校验失败" || true; ((fails+=1)); }
-    [[ -f "$PANEL_DB" ]] && sqlite3 "$PANEL_DB" 'PRAGMA quick_check;' 2>/dev/null | grep -qx 'ok' && doctor_ok "SQLite quick_check 正常" || { doctor_fail "SQLite 检查失败" || true; ((fails+=1)); }
+    if [[ -f "$PANEL_DB" ]]; then
+      db_bytes="$(stat -c %s "$PANEL_DB" 2>/dev/null || echo 0)"
+      sqlite3 "$PANEL_DB" 'PRAGMA quick_check;' 2>/dev/null | grep -qx 'ok' && doctor_ok "SQLite quick_check 正常 · 数据库 $(human_bytes "$db_bytes")" || { doctor_fail "SQLite 检查失败" || true; ((fails+=1)); }
+    else
+      doctor_fail "Panel 数据库不存在：${PANEL_DB}" || true; ((fails+=1))
+    fi
+    backup="$(latest_panel_backup)"
+    if [[ -n "$backup" && -f "$backup" ]]; then
+      backup_time="$(stat -c '%y' "$backup" 2>/dev/null | cut -d. -f1 || true)"
+      doctor_ok "最近 Panel 备份：${backup_time:-unknown} · $(basename "$backup")"
+    else
+      doctor_warn "尚未发现 Panel 数据库备份"
+    fi
     systemctl is-active --quiet xnat-firewall.service && doctor_ok "XNAT 敏感端口防火墙运行中" || { doctor_fail "XNAT 防火墙未运行" || true; ((fails+=1)); }
     if [[ -f "$STATE_FILE" ]]; then
-      local domain https cert
       domain="$(state_get domain)"; https="$(state_get https_enabled)"; cert="$(state_get certificate)"
       [[ -n "$domain" ]] && doctor_ok "域名：${domain}" || doctor_warn "尚未配置域名"
       if [[ "$https" == true ]]; then
-        [[ -n "$cert" && -s "$cert" ]] && doctor_ok "HTTPS 证书存在" || { doctor_fail "HTTPS 已启用但证书文件异常" || true; ((fails+=1)); }
+        if [[ -n "$cert" && -s "$cert" ]]; then
+          days="$(certificate_days_remaining "$cert" 2>/dev/null || true)"
+          if [[ "$days" =~ ^-?[0-9]+$ ]] && (( days < 0 )); then
+            doctor_fail "HTTPS 证书已过期" || true; ((fails+=1))
+          elif [[ "$days" =~ ^[0-9]+$ ]] && (( days <= 14 )); then
+            doctor_warn "HTTPS 证书剩余 ${days} 天，请关注续期"
+          elif [[ "$days" =~ ^[0-9]+$ ]]; then
+            doctor_ok "HTTPS 证书正常 · 剩余 ${days} 天"
+          else
+            doctor_warn "HTTPS 证书存在，但无法计算剩余天数"
+          fi
+        else
+          doctor_fail "HTTPS 已启用但证书文件异常" || true; ((fails+=1))
+        fi
       fi
+    else
+      doctor_warn "未发现 XNAT 域名状态文件"
     fi
   else
     port="$(agent_port)"
     systemctl is-active --quiet "$AGENT_SERVICE" && doctor_ok "Host Agent service 运行中" || { doctor_fail "Host Agent service 未运行" || true; ((fails+=1)); }
     curl -kfsS --max-time 3 "https://127.0.0.1:${port}/health" >/dev/null 2>&1 && doctor_ok "Host Agent /health 正常" || { doctor_fail "Host Agent /health 失败" || true; ((fails+=1)); }
+    if ss -lntH 2>/dev/null | awk -v p=":${port}" '$4 ~ p"$" {found=1} END{exit !found}'; then
+      doctor_ok "Agent 端口监听：${port}/TCP"
+    else
+      doctor_fail "未发现 Agent ${port}/TCP 监听" || true; ((fails+=1))
+    fi
+    doctor_ok "Agent API：v$(current_agent_api_version)"
     have incus && incus version >/dev/null 2>&1 && doctor_ok "Incus 正常" || { doctor_fail "Incus 不可用" || true; ((fails+=1)); }
     pool="$(grep -E '^INCUS_STORAGE_POOL=' "$AGENT_ENV" | tail -n1 | cut -d= -f2- || true)"; pool="${pool:-natpool}"
     bridge="$(grep -E '^INCUS_BRIDGE=' "$AGENT_ENV" | tail -n1 | cut -d= -f2- || true)"; bridge="${bridge:-incusbr0}"
     incus storage show "$pool" >/dev/null 2>&1 && doctor_ok "Storage：${pool}" || { doctor_fail "Storage ${pool} 不可用" || true; ((fails+=1)); }
     incus network show "$bridge" >/dev/null 2>&1 && doctor_ok "Bridge：${bridge}" || { doctor_fail "Bridge ${bridge} 不可用" || true; ((fails+=1)); }
+    instances="$(host_instance_count)"
+    doctor_ok "当前实例：${instances}"
+    nat_summary="$(host_nat_pool_summary)"; nat_range="${nat_summary%%|*}"; nat_total="${nat_summary#*|}"
+    if [[ "$nat_total" =~ ^[0-9]+$ ]] && (( nat_total > 0 )); then
+      used="$(host_used_nat_ports)"; used="${used:-0}"
+      doctor_ok "NAT 端口池：${nat_range} · 已使用 ${used}/${nat_total}"
+    else
+      doctor_warn "NAT 端口池尚未配置"
+    fi
+    modes="$(python3 - "$NODE_CONFIG_FILE" <<'PY_MODES'
+import json,sys
+try:
+    d=json.load(open(sys.argv[1], encoding='utf-8'))
+    modes=d.get('virtualization_modes') or ['lxc']
+    if isinstance(modes,str): modes=[x.strip() for x in modes.split(',') if x.strip()]
+    print(' + '.join(str(x).upper() for x in modes))
+except Exception:
+    print('LXC')
+PY_MODES
+)"
+    kvm=false; [[ -c /dev/kvm && -r /dev/kvm && -w /dev/kvm ]] && kvm=true
+    if [[ "$modes" == *KVM* && "$kvm" != true ]]; then
+      doctor_fail "虚拟化配置：${modes}，但 /dev/kvm 不可用" || true; ((fails+=1))
+    else
+      doctor_ok "虚拟化配置：${modes}$([[ "$modes" == *KVM* ]] && echo ' · /dev/kvm 可用')"
+    fi
+    panel_cidr="$(grep -E '^PANEL_CIDR=' "$AGENT_ENV" | tail -n1 | cut -d= -f2- || true)"
+    [[ -n "$panel_cidr" ]] && doctor_ok "Panel 白名单：${panel_cidr}" || doctor_warn "Agent .env 未配置 PANEL_CIDR"
     systemctl is-active --quiet xnat-firewall.service && doctor_ok "Agent 敏感端口防火墙运行中" || { doctor_fail "XNAT 防火墙未运行" || true; ((fails+=1)); }
   fi
 
   echo
   if ((fails == 0)); then
-    echo "诊断结果：通过"
+    ui_success "诊断结果：全部通过"
   else
-    echo "诊断结果：发现 ${fails} 个需要处理的问题"
+    ui_error "诊断结果：发现 ${fails} 个需要处理的问题"
     return 1
   fi
+}
+
+redact_diagnostic_report(){
+  local raw="$1" output="$2"
+  python3 - "$raw" "$output" "$PANEL_ENV" "$AGENT_ENV" <<'PY_REDACT'
+from pathlib import Path
+import re, sys
+raw=Path(sys.argv[1]); output=Path(sys.argv[2])
+text=raw.read_text(encoding='utf-8', errors='replace')
+secrets=[]
+key_re=re.compile(r'(TOKEN|PASSWORD|PASSWD|SECRET|PRIVATE_KEY|API_KEY|APP_SECRET|COOKIE|AUTHORIZATION|SMTP_PASS|ENCRYPTION_KEY)', re.I)
+for name in sys.argv[3:]:
+    p=Path(name)
+    if not p.is_file():
+        continue
+    for line in p.read_text(encoding='utf-8', errors='ignore').splitlines():
+        if '=' not in line or line.lstrip().startswith('#'):
+            continue
+        key,value=line.split('=',1)
+        if not key_re.search(key):
+            continue
+        value=value.strip().strip('"').strip("'")
+        if len(value) >= 6:
+            secrets.append(value)
+for value in sorted(set(secrets), key=len, reverse=True):
+    text=text.replace(value, '[REDACTED]')
+text=re.sub(r'\x1b\[[0-9;]*m', '', text)
+text=re.sub(r'(?im)^(Authorization[ \t]*:[ \t]*(?:Bearer|Basic)[ \t]+)[^\r\n]+', r'\1[REDACTED]', text)
+text=re.sub(r'(?im)^(Set-Cookie[ \t]*:)[^\r\n]+', r'\1 [REDACTED]', text)
+text=re.sub(r'(?i)(Bearer\s+)[A-Za-z0-9._~+/=-]{12,}', r'\1[REDACTED]', text)
+text=re.sub(r'(?i)([?&](?:token|api_key|apikey|password|secret|key)=)[^&\s]+', r'\1[REDACTED]', text)
+text=re.sub(r'://([^/\s:@]+):([^@\s/]+)@', r'://\1:[REDACTED]@', text)
+text=re.sub(r'\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b', '[REDACTED-JWT]', text)
+text=re.sub(r'\b\d{6,}:[A-Za-z0-9_-]{20,}\b', '[REDACTED-BOT-TOKEN]', text)
+text=re.sub(r'-----BEGIN [^-\r\n]*PRIVATE KEY-----.*?-----END [^-\r\n]*PRIVATE KEY-----', '[REDACTED-PRIVATE-KEY]', text, flags=re.S)
+text=re.sub(r'(?i)\b((?!AUTHORIZATION\b)[A-Z0-9_]*(?:TOKEN|PASSWORD|PASSWD|SECRET|PRIVATE_KEY|API_KEY|APP_SECRET|COOKIE|SMTP_PASS|ENCRYPTION_KEY)[A-Z0-9_]*)[ \t]*([=:])[ \t]*([^\s,;]+)', r'\1\2[REDACTED]', text)
+output.write_text(text, encoding='utf-8')
+PY_REDACT
+  chmod 0600 "$output"
+}
+
+cmd_diagnostic_report(){
+  need_root
+  local role ts report raw port pool bridge
+  role="$(detect_role)"
+  ts="$(date +'%Y%m%d-%H%M%S')"
+  install -d -m 0700 "$DIAGNOSTIC_DIR"
+  report="${DIAGNOSTIC_DIR}/xnat-diagnostic-${role}-${ts}.txt"
+  raw="$(mktemp)"
+  chmod 0600 "$raw"
+
+  {
+    echo "XNAT Diagnostic Report"
+    echo "Generated: $(date -Is)"
+    echo "Component: $(component_label "$role")"
+    echo "Version: $(current_version "$role")"
+    echo "XNAT Release: $(current_release)"
+    [[ "$role" == host ]] && echo "Agent API: $(current_agent_api_version)"
+    echo "Hostname: $(hostname 2>/dev/null || echo unknown)"
+    echo "Kernel: $(uname -srmo 2>/dev/null || true)"
+    echo "Uptime: $(uptime -p 2>/dev/null || true)"
+    echo
+    echo "===== DOCTOR ====="
+    cmd_doctor || true
+    echo
+    echo "===== FILESYSTEM ====="
+    df -hT / "$PANEL_DIR" "$AGENT_DIR" 2>/dev/null | awk '!seen[$0]++' || true
+    echo
+    echo "===== SYSTEMD ====="
+    if [[ "$role" == panel ]]; then
+      systemctl --no-pager --full status "$PANEL_SERVICE" 2>&1 | sed -n '1,25p' || true
+      systemctl --no-pager --full status nginx 2>&1 | sed -n '1,20p' || true
+      systemctl --no-pager --full status xnat-firewall.service 2>&1 | sed -n '1,20p' || true
+      echo
+      echo "===== DOMAIN / HTTPS ====="
+      cmd_domain_status 2>&1 || true
+      echo
+      echo "===== DATABASE ====="
+      [[ -f "$PANEL_DB" ]] && {
+        echo "Path: $PANEL_DB"
+        echo "Size: $(human_bytes "$(stat -c %s "$PANEL_DB" 2>/dev/null || echo 0)")"
+        printf 'quick_check: '; sqlite3 "$PANEL_DB" 'PRAGMA quick_check;' 2>&1 || true
+        printf 'enabled_nodes_by_api: '; sqlite3 "$PANEL_DB" "SELECT COALESCE(agent_api_version,'unknown')||'='||COUNT(*) FROM host_nodes WHERE enabled=1 GROUP BY COALESCE(agent_api_version,'unknown') ORDER BY 1;" 2>/dev/null | paste -sd ', ' - || true
+      }
+      echo
+      echo "===== RECENT BACKUPS ====="
+      find "${PANEL_DIR}/data/backups" -maxdepth 1 -type f -name 'panel-*.db' -printf '%TY-%Tm-%Td %TH:%TM:%TS %s %f\n' 2>/dev/null | sort -r | head -n 8 || true
+      find /root/xnat-backups -maxdepth 1 -mindepth 1 -type d -printf '%TY-%Tm-%Td %TH:%TM:%TS %f\n' 2>/dev/null | sort -r | head -n 5 || true
+      echo
+      echo "===== NGINX CHECK ====="
+      nginx -t 2>&1 || true
+      echo
+      echo "===== FIREWALL ====="
+      xnat-firewall status 2>&1 || true
+      echo
+      echo "===== PANEL JOURNAL (last 120 lines) ====="
+      journalctl -u "$PANEL_SERVICE" -n 120 --no-pager -o short-iso 2>&1 || true
+    else
+      port="$(agent_port)"
+      pool="$(grep -E '^INCUS_STORAGE_POOL=' "$AGENT_ENV" | tail -n1 | cut -d= -f2- || true)"; pool="${pool:-natpool}"
+      bridge="$(grep -E '^INCUS_BRIDGE=' "$AGENT_ENV" | tail -n1 | cut -d= -f2- || true)"; bridge="${bridge:-incusbr0}"
+      systemctl --no-pager --full status "$AGENT_SERVICE" 2>&1 | sed -n '1,25p' || true
+      systemctl --no-pager --full status xnat-firewall.service 2>&1 | sed -n '1,20p' || true
+      echo
+      echo "===== AGENT HEALTH ====="
+      curl -kfsS --max-time 5 "https://127.0.0.1:${port}/health" 2>&1 || true; echo
+      echo
+      echo "===== INCUS ====="
+      incus version 2>&1 || true
+      echo "Storage: ${pool}"; incus storage show "$pool" 2>&1 | sed -n '1,80p' || true
+      echo "Bridge: ${bridge}"; incus network show "$bridge" 2>&1 | sed -n '1,80p' || true
+      echo "Instances:"; incus list --format csv -c ns4t 2>&1 || true
+      echo
+      echo "===== NAT / VIRTUALIZATION ====="
+      python3 - "$NODE_CONFIG_FILE" <<'PY_NODE' 2>&1 || true
+import json,sys
+try:
+    d=json.load(open(sys.argv[1], encoding='utf-8'))
+except Exception:
+    d={}
+print('nat_port_start:', d.get('nat_port_start','未配置'))
+print('nat_port_end:', d.get('nat_port_end','未配置'))
+print('virtualization_modes:', ','.join(d.get('virtualization_modes') or ['lxc']))
+PY_NODE
+      echo "used_nat_ports: $(host_used_nat_ports)"
+      echo "kvm_device: $([[ -c /dev/kvm && -r /dev/kvm && -w /dev/kvm ]] && echo available || echo unavailable)"
+      echo
+      echo "===== FIREWALL ====="
+      xnat-firewall status 2>&1 || true
+      echo
+      echo "===== HOST JOURNAL (last 120 lines) ====="
+      journalctl -u "$AGENT_SERVICE" -n 120 --no-pager -o short-iso 2>&1 || true
+    fi
+  } > "$raw" 2>&1
+
+  redact_diagnostic_report "$raw" "$report"
+  rm -f "$raw"
+  ui_success "脱敏诊断报告已生成：${report}"
+  echo "权限：600（仅 root 可读）"
+}
+
+interactive_diagnostics(){
+  local n
+  while true; do
+    ui_section "系统诊断"
+    echo "  1  运行系统诊断"
+    echo "  2  导出脱敏诊断报告"
+    echo "  0  返回"
+    echo
+    prompt_choice "0-2" n || return 0
+    case "$n" in
+      1) ui_section "诊断结果"; cmd_doctor || true; pause_return ;;
+      2) ui_section "导出诊断报告"; cmd_diagnostic_report; pause_return ;;
+      0) return ;;
+      *) ui_error "无效选择：${n}"; pause_return ;;
+    esac
+  done
 }
 
 backup_root(){ echo "${PANEL_DIR}/data/backups"; }
@@ -1256,150 +1818,185 @@ cmd_uninstall(){
 }
 
 interactive_domain(){
+  local n d y c
   while true; do
-    echo
+    ui_section "域名与 HTTPS"
     cmd_domain_status
     echo
-    echo "1. 设置 / 更换域名"
-    echo "2. 续期证书"
-    echo "3. 强制重新申请证书"
-    echo "4. 取消托管域名"
-    echo "5. 刷新 Cloudflare IP 段"
-    echo "6. Cloudflare 源站保护"
-    echo "0. 返回"
-    read -r -p "请选择: " n
+    echo "  1  设置 / 更换域名"
+    echo "  2  续期证书"
+    echo "  3  强制重新申请证书"
+    echo "  4  取消托管域名"
+    echo "  5  刷新 Cloudflare IP 段"
+    echo "  6  Cloudflare 源站保护"
+    echo "  0  返回"
+    echo
+    prompt_choice "0-6" n || return 0
     case "$n" in
-      1) read -r -p "域名: " d; cmd_domain_set "$d" ;;
-      2) cmd_domain_renew ;;
-      3) cmd_domain_renew --force ;;
-      4) read -r -p "确认取消域名配置？[y/N]: " y; [[ "$y" =~ ^[Yy]$ ]] && cmd_domain_remove ;;
-      5) cmd_cloudflare_refresh ;;
+      1)
+        read -r -p "域名: " d
+        cmd_domain_set "$d"
+        pause_return
+        ;;
+      2) cmd_domain_renew; pause_return ;;
+      3) cmd_domain_renew --force; pause_return ;;
+      4)
+        read -r -p "确认取消域名配置？[y/N]: " y
+        if [[ "$y" =~ ^[Yy]$ ]]; then
+          cmd_domain_remove
+        else
+          ui_notice "已取消"
+        fi
+        pause_return
+        ;;
+      5) cmd_cloudflare_refresh; pause_return ;;
       6)
-        echo "1. 查看状态"
-        echo "2. 启用源站保护"
-        echo "3. 关闭源站保护"
-        read -r -p "请选择: " c
+        ui_section "Cloudflare 源站保护"
+        echo "  1  查看状态"
+        echo "  2  启用源站保护"
+        echo "  3  关闭源站保护"
+        echo "  0  返回"
+        echo
+        prompt_choice "0-3" c || return 0
         case "$c" in
-          1) cmd_cloudflare_protect status ;;
-          2) cmd_cloudflare_protect enable ;;
-          3) cmd_cloudflare_protect disable ;;
-          *) echo "无效选择" ;;
+          1) cmd_cloudflare_protect status; pause_return ;;
+          2) cmd_cloudflare_protect enable; pause_return ;;
+          3) cmd_cloudflare_protect disable; pause_return ;;
+          0) ;;
+          *) ui_error "无效选择：${c}"; pause_return ;;
         esac
         ;;
       0) return ;;
-      *) echo "无效选择" ;;
+      *) ui_error "无效选择：${n}"; pause_return ;;
     esac
   done
 }
 
 interactive_update(){
-  local current v n
-  current="$(current_version)"
-  echo
-  echo "当前组件版本：v${current}"
-  echo "1. 检查最新正式 Release"
-  echo "2. 更新当前组件"
-  echo "3. 指定 XNAT Release 更新"
-  echo "0. 返回"
-  read -r -p "请选择: " n
-  case "$n" in
-    1) show_update_check ;;
-    2) cmd_update ;;
-    3) read -r -p "目标 XNAT Release（例如 1.3.2）: " v; cmd_update "$v" ;;
-    0) return ;;
-    *) echo "无效选择" ;;
-  esac
+  local role current v n
+  role="$(detect_role)"
+  while true; do
+    current="$(current_version "$role")"
+    ui_section "检查 / 更新 $(component_label "$role")"
+    printf '当前组件版本：v%s\n' "$current"
+    [[ "$(current_release)" != unknown ]] && printf '当前 XNAT Release：v%s\n' "$(current_release)"
+    echo
+    echo "  1  检查最新正式 Release"
+    echo "  2  更新当前组件"
+    echo "  3  指定 XNAT Release 更新"
+    echo "  0  返回"
+    echo
+    prompt_choice "0-3" n || return 0
+    case "$n" in
+      1) show_update_check; pause_return ;;
+      2) cmd_update || true; pause_return ;;
+      3)
+        read -r -p "目标 XNAT Release（例如 1.4.0）: " v
+        cmd_update "$v" || true
+        pause_return
+        ;;
+      0) return ;;
+      *) ui_error "无效选择：${n}"; pause_return ;;
+    esac
+  done
 }
 
 interactive_backup(){
   local n name
   while true; do
+    ui_section "XNAT Panel 数据库"
+    echo "  1  创建备份"
+    echo "  2  查看备份"
+    echo "  3  恢复备份"
+    echo "  0  返回"
     echo
-    echo "XNAT Panel 数据库"
-    echo "1. 创建备份"
-    echo "2. 查看备份"
-    echo "3. 恢复备份"
-    echo "0. 返回"
-    read -r -p "请选择: " n
+    prompt_choice "0-3" n || return 0
     case "$n" in
-      1) cmd_backup ;;
-      2) cmd_backup_list ;;
-      3) read -r -p "备份名称（留空后查看列表）: " name; cmd_restore "$name" ;;
+      1) cmd_backup; pause_return ;;
+      2) cmd_backup_list; pause_return ;;
+      3)
+        read -r -p "备份名称（留空后查看列表）: " name
+        cmd_restore "$name"
+        pause_return
+        ;;
       0) return ;;
-      *) echo "无效选择" ;;
+      *) ui_error "无效选择：${n}"; pause_return ;;
     esac
   done
 }
 
 interactive_panel_menu(){
+  local n
   while true; do
+    print_menu_header panel
     echo
-    echo "================================"
-    echo "        XNAT 管理脚本"
-    echo "================================"
-    echo "当前组件：Panel"
-    echo "当前版本：v$(current_version panel)"
+    echo "  1  查看运行状态"
+    echo "  2  重启 Panel"
+    echo "  3  查看实时日志"
+    echo "  4  域名与 HTTPS"
+    echo "  5  数据库备份 / 恢复"
+    echo "  6  检查 / 更新 Panel"
+    echo "  7  查看 XNAT 防火墙"
+    echo "  8  系统诊断"
+    echo "  9  卸载 Panel"
+    echo "  0  退出"
     echo
-    echo "1. 查看运行状态"
-    echo "2. 重启 Panel"
-    echo "3. 查看实时日志"
-    echo "4. 域名与 HTTPS"
-    echo "5. 数据库备份 / 恢复"
-    echo "6. 检查 / 更新 Panel"
-    echo "7. 查看 XNAT 防火墙"
-    echo "8. 系统诊断"
-    echo "9. 卸载 Panel"
-    echo "0. 退出"
-    read -r -p "请选择: " n
+    prompt_choice "0-9" n || exit 0
     case "$n" in
-      1) cmd_panel_status ;;
-      2) cmd_restart ;;
-      3) cmd_logs ;;
+      1) ui_section "Panel 运行状态"; cmd_panel_status; pause_return ;;
+      2) ui_section "重启 Panel"; cmd_restart; ui_success "Panel 重启完成"; pause_return ;;
+      3)
+        ui_section "Panel 实时日志"
+        ui_notice "按 Ctrl+C 退出实时日志并返回菜单"
+        cmd_logs || true
+        pause_return
+        ;;
       4) interactive_domain ;;
       5) interactive_backup ;;
       6) interactive_update ;;
-      7) cmd_firewall status ;;
-      8) cmd_doctor ;;
-      9) cmd_uninstall ;;
+      7) ui_section "XNAT 防火墙"; cmd_firewall status; pause_return ;;
+      8) interactive_diagnostics ;;
+      9) ui_section "卸载 Panel"; cmd_uninstall; exit 0 ;;
       0) exit 0 ;;
-      *) echo "无效选择" ;;
+      *) ui_error "无效选择：${n}"; pause_return ;;
     esac
   done
 }
 
 interactive_host_menu(){
+  local n
   while true; do
+    print_menu_header host
     echo
-    echo "================================"
-    echo "        XNAT 管理脚本"
-    echo "================================"
-    echo "当前组件：Host Agent"
-    echo "当前版本：v$(current_version host)"
-    echo "Agent API：v$(current_agent_api_version)"
+    echo "  1  查看运行状态"
+    echo "  2  重启 Host Agent"
+    echo "  3  查看实时日志"
+    echo "  4  查看 XNAT 防火墙"
+    echo "  5  修改允许的 Panel IP"
+    echo "  6  轮换 Agent Token"
+    echo "  7  检查 / 更新 Host Agent"
+    echo "  8  系统诊断"
+    echo "  9  卸载 Host Agent"
+    echo "  0  退出"
     echo
-    echo "1. 查看运行状态"
-    echo "2. 重启 Host Agent"
-    echo "3. 查看实时日志"
-    echo "4. 查看 XNAT 防火墙"
-    echo "5. 修改允许的 Panel IP"
-    echo "6. 轮换 Agent Token"
-    echo "7. 检查 / 更新 Host Agent"
-    echo "8. 系统诊断"
-    echo "9. 卸载 Host Agent"
-    echo "0. 退出"
-    read -r -p "请选择: " n
+    prompt_choice "0-9" n || exit 0
     case "$n" in
-      1) cmd_host_status ;;
-      2) cmd_restart ;;
-      3) cmd_logs ;;
-      4) cmd_firewall status ;;
-      5) cmd_set_panel_ip ;;
-      6) cmd_token_rotate ;;
+      1) ui_section "Host Agent 运行状态"; cmd_host_status; pause_return ;;
+      2) ui_section "重启 Host Agent"; cmd_restart; ui_success "Host Agent 重启完成"; pause_return ;;
+      3)
+        ui_section "Host Agent 实时日志"
+        ui_notice "按 Ctrl+C 退出实时日志并返回菜单"
+        cmd_logs || true
+        pause_return
+        ;;
+      4) ui_section "XNAT 防火墙"; cmd_firewall status; pause_return ;;
+      5) ui_section "允许的 Panel IP"; cmd_set_panel_ip; pause_return ;;
+      6) ui_section "轮换 Agent Token"; cmd_token_rotate; pause_return ;;
       7) interactive_update ;;
-      8) cmd_doctor ;;
-      9) cmd_uninstall ;;
+      8) interactive_diagnostics ;;
+      9) ui_section "卸载 Host Agent"; cmd_uninstall; exit 0 ;;
       0) exit 0 ;;
-      *) echo "无效选择" ;;
+      *) ui_error "无效选择：${n}"; pause_return ;;
     esac
   done
 }
@@ -1418,7 +2015,14 @@ case "${1:-}" in
   status) shift; cmd_status "$@" ;;
   restart) shift; cmd_restart "$@" ;;
   logs) shift; cmd_logs "$@" ;;
-  doctor) shift; cmd_doctor "$@" ;;
+  doctor)
+    shift
+    case "${1:-}" in
+      "") cmd_doctor ;;
+      report) shift; cmd_diagnostic_report "$@" ;;
+      *) die "用法：xnat doctor [report]" ;;
+    esac
+    ;;
   backup)
     shift
     case "${1:-}" in
@@ -1464,5 +2068,5 @@ case "${1:-}" in
       *) die "用法：xnat cloudflare [refresh|protect]" ;;
     esac
     ;;
-  *) die "用法：xnat [version|status|restart|logs|doctor|backup|restore|update|token|panel-ip|firewall|domain|cloudflare|uninstall]" ;;
+  *) die "用法：xnat [version|status|restart|logs|doctor|backup|restore|update|token|panel-ip|firewall|domain|cloudflare|uninstall]；诊断报告：xnat doctor report" ;;
 esac

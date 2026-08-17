@@ -31,7 +31,7 @@ PY_CHECK
   mode="${mode,,}"
   if [[ -z "$mode" && -t 0 ]]; then
     echo
-    echo "首次升级到 Agent v1.1.0：请选择 Host 虚拟化模式。"
+    echo "首次启用 Agent v1.1.x 虚拟化能力：请选择 Host 虚拟化模式。"
     echo "  LXC：✓ 可用"
     if [[ "$kvm_ok" == "true" ]]; then
       echo "  KVM：✓ 可用"

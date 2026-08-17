@@ -37,15 +37,17 @@ CURRENT_VERSION="$(grep -E '^__version__[[:space:]]*=' "${TARGET_DIR}/app/__init
 CURRENT_VERSION="${CURRENT_VERSION:-unknown}"
 
 case "$CURRENT_VERSION" in
+  1.3.3) UPGRADE_PATH="verified-v1.3.3" ;;
+  1.3.2) UPGRADE_PATH="verified-v1.3.2" ;;
   1.3.1) UPGRADE_PATH="verified-v1.3.1" ;;
   1.3.0) UPGRADE_PATH="verified-v1.3.0" ;;
   1.2.0) UPGRADE_PATH="verified-v1.2.0" ;;
   1.1.1) UPGRADE_PATH="legacy-v1.1.1"; warn "当前为 v1.1.1；推荐先升级 v1.2.0，再升级 v${COMPONENT_VERSION}。此升级器仍使用 additive migration 保持兼容。" ;;
   "$COMPONENT_VERSION") UPGRADE_PATH="reapply" ;;
-  1.1.0) UPGRADE_PATH="legacy-v1.1.0"; warn "当前为 v1.1.0；v${COMPONENT_VERSION} 的正式升级验收基线包含 v1.3.1 / v1.3.0 / v1.2.0，建议先执行 xnat update 1.1.1。" ;;
-  1.1.*) UPGRADE_PATH="compatible-v1.1.x"; warn "当前为 v${CURRENT_VERSION}；v${COMPONENT_VERSION} 的正式升级验收基线包含 v1.3.1 / v1.3.0 / v1.2.0。" ;;
+  1.1.0) UPGRADE_PATH="legacy-v1.1.0"; warn "当前为 v1.1.0；v${COMPONENT_VERSION} 的正式升级验收基线包含 v1.3.2 / v1.3.1 / v1.3.0 / v1.2.0，建议先执行 xnat update 1.1.1。" ;;
+  1.1.*) UPGRADE_PATH="compatible-v1.1.x"; warn "当前为 v${CURRENT_VERSION}；v${COMPONENT_VERSION} 的正式升级验收基线包含 v1.3.2 / v1.3.1 / v1.3.0 / v1.2.0。" ;;
   1.0.2) UPGRADE_PATH="legacy-v1.0.2"; warn "当前为 v1.0.2；建议按正式版本链先升级到 v1.1.1，再升级到 v${COMPONENT_VERSION}。此升级器仍保留 additive schema 兼容检查。" ;;
-  1.0.*) UPGRADE_PATH="legacy-v1.0.x"; warn "当前为 v${CURRENT_VERSION}；v${COMPONENT_VERSION} 正式升级验收基线包含 v1.3.1 / v1.3.0 / v1.2.0，建议先升级到 v1.1.1。" ;;
+  1.0.*) UPGRADE_PATH="legacy-v1.0.x"; warn "当前为 v${CURRENT_VERSION}；v${COMPONENT_VERSION} 正式升级验收基线包含 v1.3.2 / v1.3.1 / v1.3.0 / v1.2.0，建议先升级到 v1.1.1。" ;;
   *) die "不支持从 v${CURRENT_VERSION} 直接使用此脚本升级到 v${COMPONENT_VERSION}" ;;
 esac
 

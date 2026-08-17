@@ -67,6 +67,11 @@ grep -q 'install -m 0755.*scripts/xnat.*usr/local/sbin/xnat' scripts/install-pan
 grep -q 'install -m 0755.*scripts/xnat.*usr/local/sbin/xnat' scripts/install-host.sh
 grep -q 'upgrade-panel.sh' scripts/xnat
 grep -q 'upgrade-host-agent.sh' scripts/xnat
+grep -q 'prompt_choice()' scripts/xnat
+grep -q 'pause_return()' scripts/xnat
+grep -q 'print_menu_header()' scripts/xnat
+grep -q '按 Ctrl+C 退出实时日志并返回菜单' scripts/xnat
+grep -q '组件版本相同，但当前 Release' scripts/xnat
 grep -q 'xnat doctor' README.md || true
 
 # v1.0.x Host UX contract: NAT user port range is configured only after the
@@ -99,8 +104,8 @@ grep -q 'traffic_cycle_mode' panel/app/models.py
 grep -q 'queue_admin_notification' panel/app/nodes.py
 grep -q 'admin.payment.repair_no_tx' panel/app/main.py
 grep -q 'FORCE CREDIT' panel/app/templates/admin.html
-grep -q "client.js') }}?v=1.3.2" panel/app/templates/base.html
-grep -q "style.css') }}?v=1.3.2" panel/app/templates/base.html
+grep -q "client.js') }}?v=1.4.0" panel/app/templates/base.html
+grep -q "style.css') }}?v=1.4.0" panel/app/templates/base.html
 grep -q 'class="plan-coupon-field"' panel/app/templates/plans.html
 grep -q 'class="card admin-plan-card admin-plan-fold"' panel/app/templates/admin.html
 grep -q 'admin-plan-summary-specs' panel/app/templates/admin.html
@@ -148,6 +153,8 @@ grep -q '删除公告' panel/app/templates/admin.html
 ! grep -q 'name="announcement_enabled"' panel/app/templates/admin.html
 ! grep -q 'name="announcement_text"' panel/app/templates/admin.html
 grep -q '数据库迁移缺少表' scripts/upgrade-panel.sh
+grep -q '1.3.3) UPGRADE_PATH="verified-v1.3.3"' scripts/upgrade-panel.sh
+grep -q '1.3.2) UPGRADE_PATH="verified-v1.3.2"' scripts/upgrade-panel.sh
 grep -q '1.3.1) UPGRADE_PATH="verified-v1.3.1"' scripts/upgrade-panel.sh
 grep -q '1.3.0) UPGRADE_PATH="verified-v1.3.0"' scripts/upgrade-panel.sh
 grep -q '1.2.0) UPGRADE_PATH="verified-v1.2.0"' scripts/upgrade-panel.sh
@@ -200,6 +207,71 @@ grep -q '@router.post("/purchase/quote")' panel/app/mobile_api.py
 grep -q '@router.post("/purchase")' panel/app/mobile_api.py
 grep -q '@router.post("/servers/{server_id}/ports")' panel/app/mobile_api.py
 grep -q '@router.post("/servers/{server_id}/reinstall")' panel/app/mobile_api.py
+
+# v1.4.0 operations / diagnostics contracts.
+grep -q 'run_update_preflight()' scripts/xnat
+grep -q 'verify_release_tree()' scripts/xnat
+grep -q 'panel_agent_api_preflight()' scripts/xnat
+grep -q 'cmd_diagnostic_report()' scripts/xnat
+grep -q 'redact_diagnostic_report()' scripts/xnat
+grep -q 'interactive_diagnostics()' scripts/xnat
+grep -q '导出脱敏诊断报告' scripts/xnat
+grep -q 'HTTPS 证书正常' scripts/xnat
+grep -q 'NAT 端口池' scripts/xnat
+grep -q 'xnat doctor report' README.md
+# v1.4.0 admin support / backup management contracts.
+grep -q '/admin/backups/{backup_name}/delete' panel/app/main.py
+grep -q 'def delete_backup' panel/app/backups.py
+grep -q '完整会话' panel/app/templates/admin.html
+grep -q 'Ticket.messages.any(TicketMessage.body.ilike(like))' panel/app/main.py
+grep -q 'data-confirm-input="yes"' panel/app/templates/admin.html
+# v1.4.0 final regression guards: keep the verified customer motion,
+# admin notification/account fixes, and explicit safe balance actions intact.
+grep -q 'v1.4.0 customer interaction system' panel/app/static/style.css
+! grep -q 'client sidebar refinement' panel/app/static/style.css
+grep -q 'beginClientThemeTransition' panel/app/static/client.js
+grep -q 'client-route-leaving' panel/app/static/client.js
+grep -q 'xnat-page-enter' panel/app/static/client.js
+grep -q 'id="session-history-more"' panel/app/templates/account.html
+grep -q 'id="login-history-more"' panel/app/templates/account.html
+grep -q 'client-notification-preferences' panel/app/templates/account.html
+grep -q 'client-toggle-control' panel/app/templates/account.html
+grep -q 'notification-admin-fold' panel/app/templates/admin.html
+grep -q 'admin-record-fold' panel/app/templates/admin.html
+grep -q 'settings-section settings-fold' panel/app/templates/admin.html
+grep -q 'page_size=12' panel/app/main.py
+grep -q "style.css') }}?v=1.4.0" panel/app/templates/base.html
+grep -q "client.js') }}?v=1.4.0" panel/app/templates/base.html
+python3 - <<'PYFINAL140'
+from pathlib import Path
+css=Path('panel/app/static/style.css').read_text()
+assert css.count('{') == css.count('}'), 'CSS brace imbalance'
+assert '@media(max-width:760px){\n  html[data-client-theme="light"] body.client-body .client-sidebar-close' in css, 'mobile light nav styles leaked to desktop again'
+assert 'body.admin-body .settings-save-row{\n  border-top:0!important;' in css, 'hard save separator returned'
+assert 'body.admin-body .notification-rule-block{\n  margin-top:0!important;\n  padding-top:0!important;\n  border-top:0!important;' in css, 'notification hard separator returned'
+assert 'body.client-body .security-history-grid{align-items:start!important}' in css, 'security cards may stretch together again'
+account=Path('panel/app/templates/account.html').read_text()
+assert account.count('class="security-history-more"') == 2, 'security history fold count changed'
+assert 'name="notify_email"' in account and 'name="notify_telegram"' in account, 'notification preference field names changed'
+assert account.count('class="client-notification-toggle"') == 2, 'notification switches must stay equal paired controls'
+admin=Path('panel/app/templates/admin.html').read_text()
+assert admin.count('class="settings-section settings-fold') == 6, 'site settings fold count changed unexpectedly'
+assert admin.count('class="notification-admin-fold') >= 3, 'notification page is no longer compactly folded'
+assert '<details class="admin-record-fold" {% if q %}open{% endif %}>' in admin, 'notification record fold changed unexpectedly'
+base=Path('panel/app/templates/base.html').read_text()
+assert "style.css') }}?v=1.4.0" in base, 'final style cache-bust missing'
+assert "client.js') }}?v=1.4.0" in base, 'final client cache-bust missing'
+assert 'class="balance-action-button credit"' in admin and 'class="balance-action-button debit"' in admin, 'explicit credit/debit buttons missing'
+main=Path('panel/app/main.py').read_text()
+assert 'action: str = Form("adjust")' in main, 'legacy-compatible balance route missing'
+assert 'entered_cents > int(target.balance_cents or 0)' in main, 'debit overdraw guard missing'
+assert 'admin.balance.debit' in main and 'admin.balance.credit' in main, 'balance audit actions missing'
+assert 'grid-template-columns:repeat(2,minmax(0,1fr));' in css, 'equal balance action button grid missing'
+assert 'body.admin-body .admin-search input{\n  height:42px!important;\n  min-height:42px!important;\n  margin:0!important;' in css, 'admin search field alignment guard missing'
+assert 'grid-template-columns:repeat(2,80px);' in css, 'compact equal balance button columns missing'
+assert 'width:80px;' in css and 'height:34px;' in css, 'compact balance button geometry missing'
+print('v1.4.0 final ui/balance regression guards: ok')
+PYFINAL140
 
 echo "[5/7] Clean baseline guard"
 if find . -maxdepth 3 -type f | grep -Ei '(testing|preview-[0-9]|rc[0-9]|patch-panel|patch-management|upgrade-from-v1\.0\.3|UPGRADE-FROM)' >/tmp/xnat-clean-guard.txt; then
