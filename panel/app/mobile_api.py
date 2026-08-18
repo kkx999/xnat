@@ -5,6 +5,7 @@ import os
 import secrets
 import socket
 from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -24,6 +25,8 @@ from .nodes import allocate_host_port, public_port_in_use_on_host, select_host_f
 from .security import client_ip, login_block_remaining_seconds, record_login_event, token_hash, user_agent, verify_totp
 from .crypto import decrypt_secret
 from .traffic import ensure_cycle, traffic_percent, traffic_quota_gb, traffic_remaining_bytes, traffic_used_bytes
+from .payments import cancel_recharge_order, create_recharge_order, normalize_tx_hash, payment_config, rate_text, usdt_units_to_text
+from .service_actions import ServiceActionError, enqueue_server_delete, reset_server_traffic, traffic_reset_state
 from .notifications import queue_notification
 from .geo import assign_server_display_id, confirmation_matches, country_name, server_country_code, server_display_id, server_network_line, server_region, server_region_code
 
@@ -191,22 +194,85 @@ def _server_ui_status_map(db, servers) -> dict[int, str]:
     return result
 
 
-def _server_payload(db, server: Server, ui_status: str | None = None) -> dict:
+def _server_status_label(value: str | None) -> str:
+    return {
+        "running": "运行中",
+        "stopped": "已关机",
+        "provisioning": "开通中",
+        "reinstalling": "重装中",
+        "deleting": "删除中",
+        "provision_failed": "开通失败",
+        "deleted": "已删除",
+    }.get((value or "").strip().lower(), value or "未知")
+
+
+def _order_status_label(value: str | None) -> str:
+    return {
+        "pending": "待处理",
+        "paid": "已支付",
+        "completed": "已完成",
+        "failed": "失败",
+        "cancelled": "已取消",
+        "refunded": "已退款",
+    }.get((value or "").strip().lower(), value or "未知")
+
+
+def _order_kind_label(value: str | None) -> str:
+    return {
+        "purchase": "新购",
+        "renew": "续费",
+        "renewal": "续费",
+        "admin": "管理员开通",
+        "admin_provision": "管理员开通",
+        "traffic_reset": "流量重置",
+    }.get((value or "purchase").strip().lower(), value or "新购")
+
+
+def _recharge_status_label(value: str | None) -> str:
+    return {
+        "pending": "等待支付",
+        "detected": "已检测，等待确认",
+        "paid": "已到账",
+        "expired": "已过期",
+        "manual": "人工处理",
+        "cancelled": "已取消",
+        "exception": "异常支付",
+    }.get((value or "pending").strip().lower(), value or "未知")
+
+
+def _ledger_kind_label(value: str | None) -> str:
+    return {
+        "purchase": "购买服务器",
+        "renew": "服务器续费",
+        "renewal": "服务器续费",
+        "traffic_reset": "流量重置",
+        "usdt_recharge": "USDT 充值",
+        "admin_adjust": "管理员调整",
+        "admin_credit": "管理员增加余额",
+        "admin_debit": "管理员扣除余额",
+    }.get((value or "").strip().lower(), value or "余额变动")
+
+
+def _server_payload(db, server: Server, ui_status: str | None = None, user: User | None = None) -> dict:
     cfg = lifecycle_config(db)
     life = lifecycle_state(server, cfg, datetime.utcnow())
     used = int(traffic_used_bytes(server) or 0)
     remaining = int(traffic_remaining_bytes(server) or 0)
+    status = ui_status or server.status or "unknown"
+    reset = traffic_reset_state(db, user, server) if user is not None else None
     return {
         "id": server.id,
         "name": server.name,
         "display_id": server_display_id(server),
+        "plan_name": getattr(getattr(server, "plan", None), "name", None),
         "country": server_country_code(server),
         "country_name": country_name(server_country_code(server)) if server_country_code(server) else "",
         "region": server_region(server),
         "region_code": server_region_code(server),
         "network_line": server_network_line(server),
         "nat_port": int(server.port_limit if server.port_limit is not None else (server.plan.port_count if server.plan else 0) or 0),
-        "status": ui_status or server.status or "unknown",
+        "status": status,
+        "status_label": _server_status_label(status),
         "public_ip": server.public_ip,
         "private_ip": server.private_ip,
         "ssh_port": server.ssh_port,
@@ -220,6 +286,13 @@ def _server_payload(db, server: Server, ui_status: str | None = None) -> dict:
         "traffic_remaining_bytes": remaining,
         "traffic_percent": round(float(traffic_percent(server) or 0), 2),
         "traffic_throttled": bool(server.traffic_throttled),
+        "traffic_cycle_start": server.traffic_cycle_start.isoformat() + "Z" if server.traffic_cycle_start else None,
+        "traffic_cycle_end": server.traffic_cycle_end.isoformat() + "Z" if server.traffic_cycle_end else None,
+        "traffic_cycle_mode": server.traffic_cycle_mode or "rolling30",
+        "traffic_cycle_day": int(server.traffic_cycle_day or 1),
+        "traffic_reset_price_cents": int(reset["price_cents"] if reset is not None else 0),
+        "traffic_reset_available": bool(reset["available"]) if reset is not None else False,
+        "traffic_reset_reason": reset["reason"] if reset is not None else "",
         "virtualization_type": server.virtualization_type,
         "expires_at": server.expires_at.isoformat() + "Z" if server.expires_at else None,
         "lifecycle": life,
@@ -278,6 +351,7 @@ def _plan_payload(db, plan: Plan) -> dict:
         "network_line": plan.network_line or "",
         "nat_port": int(plan.port_count or 0),
         "monthly_price_cents": int(plan.monthly_price_cents or 0),
+        "traffic_reset_price_cents": int(plan.traffic_reset_price_cents or plan.monthly_price_cents or 0),
         "virtualization_type": plan.virtualization_type or "lxc",
         "is_recommended": bool(plan.is_recommended),
         "recommendation_label": plan.recommendation_label or "推荐",
@@ -579,7 +653,7 @@ def api_dashboard(request: Request):
                 "order_count": int(order_count),
                 "unread_notifications": int(unread),
             },
-            "servers": [_server_payload(db, s, statuses.get(s.id)) for s in servers[:6]],
+            "servers": [_server_payload(db, s, statuses.get(s.id), user) for s in servers[:6]],
         }
 
 
@@ -589,7 +663,7 @@ def api_servers(request: Request):
         user, _ = _mobile_session(db, request)
         servers = db.scalars(select(Server).where(Server.user_id == user.id, Server.deleted_at.is_(None)).order_by(Server.id.desc())).all()
         statuses = _server_ui_status_map(db, servers)
-        payload = [_server_payload(db, s, statuses.get(s.id)) for s in servers]
+        payload = [_server_payload(db, s, statuses.get(s.id), user) for s in servers]
         db.commit()
         return {"items": payload}
 
@@ -602,7 +676,7 @@ def api_server_detail(request: Request, server_id: int):
         if not server or server.user_id != user.id or server.deleted_at is not None:
             raise HTTPException(404, "服务器不存在")
         status = _server_ui_status_map(db, [server]).get(server.id, server.status)
-        payload = _server_payload(db, server, status)
+        payload = _server_payload(db, server, status, user)
         db.commit()
         return payload
 
@@ -772,6 +846,72 @@ async def api_reinstall_server(request: Request, server_id: int):
         return {"ok": True, "job_id": job.id, "status": "reinstalling", "image": system_image.name}
 
 
+@router.post("/servers/{server_id}/delete")
+async def api_delete_server(request: Request, server_id: int):
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    confirm_name = str(_json_body(data, "confirm_name", ""))
+
+    with SessionLocal() as db:
+        user, _ = _mobile_session(db, request)
+        server = _server_for_user(db, user, server_id)
+        try:
+            job, replayed = enqueue_server_delete(
+                db, user, server, confirm_name, request=request, audit_action="server.delete.enqueue.mobile"
+            )
+            db.commit()
+            return {
+                "ok": True,
+                "replayed": bool(replayed),
+                "job_id": job.id,
+                "status": "deleting",
+                "status_label": _server_status_label("deleting"),
+                "display_id": server_display_id(server),
+            }
+        except ServiceActionError as exc:
+            db.rollback()
+            raise HTTPException(400, str(exc))
+        except HTTPException:
+            db.rollback()
+            raise
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(409, f"提交删除任务失败：{str(exc)[:180]}")
+
+
+@router.post("/servers/{server_id}/traffic/reset")
+def api_reset_server_traffic(request: Request, server_id: int):
+    with SessionLocal() as db:
+        user, _ = _mobile_session(db, request)
+        server = _server_for_user(db, user, server_id)
+        try:
+            result = reset_server_traffic(
+                db, user, server, _provider(), request=request, audit_action="server.traffic.reset.mobile"
+            )
+            db.commit()
+            return {
+                "ok": True,
+                "order_id": result["order"].id,
+                "amount_cents": int(result["price_cents"]),
+                "balance_after_cents": int(result["balance_after_cents"]),
+                "traffic_cycle_start": result["cycle_start"].isoformat() + "Z" if result["cycle_start"] else None,
+                "traffic_cycle_end": result["cycle_end"].isoformat() + "Z" if result["cycle_end"] else None,
+                "provider_warning": result["provider_error"],
+                "server": _server_payload(db, server, _server_ui_status_map(db, [server]).get(server.id), user),
+            }
+        except ServiceActionError as exc:
+            db.rollback()
+            raise HTTPException(409, str(exc))
+        except HTTPException:
+            db.rollback()
+            raise
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(409, f"重置流量失败：{str(exc)[:180]}")
+
+
 @router.get("/catalog")
 def api_catalog(request: Request):
     with SessionLocal() as db:
@@ -851,8 +991,8 @@ async def api_purchase(request: Request):
             db.commit()
             return {
                 "ok": True, "replayed": True,
-                "order": {"id": order.id, "amount_cents": int(order.amount_cents or 0), "discount_cents": int(order.discount_cents or 0), "status": order.status},
-                "server": {"id": server.id, "name": server.name, "display_id": server_display_id(server), "country": server_country_code(server), "region": server_region(server), "region_code": server_region_code(server), "network_line": server_network_line(server), "nat_port": int(server.port_limit or 0), "status": server.status, "os_name": server.os_name},
+                "order": {"id": order.id, "amount_cents": int(order.amount_cents or 0), "discount_cents": int(order.discount_cents or 0), "status": order.status, "status_label": _order_status_label(order.status), "kind": order.kind, "kind_label": _order_kind_label(order.kind)},
+                "server": _server_payload(db, server, server.status, user),
                 "job": {"id": job.id, "status": job.status, "job_type": job.job_type},
                 "balance_after_cents": int(user.balance_cents or 0),
             }
@@ -892,8 +1032,8 @@ async def api_purchase(request: Request):
             db.commit()
             return {
                 "ok": True,
-                "order": {"id": order.id, "amount_cents": final_price, "discount_cents": int(discount or 0), "status": order.status},
-                "server": {"id": server.id, "name": server.name, "display_id": server_display_id(server), "country": server_country_code(server), "region": server_region(server), "region_code": server_region_code(server), "network_line": server_network_line(server), "nat_port": int(server.port_limit or 0), "status": server.status, "os_name": server.os_name},
+                "order": {"id": order.id, "amount_cents": final_price, "discount_cents": int(discount or 0), "status": order.status, "status_label": _order_status_label(order.status), "kind": order.kind, "kind_label": _order_kind_label(order.kind)},
+                "server": _server_payload(db, server, server.status, user),
                 "job": {"id": job.id, "status": job.status, "job_type": job.job_type},
                 "balance_after_cents": int(user.balance_cents or 0),
             }
@@ -905,24 +1045,229 @@ async def api_purchase(request: Request):
             raise HTTPException(409, f"创建开通任务失败：{str(exc)[:180]}")
 
 
+def _recharge_payload(row: RechargeOrder, *, include_payment_details: bool = False) -> dict:
+    now = datetime.utcnow()
+    payload = {
+        "id": row.id,
+        "chain": row.chain,
+        "chain_label": "USDT · TRON (TRC20)" if row.chain == "tron" else "USDT · Polygon (USDT0)",
+        "requested_cny_cents": int(row.requested_cny_cents or 0),
+        "rate_micros": int(row.rate_micros or 0),
+        "rate_text": rate_text(int(row.rate_micros or 0)),
+        "expected_usdt_units": int(row.expected_usdt_units or 0),
+        "expected_usdt_text": usdt_units_to_text(int(row.expected_usdt_units or 0)),
+        "status": row.status,
+        "status_label": _recharge_status_label(row.status),
+        "tx_hash": row.tx_hash,
+        "confirmations": int(row.confirmations or 0),
+        "detected_at": row.detected_at.isoformat() + "Z" if row.detected_at else None,
+        "expires_at": row.expires_at.isoformat() + "Z" if row.expires_at else None,
+        "paid_at": row.paid_at.isoformat() + "Z" if row.paid_at else None,
+        "cancelled_at": row.cancelled_at.isoformat() + "Z" if row.cancelled_at else None,
+        "created_at": row.created_at.isoformat() + "Z" if row.created_at else None,
+        "remaining_seconds": max(0, int((row.expires_at - now).total_seconds())) if row.expires_at and row.status in {"pending", "manual"} else 0,
+        "can_cancel": bool(row.status in {"pending", "manual"} and not row.tx_hash and not row.detected_at and row.expires_at > now),
+        "needs_txid": bool(row.status == "manual"),
+    }
+    if include_payment_details:
+        payload.update({
+            "deposit_address": row.deposit_address,
+            "token_contract": row.token_contract,
+        })
+    return payload
+
+
+def _month_bounds(value: str) -> tuple[str | None, datetime | None, datetime | None]:
+    month = (value or "").strip()
+    if not month:
+        return None, None, None
+    try:
+        start = datetime.strptime(month, "%Y-%m")
+    except ValueError:
+        raise HTTPException(400, "month 参数格式应为 YYYY-MM")
+    if start.strftime("%Y-%m") != month:
+        raise HTTPException(400, "month 参数格式应为 YYYY-MM")
+    if start.month == 12:
+        end = start.replace(year=start.year + 1, month=1)
+    else:
+        end = start.replace(month=start.month + 1)
+    return month, start, end
+
+
+def _available_billing_months(db, user_id: int) -> list[str]:
+    months: set[str] = set()
+    for model in (Order, BalanceLedger, RechargeOrder):
+        dates = db.scalars(select(model.created_at).where(model.user_id == user_id)).all()
+        months.update(value.strftime("%Y-%m") for value in dates if value is not None)
+    return sorted(months, reverse=True)
+
+
+@router.get("/recharge/config")
+def api_recharge_config(request: Request):
+    with SessionLocal() as db:
+        _mobile_session(db, request)
+        cfg = payment_config(db)
+        chains = [
+            {
+                "id": "tron",
+                "name": "USDT · TRON (TRC20)",
+                "enabled": bool(cfg["enabled"] and cfg["tron_enabled"] and cfg["tron_wallet"]),
+                "mode": cfg["tron_mode"],
+                "mode_label": "自动到账" if cfg["tron_mode"] == "auto" else "人工确认",
+            },
+            {
+                "id": "polygon",
+                "name": "USDT · Polygon (USDT0)",
+                "enabled": bool(cfg["enabled"] and cfg["polygon_enabled"] and cfg["polygon_wallet"]),
+                "mode": cfg["polygon_mode"],
+                "mode_label": "自动到账" if cfg["polygon_mode"] == "auto" else "人工确认",
+            },
+        ]
+        db.commit()
+        return {
+            "enabled": bool(cfg["enabled"]),
+            "currency": "CNY",
+            "token": "USDT",
+            "rate_micros": int(cfg["rate_micros"]),
+            "rate_text": rate_text(int(cfg["rate_micros"])),
+            "min_cny_cents": int((cfg["min_cny"] * Decimal(100)).quantize(Decimal("1"))),
+            "max_cny_cents": int((cfg["max_cny"] * Decimal(100)).quantize(Decimal("1"))),
+            "expire_minutes": int(cfg["expire_minutes"]),
+            "chains": chains,
+        }
+
+
+@router.post("/recharges")
+async def api_recharge_create(request: Request):
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(400, "请求格式错误")
+    chain = str(_json_body(data, "chain", "")).lower()
+    try:
+        amount = Decimal(str(data.get("amount", "")).strip())
+        if not amount.is_finite():
+            raise InvalidOperation
+    except Exception:
+        raise HTTPException(400, "充值金额格式错误")
+
+    with SessionLocal() as db:
+        user, _ = _mobile_session(db, request)
+        try:
+            order = create_recharge_order(db, user, chain=chain, cny_amount=amount)
+            write_audit(
+                db, actor=user, request=request, action="payment.recharge.create.mobile",
+                target_type="recharge_order", target_id=order.id,
+                detail={"chain": order.chain, "cny_cents": order.requested_cny_cents},
+            )
+            db.commit()
+            return {"ok": True, "recharge": _recharge_payload(order, include_payment_details=True)}
+        except ValueError as exc:
+            db.rollback()
+            raise HTTPException(409, str(exc))
+        except HTTPException:
+            db.rollback()
+            raise
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(409, f"创建充值订单失败：{str(exc)[:180]}")
+
+
+@router.get("/recharges/{recharge_id}")
+def api_recharge_detail(request: Request, recharge_id: int):
+    with SessionLocal() as db:
+        user, _ = _mobile_session(db, request)
+        order = db.get(RechargeOrder, recharge_id)
+        if not order or order.user_id != user.id:
+            raise HTTPException(404, "充值订单不存在")
+        payload = _recharge_payload(order, include_payment_details=True)
+        db.commit()
+        return payload
+
+
+@router.post("/recharges/{recharge_id}/cancel")
+def api_recharge_cancel(request: Request, recharge_id: int):
+    with SessionLocal() as db:
+        user, _ = _mobile_session(db, request)
+        order = db.get(RechargeOrder, recharge_id)
+        if not order or order.user_id != user.id:
+            raise HTTPException(404, "充值订单不存在")
+        try:
+            cancelled, reason = cancel_recharge_order(db, order_id=order.id, user_id=user.id)
+            if cancelled:
+                write_audit(
+                    db, actor=user, request=request, action="payment.recharge.cancel.mobile",
+                    target_type="recharge_order", target_id=order.id,
+                    detail={"chain": order.chain, "requested_cny_cents": order.requested_cny_cents},
+                )
+            db.commit()
+            refreshed = db.get(RechargeOrder, recharge_id)
+            return {
+                "ok": bool(cancelled),
+                "message": reason,
+                "recharge": _recharge_payload(refreshed, include_payment_details=True),
+            }
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(409, f"取消充值订单失败：{str(exc)[:180]}")
+
+
+@router.post("/recharges/{recharge_id}/txid")
+async def api_recharge_submit_txid(request: Request, recharge_id: int):
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(400, "请求格式错误")
+    tx_hash = str(_json_body(data, "tx_hash", ""))
+
+    with SessionLocal() as db:
+        user, _ = _mobile_session(db, request)
+        order = db.get(RechargeOrder, recharge_id)
+        if not order or order.user_id != user.id:
+            raise HTTPException(404, "充值订单不存在")
+        if order.status != "manual":
+            raise HTTPException(409, "只有人工充值订单需要提交交易哈希")
+        try:
+            order.tx_hash = normalize_tx_hash(order.chain, tx_hash)[:128]
+            write_audit(
+                db, actor=user, request=request, action="payment.recharge.txid.mobile",
+                target_type="recharge_order", target_id=order.id, detail={"chain": order.chain},
+            )
+            db.commit()
+            return {"ok": True, "recharge": _recharge_payload(order, include_payment_details=True)}
+        except ValueError as exc:
+            db.rollback()
+            raise HTTPException(400, str(exc))
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(409, f"提交交易哈希失败：{str(exc)[:180]}")
+
+
 @router.get("/billing")
-def api_billing(request: Request):
+def api_billing(request: Request, month: str = ""):
+    selected_month, month_start, month_end = _month_bounds(month)
     with SessionLocal() as db:
         user, _ = _mobile_session(db, request)
 
-        orders = db.scalars(
-            select(Order).where(Order.user_id == user.id).order_by(Order.id.desc()).limit(50)
-        ).all()
-        ledger = db.scalars(
-            select(BalanceLedger).where(BalanceLedger.user_id == user.id).order_by(BalanceLedger.id.desc()).limit(50)
-        ).all()
-        recharges = db.scalars(
-            select(RechargeOrder).where(RechargeOrder.user_id == user.id).order_by(RechargeOrder.id.desc()).limit(30)
-        ).all()
+        order_stmt = select(Order).where(Order.user_id == user.id)
+        ledger_stmt = select(BalanceLedger).where(BalanceLedger.user_id == user.id)
+        recharge_stmt = select(RechargeOrder).where(RechargeOrder.user_id == user.id)
+        if month_start is not None and month_end is not None:
+            order_stmt = order_stmt.where(Order.created_at >= month_start, Order.created_at < month_end)
+            ledger_stmt = ledger_stmt.where(BalanceLedger.created_at >= month_start, BalanceLedger.created_at < month_end)
+            recharge_stmt = recharge_stmt.where(RechargeOrder.created_at >= month_start, RechargeOrder.created_at < month_end)
+            orders = db.scalars(order_stmt.order_by(Order.id.desc())).all()
+            ledger = db.scalars(ledger_stmt.order_by(BalanceLedger.id.desc())).all()
+            recharges = db.scalars(recharge_stmt.order_by(RechargeOrder.id.desc())).all()
+        else:
+            orders = db.scalars(order_stmt.order_by(Order.id.desc()).limit(50)).all()
+            ledger = db.scalars(ledger_stmt.order_by(BalanceLedger.id.desc()).limit(50)).all()
+            recharges = db.scalars(recharge_stmt.order_by(RechargeOrder.id.desc()).limit(30)).all()
+
         total_spend = db.scalar(
             select(func.coalesce(func.sum(Order.amount_cents), 0)).where(
                 Order.user_id == user.id,
-                Order.status == "completed",
+                Order.status.in_(["paid", "completed"]),
             )
         ) or 0
         order_count = db.scalar(select(func.count()).select_from(Order).where(Order.user_id == user.id)) or 0
@@ -930,6 +1275,8 @@ def api_billing(request: Request):
         recharge_count = db.scalar(select(func.count()).select_from(RechargeOrder).where(RechargeOrder.user_id == user.id)) or 0
 
         payload = {
+            "selected_month": selected_month,
+            "available_months": _available_billing_months(db, user.id),
             "summary": {
                 "balance_cents": int(user.balance_cents or 0),
                 "total_spend_cents": int(total_spend or 0),
@@ -944,7 +1291,9 @@ def api_billing(request: Request):
                     "amount_cents": int(row.amount_cents or 0),
                     "discount_cents": int(row.discount_cents or 0),
                     "status": row.status,
+                    "status_label": _order_status_label(row.status),
                     "kind": row.kind,
+                    "kind_label": _order_kind_label(row.kind),
                     "server_id": row.server_id,
                     "coupon_code": row.coupon_code,
                     "created_at": row.created_at.isoformat() + "Z" if row.created_at else None,
@@ -957,6 +1306,7 @@ def api_billing(request: Request):
                     "delta_cents": int(row.delta_cents or 0),
                     "balance_after_cents": int(row.balance_after_cents or 0),
                     "kind": row.kind,
+                    "kind_label": _ledger_kind_label(row.kind),
                     "reference_type": row.reference_type,
                     "reference_id": row.reference_id,
                     "note": row.note,
@@ -964,21 +1314,7 @@ def api_billing(request: Request):
                 }
                 for row in ledger
             ],
-            "recharges": [
-                {
-                    "id": row.id,
-                    "chain": row.chain,
-                    "requested_cny_cents": int(row.requested_cny_cents or 0),
-                    "expected_usdt_units": int(row.expected_usdt_units or 0),
-                    "status": row.status,
-                    "tx_hash": row.tx_hash,
-                    "confirmations": int(row.confirmations or 0),
-                    "expires_at": row.expires_at.isoformat() + "Z" if row.expires_at else None,
-                    "paid_at": row.paid_at.isoformat() + "Z" if row.paid_at else None,
-                    "created_at": row.created_at.isoformat() + "Z" if row.created_at else None,
-                }
-                for row in recharges
-            ],
+            "recharges": [_recharge_payload(row) for row in recharges],
         }
         db.commit()
         return payload

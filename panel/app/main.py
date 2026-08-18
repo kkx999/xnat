@@ -46,6 +46,7 @@ from .models import (
     SystemImage, Ticket, TicketMessage, User,
 )
 from .mobile_api import router as mobile_api_router
+from .service_actions import ServiceActionError, enqueue_server_delete, reset_server_traffic
 from .traffic import (
     THROTTLE_MBPS, apply_sample, collect_all as collect_traffic_all, configured_bandwidth_mbps,
     effective_bandwidth_mbps, enforce_traffic_policy, ensure_cycle, reset_cycle, traffic_bonus_gb,
@@ -2092,92 +2093,27 @@ def customer_reset_traffic_cycle(
     with db_session() as db:
         user = login_required(request, db)
         server = active_server_for_user(db, user, server_id)
-        blocked = lifecycle_operation_block(db, server)
-        if blocked:
-            flash(request, blocked, "error")
-            return RedirectResponse(f"/servers/{server.id}", status_code=303)
-
-        if traffic_quota_gb(server) <= 0:
-            flash(request, "当前套餐为不限流量，无需重置。", "info")
-            return RedirectResponse(f"/servers/{server.id}", status_code=303)
-        if traffic_raw_percent(server) < 100.0:
-            flash(request, "仅当本周期流量已经用尽后才能重置流量。", "error")
-            return RedirectResponse(f"/servers/{server.id}", status_code=303)
-
-        # Resetting a full quota is a paid add-on. v1.1.1 plans are migrated
-        # with the monthly price as the initial reset price; admins can set a
-        # dedicated price per plan from 套餐管理. Never silently fall back to
-        # a free reset even if an old/malformed row contains 0.
-        reset_price = int(getattr(server.plan, "traffic_reset_price_cents", 0) or 0)
-        if reset_price <= 0:
-            reset_price = int(server.monthly_price_cents or server.plan.monthly_price_cents or 0)
-        if reset_price <= 0:
-            flash(request, "该套餐尚未配置有效的流量重置价格，请联系管理员。", "error")
-            return RedirectResponse(f"/servers/{server.id}", status_code=303)
-        if int(user.balance_cents or 0) < reset_price:
-            flash(request, f"余额不足，重置流量需要 {money(reset_price)}。", "error")
-            return RedirectResponse("/recharge", status_code=303)
-
-        before = {
-            "used_bytes": traffic_used_bytes(server),
-            "quota_gb": traffic_quota_gb(server),
-            "cycle_start": server.traffic_cycle_start.isoformat() if server.traffic_cycle_start else None,
-            "cycle_end": server.traffic_cycle_end.isoformat() if server.traffic_cycle_end else None,
-            "traffic_throttled": bool(server.traffic_throttled),
-            "balance_cents": int(user.balance_cents or 0),
-        }
-
-        order = Order(
-            user_id=user.id, plan_id=server.plan_id, server_id=server.id,
-            amount_cents=reset_price, status="completed", kind="traffic_reset",
-        )
-        db.add(order)
-        db.flush()
-        change_balance(
-            db, user, -reset_price, kind="traffic_reset",
-            reference_type="order", reference_id=order.id,
-            note=f"流量重置 {server.name}",
-        )
-
-        now = datetime.utcnow()
-        reset_cycle(server, now)
-        server.traffic_throttle_exempt = False
-        provider_error = None
         try:
-            enforce_traffic_policy(server, provider, now)
+            result = reset_server_traffic(
+                db, user, server, provider, request=request, audit_action="server.traffic.reset"
+            )
+            db.commit()
+        except ServiceActionError as exc:
+            db.rollback()
+            message = str(exc)
+            flash(request, message, "error" if not message.startswith("当前套餐为不限流量") else "info")
+            if message.startswith("余额不足"):
+                return RedirectResponse("/recharge", status_code=303)
+            return RedirectResponse(f"/servers/{server.id}", status_code=303)
         except Exception as exc:
-            provider_error = str(exc)[:180]
+            db.rollback()
+            flash(request, f"流量重置失败：{str(exc)[:180]}", "error")
+            return RedirectResponse(f"/servers/{server.id}", status_code=303)
 
-        write_audit(
-            db, actor=user, request=request, action="server.traffic.reset",
-            target_type="server", target_id=server.id, target_name=server.name,
-            detail={
-                "order_id": order.id,
-                "amount_cents": reset_price,
-                "balance_after_cents": int(user.balance_cents or 0),
-                "before": before,
-                "cycle_start": server.traffic_cycle_start.isoformat() if server.traffic_cycle_start else None,
-                "cycle_end": server.traffic_cycle_end.isoformat() if server.traffic_cycle_end else None,
-                "provider_error": provider_error,
-            },
-        )
-        queue_notification(
-            db, user,
-            title="流量重置成功",
-            body=(
-                f"{server_display_id(server)} 已扣除 {money(reset_price)} 并开启新的流量周期，本周期用量已清零。"
-                + (" 带宽恢复正在等待后台重试。" if provider_error else f" 当前带宽已恢复为 {configured_bandwidth_mbps(server)} Mbps。")
-                + f" 当前余额 {money(user.balance_cents)}。"
-            ),
-            kind="billing",
-            severity="warning" if provider_error else "success",
-            event_key=f"traffic-self-reset:{order.id}",
-        )
-        db.commit()
-        message = f"流量已重置，已扣除 {money(reset_price)}，新的流量周期已开始。"
-        if provider_error:
-            message += f" 流量已清零，但带宽恢复暂时失败：{provider_error}"
-        flash(request, message, "warning" if provider_error else "success")
+        message = f"流量已重置，已扣除 {money(result['price_cents'])}，新的流量周期已开始。"
+        if result["provider_error"]:
+            message += f" 流量已清零，但带宽恢复暂时失败：{result['provider_error']}"
+        flash(request, message, "warning" if result["provider_error"] else "success")
         return RedirectResponse(f"/servers/{server.id}", status_code=303)
 
 
@@ -2226,17 +2162,24 @@ def delete_server(
     with db_session() as db:
         user = login_required(request, db)
         server = active_server_for_user(db, user, server_id)
-        if not confirmation_matches(server, confirm_name):
-            flash(request, "删除确认编号不正确。", "error")
+        try:
+            job, replayed = enqueue_server_delete(
+                db, user, server, confirm_name, request=request, audit_action="server.delete.enqueue"
+            )
+            db.commit()
+        except ServiceActionError as exc:
+            db.rollback()
+            flash(request, str(exc), "error")
             return RedirectResponse(f"/servers/{server.id}", status_code=303)
-        active_job = db.scalar(select(Job).where(Job.server_id == server.id, Job.status.in_(["pending","running"]), Job.job_type == "delete_server"))
-        if active_job:
-            flash(request, f"删除任务 #{active_job.id} 已经在执行。", "info")
+        except Exception as exc:
+            db.rollback()
+            flash(request, f"提交删除任务失败：{str(exc)[:180]}", "error")
             return RedirectResponse(f"/servers/{server.id}", status_code=303)
-        job = enqueue_job(db, "delete_server", user_id=user.id, server_id=server.id, payload={})
-        write_audit(db, actor=user, request=request, action="server.delete.enqueue", target_type="server", target_id=server.id, target_name=server.name, detail={"job_id": job.id})
-        db.commit()
-        flash(request, f"永久删除任务 #{job.id} 已提交。", "warning")
+
+        if replayed:
+            flash(request, f"删除任务 #{job.id} 已经在执行。", "info")
+        else:
+            flash(request, f"永久删除任务 #{job.id} 已提交。", "warning")
         return RedirectResponse(f"/servers/{server.id}", status_code=303)
 
 
@@ -4707,7 +4650,7 @@ def admin_backup_download(request:Request,backup_name:str):
 def health():
     return {
         "status": "ok",
-        "version": "1.4.1",
+        "version": "1.4.2",
         "provider": PROVIDER_NAME,
         "timezone": APP_TIMEZONE,
     }

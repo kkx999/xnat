@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.4.2
+
+- Mobile API v1 服务器 payload 新增 `plan_name`、中文状态、流量周期与付费重置可用性/价格字段，保留全部旧字段兼容 Android v1.1.0。
+- 新增 `POST /api/v1/servers/{server_id}/delete`，复用既有 `delete_server` Job，稳定编号确认与重复提交幂等处理保持与 Web Panel 一致。
+- 新增 `POST /api/v1/servers/{server_id}/traffic/reset`；Web 与 Mobile API 共同调用同一业务函数，统一生命周期、流量用尽、价格、余额、订单、扣费、周期重置、带宽恢复、审计和通知逻辑。
+- 新增原生 USDT 充值 Mobile API：公开配置、创建订单、详情、取消、人工模式 TxHash；继续复用现有充值状态机与异常支付保护，不下发 RPC/API Key 等秘密。
+- `GET /api/v1/billing` 新增 `month=YYYY-MM` 自然月筛选与 `available_months`，同时补齐订单/流水/充值中文标签；无 month 时保留旧客户端最近记录行为。
+- 修正 Mobile API 账务汇总漏计 `paid` 新购订单的问题，`total_spend_cents` 现在统计 `paid` 与 `completed` 有效订单。
+- Host Agent v1.1.1 / Agent API v1 不变；本轮不新增数据库列，不做破坏性迁移。
+
 ## v1.4.1
 
 - 修复管理后台余额扣除 submitter 参数丢失导致操作语义错误的问题；当前表单缺失或非法 `action` 时拒绝执行，继续保留旧版 signed amount 兼容。
