@@ -7,98 +7,13 @@ XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、
 当前版本：**v1.4.1**
 
 
-## v1.4.1 机器展示、充值与通知体验
+## 更新日志
 
-v1.4.1 是基于 v1.4.0 的兼容性增量更新，重点收口机器展示身份、套餐展示信息、充值订单状态与 Telegram 用户通知引导。数据库升级继续采用 additive migration，不重建旧表。
+版本更新记录已独立维护，首页仅保留项目能力、安装和当前版本升级说明。
 
-- 修复后台“扣除余额”在浏览器提交参数丢失时可能被错误解释为增加余额的问题；新版余额表单缺失/非法操作类型时 fail closed，并保留旧 signed amount 兼容路径。
-- Host 节点使用“前端展示旗帜 + 机器编号前缀”管理用户侧身份；Panel 生成稳定展示编号（如 `TYO-0002`），Host 内部 `nat-*` 实例名保持不变。
-- 套餐保留服务器地区、网络线路与 NAT 端口作为购买页展示元数据；已开通服务器保存地区/线路快照，后续编辑套餐不会改写旧机器展示。
-- 用户服务器卡片/详情顶部使用本地独立 SVG 国旗资产和稳定编号；详情概览精简为公网主机、私网 IPv4、SSH、配置、虚拟化、当前带宽、NAT 端口、剩余流量。
-- 充值订单支持用户主动取消；已取消订单若随后检测到链上付款会进入异常支付并停止自动入账，避免并发/延迟付款造成余额异常。
-- Telegram 通知增加配置状态联动：管理员保存 Bot Token 时通过 `getMe` 验证并识别机器人用户名；用户端提供 Start 引导、打开机器人和测试消息，未配置 Bot 时不能误开启通知。
-- CSS / JS 与国旗资源使用内容指纹 cache-bust，减少浏览器复用旧静态资源造成的界面回退错觉。
-- Mobile API 继续保持 v1；新增展示字段均为向后兼容字段，旧客户端仍可继续使用内部 `name`，重装确认同时兼容稳定编号与旧内部实例名。
+> 📋 **[查看完整更新日志（CHANGELOG.md）](CHANGELOG.md)**
 
-升级：
-
-```bash
-xnat update 1.4.1
-```
-
-版本关系：**XNAT Release v1.4.1 / Panel v1.4.1 / Mobile API v1 / Host Agent v1.1.1 / Agent API v1**。Host Agent 核心协议不变。
-
-
-## v1.4.0 运维、交互与后台管理
-
-v1.4.0 在 v1.3.3 已验证的统一 `xnat` CLI 基础上，重点强化升级安全与服务器排障能力。Panel 与 Host 的“系统诊断”现在可检查磁盘、服务、端口、防火墙及组件关键状态，并可一键导出自动脱敏的诊断报告。
-
-升级流程新增 **升级预检**：正式写入文件前先下载并验证 Release 源码，检查 Debian 12、磁盘空间、备份目录、systemd、SQLite、Agent API 兼容、Incus/TLS 与升级脚本完整性；存在阻断问题时不会继续更新。
-
-同时，本版本完成了前后台体验收口：管理后台工单可查看完整历史会话并按状态分区归档；SQLite 备份支持安全删除；账户登录记录默认仅显示最近 3 条并可独立展开；通知偏好改为等尺寸 Switch；通知服务、站点设置与长记录页面按功能折叠；后台用户余额操作明确拆分为“增加余额 / 扣除余额”，扣除不会允许余额变负。用户前端和管理后台均保留实机验证通过的 hover / press / focus / 页面跳转进度与主题过渡反馈。
-
-Panel 与 Host 都建议同步到本 Release：
-
-```bash
-xnat update 1.4.0
-```
-
-需要导出排障信息时：
-
-```bash
-xnat doctor report
-```
-
-报告默认保存到 `/root/xnat-diagnostics/`，并自动脱敏 Token、密码、API Key、Authorization/Bearer、JWT 等敏感内容。
-
-版本关系：**XNAT Release v1.4.0 / Panel v1.4.0 / Mobile API v1 / Host Agent v1.1.1 / Agent API v1**。Host Agent 运行核心与 Agent API 不变；Host 更新主要同步 v1.4.0 的管理 CLI、预检和诊断能力。
-
-
-## v1.3.2 Android / Mobile API v1
-
-v1.3.2 将此前为 XNAT Android 开发的 Mobile API v1 正式纳入 Panel Release。浏览器 Web Panel 继续使用原有 Session + CSRF；Android 使用 `/api/v1` Bearer Token 接口。
-
-正式能力包括：
-
-- Android 登录、账户、概览和服务器状态；
-- VPS 开机 / 关机 / 重启、NAT 端口添加删除、系统重装；
-- 账务与充值记录读取、工单创建/回复/关闭；
-- 套餐目录、优惠码试算、余额购买、自动调度开通；
-- 购买 `request_id` 幂等保护，避免网络重试造成重复扣款或重复开通。
-
-从 v1.3.1 升级 Panel：
-
-```bash
-xnat update 1.3.2
-```
-
-**升级兼容性：** v1.3.1 的 `.env`、SQLite 数据库、用户、余额、订单、VPS、Host、套餐、端口、工单和支付数据全部原地保留；升级前自动备份，失败自动尝试回滚。本次没有破坏性数据库迁移。Host Agent 继续保持 **v1.1.0 / Agent API v1**，无需因为 v1.3.2 升级 Host。
-
-XNAT Android v1.0.0 对应 Panel v1.3.2 / Mobile API v1。
-
-## v1.3.1 Mobile Navigation
-
-v1.3.1 是 Panel 的兼容性与移动端交互更新：手机端用户中心改为可折叠 off-canvas Drawer，并修复透明遮罩拦截点击、Android 底部手势栏遮挡账户区域等问题。
-
-从 v1.3.0 升级 Panel：
-
-```bash
-xnat update 1.3.1
-```
-
-Host Agent 仍为 **v1.1.0 / Agent API v1**。如果 Host 已经是 Agent v1.1.0，无需因 v1.3.1 再次升级。
-
-## v1.3.0 Hybrid Virtualization
-
-XNAT Host 现在支持 **LXC / KVM / LXC + KVM**。全新 Host 安装时会检测 `/dev/kvm` 并交互选择模式；套餐可指定 LXC 或 KVM，调度器只会选择匹配且 KVM 实际可用的节点。Host Agent 版本升级为 **v1.1.0**，Agent API 继续保持 v1。
-
-从 v1.2.0 升级：
-
-```bash
-xnat update 1.3.0
-```
-
-Panel 与 Host 都需要执行更新；Host 首次升级到 Agent v1.1.0 时会保存虚拟化模式。
+当前版本关系：**XNAT Release v1.4.1 / Panel v1.4.1 / Mobile API v1 / Host Agent v1.1.1 / Agent API v1**。
 
 ---
 
@@ -307,6 +222,14 @@ xnat
 ```
 
 Panel 与 Host 会自动显示对应的管理菜单。
+
+需要导出自动脱敏的系统诊断报告时：
+
+```bash
+xnat doctor report
+```
+
+报告默认保存到 `/root/xnat-diagnostics/`。
 
 ---
 
