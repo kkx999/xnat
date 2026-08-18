@@ -36,33 +36,34 @@ AGENT_API_VERSION="$(python3 -c 'import json; print(json.load(open("release.json
 cat > "$DIST/RELEASE_NOTES.md" <<EOF_NOTES
 # XNAT v${RELEASE_VERSION}
 
-本次为 XNAT v${RELEASE_VERSION} 的兼容性增量更新，重点收口机器展示身份、充值订单安全和 Telegram 通知引导。
+本次为 XNAT v${RELEASE_VERSION} 的 Mobile API 向后兼容增量更新，重点为 XNAT Android v1.2.0 补齐原生接口。
 
 - Panel：v${PANEL_VERSION}
 - Host Agent：v${AGENT_VERSION}
 - Agent API：v${AGENT_API_VERSION}
 - Mobile API：v1
-- 修复后台余额“扣除”操作在 submitter 参数丢失时可能被错误解释为“增加”的问题；新版余额表单 fail closed
-- Host 节点前端字段收口为“前端展示旗帜 / 机器编号前缀”，稳定展示编号与 Host 内部 nat-* 实例名分离
-- 30 个常用国家/地区使用独立本地 SVG 国旗资产，香港固定映射 HK；国旗与 CSS/JS 均使用内容 SHA-256 指纹防缓存回退
-- 套餐购买页保留服务器地区、网络线路、NAT 端口展示；已开通机器保存地区/线路快照，后续修改套餐不会改写旧机器
-- 用户服务器卡片使用状态点、国旗、稳定编号、系统和虚拟化标签；服务器详情概览精简为 8 个核心信息卡片
-- 充值订单支持用户主动取消；取消后的延迟链上付款进入异常支付，不自动增加余额
-- 充值 TxHash 复用校验与管理员补单幂等保护加强，余额流水继续关联充值订单
-- Telegram Bot Token 保存时通过 getMe 验证并自动识别机器人用户名；用户端增加 Start 引导、打开机器人和测试消息
-- Bot 未配置或 Chat ID 无效时 Telegram 通知无法被误开启；Telegram API 错误文本不会暴露 Bot Token URL
-- Mobile API 继续保持 v1；display_id / country / region / region_code / network_line / nat_port 等为向后兼容增量字段
-- 旧客户端继续可使用 server.name，重装确认同时兼容稳定编号与旧内部实例名
-- Panel 数据库迁移保持 additive：只新增字段/索引并回填展示快照，不删除旧字段、不重建旧表
-- 正式支持 v1.4.0 → v${PANEL_VERSION} 原地升级，并继续保留更早版本的既有 additive migration 路径
+- 服务器接口新增套餐名称、中文状态、流量周期、流量重置价格/可用状态等向后兼容字段
+- 新增 Mobile API 删除机器，继续复用稳定展示编号确认与既有 delete_server Job
+- 新增 Mobile API 付费流量重置；Web 与 App 共用同一业务逻辑，统一订单、扣费、周期、带宽、审计与通知
+- 新增原生 USDT 充值 API：配置、创建订单、订单详情、取消和人工模式 TxHash；既有异常支付保护保持不变
+- Billing 支持 month=YYYY-MM 自然月读取与 available_months，并补齐订单、流水和充值中文状态标签
+- 修复 Mobile API total_spend_cents 漏计 paid 新购订单的问题
+- Mobile API 继续保持 v1；旧 XNAT Android v1.1.0 不受新增字段和新增路由影响
+- Panel 数据库迁移保持 additive，本轮不新增数据库列、不删除旧字段、不重建旧表
+- 正式支持 v1.4.1 → v${PANEL_VERSION} 原地升级，并支持已安装 v1.4.2-dev1 的测试机收口到正式版
+- v1.4.2-dev1 已完成实机 API 验收：health、登录、账户、套餐参数、月份账务、充值创建/查询/取消，以及删除/流量重置不存在服务器错误路径均通过
 - 升级继续执行 SQLite quick_check、完整备份、健康检查与失败回滚；.env、用户、余额、订单、VPS、Host、套餐、端口、工单、充值和通知数据全部保留
-- Host Agent v${AGENT_VERSION} / Agent API v${AGENT_API_VERSION} 核心协议不变；Host 可同步本 Release 的 CLI 与 Release 元数据
+- Host Agent v${AGENT_VERSION} / Agent API v${AGENT_API_VERSION} 核心协议不变
 
 **由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**
 
 Panel / Host 推荐升级命令：
 
     xnat update ${RELEASE_VERSION}
+
+已经安装 v1.4.2-dev1 的测试机首次收口正式版时，由于旧 dev1 CLI 的 Debian 版本比较行为，请使用：
+
+    XNAT_ALLOW_DOWNGRADE=1 xnat update ${RELEASE_VERSION}
 
 GitHub 发布时请创建并真正 Publish Tag \`v${RELEASE_VERSION}\` 的 Release，不要只保留 Draft；无版本安装器通过 \`releases/latest\` 识别最新正式版。
 EOF_NOTES
@@ -75,6 +76,7 @@ EOF_NOTES
     "xnat-bootstrap-panel-v${RELEASE_VERSION}.sh" \
     "xnat-bootstrap-host-v${RELEASE_VERSION}.sh" \
     release.json \
+    RELEASE_NOTES.md \
     > SHA256SUMS.txt
 )
 

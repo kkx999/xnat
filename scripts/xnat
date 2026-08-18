@@ -1255,6 +1255,12 @@ show_update_check(){
   fi
 }
 
+
+is_prerelease_of_target(){
+  local current="$1" target="$2"
+  [[ "$current" == "${target}-dev"* || "$current" == "${target}-rc"* || "$current" == "${target}-RC"* ]]
+}
+
 cmd_update(){
   need_root
   local arg="${1:-}" role current current_rel release target script tmp top tree answer installed
@@ -1298,7 +1304,11 @@ cmd_update(){
   fi
 
   if [[ "$current" != unknown ]] && dpkg --compare-versions "$target" lt "$current" && [[ "${XNAT_ALLOW_DOWNGRADE:-0}" != 1 ]]; then
-    die "目标组件版本低于当前版本。若确需降级，请设置 XNAT_ALLOW_DOWNGRADE=1。"
+    if is_prerelease_of_target "$current" "$target"; then
+      ui_notice "检测到预发布版本 v${current} → 正式版 v${target}，按正式版收口升级处理"
+    else
+      die "目标组件版本低于当前版本。若确需降级，请设置 XNAT_ALLOW_DOWNGRADE=1。"
+    fi
   fi
 
   tmp="$(mktemp -d)"

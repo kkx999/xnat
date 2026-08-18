@@ -141,7 +141,7 @@ grep -q 'xnat-client-theme' panel/app/static/client.js
 grep -q 'xnat-admin-theme' panel/app/static/client.js
 grep -q 'data-admin-theme-toggle' panel/app/templates/admin.html
 grep -q 'traffic_reset_price_cents' panel/app/models.py
-grep -q 'kind="traffic_reset"' panel/app/main.py
+grep -q 'kind="traffic_reset"' panel/app/service_actions.py
 grep -q 'data-xnat-confirm' panel/app/templates/server_detail.html
 grep -q 'xnat-confirm-backdrop' panel/app/static/client.js
 ! grep -RInE '(^|[^A-Za-z])confirm\s*\(' panel/app/static/client.js panel/app/templates >/tmp/xnat-native-confirm.txt
@@ -153,6 +153,7 @@ grep -q '删除公告' panel/app/templates/admin.html
 ! grep -q 'name="announcement_enabled"' panel/app/templates/admin.html
 ! grep -q 'name="announcement_text"' panel/app/templates/admin.html
 grep -q '数据库迁移缺少表' scripts/upgrade-panel.sh
+grep -q '1.4.1) UPGRADE_PATH="verified-v1.4.1"' scripts/upgrade-panel.sh
 grep -q '1.4.0) UPGRADE_PATH="verified-v1.4.0"' scripts/upgrade-panel.sh
 grep -q '1.3.3) UPGRADE_PATH="verified-v1.3.3"' scripts/upgrade-panel.sh
 grep -q '1.3.2) UPGRADE_PATH="verified-v1.3.2"' scripts/upgrade-panel.sh
@@ -208,6 +209,13 @@ grep -q '@router.post("/purchase/quote")' panel/app/mobile_api.py
 grep -q '@router.post("/purchase")' panel/app/mobile_api.py
 grep -q '@router.post("/servers/{server_id}/ports")' panel/app/mobile_api.py
 grep -q '@router.post("/servers/{server_id}/reinstall")' panel/app/mobile_api.py
+grep -q '@router.post("/servers/{server_id}/delete")' panel/app/mobile_api.py
+grep -q '@router.post("/servers/{server_id}/traffic/reset")' panel/app/mobile_api.py
+grep -q '@router.get("/recharge/config")' panel/app/mobile_api.py
+grep -q '@router.post("/recharges")' panel/app/mobile_api.py
+grep -q '@router.get("/recharges/{recharge_id}")' panel/app/mobile_api.py
+grep -q '@router.post("/recharges/{recharge_id}/cancel")' panel/app/mobile_api.py
+grep -q '@router.post("/recharges/{recharge_id}/txid")' panel/app/mobile_api.py
 
 # v1.4.0 operations / diagnostics contracts.
 grep -q 'run_update_preflight()' scripts/xnat
@@ -366,31 +374,51 @@ assert 'body.client-body button{' not in css[-7000:], 'v1.4.1 must not add a glo
 print('v1.4.1 Telegram onboarding guards: ok')
 PYDEV5
 
-# v1.4.1 formal release / direct-upgrade guards
-python3 - <<'PYREL141'
+# v1.4.2 Mobile API phase-1 / v1.4.1 + v1.4.2-dev1 direct-upgrade guards
+python3 - <<'PYDEV142'
 from pathlib import Path
 import json
 root=Path('.')
 release=(root/'VERSION').read_text().strip()
 panel=(root/'panel/VERSION').read_text().strip()
 meta=json.loads((root/'release.json').read_text())
-assert release == '1.4.1', f'unexpected formal release version: {release}'
-assert panel == '1.4.1', f'unexpected Panel version: {panel}'
-assert meta['release_version'] == '1.4.1' and meta['panel_version'] == '1.4.1', 'release.json 1.4.1 metadata mismatch'
+assert release == '1.4.2', f'unexpected release version: {release}'
+assert panel == '1.4.2', f'unexpected Panel version: {panel}'
+assert meta['release_version'] == release and meta['panel_version'] == panel, 'release.json metadata mismatch'
 upgrade=(root/'scripts/upgrade-panel.sh').read_text()
-assert '1.4.0) UPGRADE_PATH="verified-v1.4.0"' in upgrade, 'formal v1.4.0 -> v1.4.1 direct upgrade path missing'
+assert '1.4.1) UPGRADE_PATH="verified-v1.4.1"' in upgrade, 'v1.4.1 -> v1.4.2 direct upgrade path missing'
+assert '1.4.2-dev1) UPGRADE_PATH="verified-v1.4.2-dev1"' in upgrade, 'v1.4.2-dev1 -> v1.4.2 finalization path missing'
 main=(root/'panel/app/main.py').read_text()
-assert '"version": "1.4.1"' in main, 'health version mismatch'
+assert '"version": "1.4.2"' in main, 'health version mismatch'
 base=(root/'panel/app/templates/base.html').read_text()
-assert 'XNAT v1.4.1 Multi-Node' in base, 'footer version mismatch'
+assert 'XNAT v1.4.2 Multi-Node' in base, 'footer version mismatch'
+mobile=(root/'panel/app/mobile_api.py').read_text()
+actions=(root/'panel/app/service_actions.py').read_text()
+docs=(root/'docs/MOBILE_API.md').read_text()
+for token in [
+    '"plan_name"', '"status_label"', '"traffic_cycle_start"', '"traffic_reset_price_cents"',
+    '"traffic_reset_available"', 'available_months', 'selected_month', 'Order.status.in_(["paid", "completed"])'
+]:
+    assert token in mobile, f'phase-1 Mobile API token missing: {token}'
+for route in [
+    '@router.post("/servers/{server_id}/delete")',
+    '@router.post("/servers/{server_id}/traffic/reset")',
+    '@router.get("/recharge/config")',
+    '@router.post("/recharges")',
+    '@router.get("/recharges/{recharge_id}")',
+    '@router.post("/recharges/{recharge_id}/cancel")',
+    '@router.post("/recharges/{recharge_id}/txid")',
+]:
+    assert route in mobile, f'phase-1 route missing: {route}'
+assert 'def reset_server_traffic' in actions and 'def enqueue_server_delete' in actions, 'shared service actions missing'
+assert 'reset_server_traffic(' in main and 'enqueue_server_delete(' in main, 'Web Panel must reuse shared service actions'
+assert 'Mobile API v1' in docs and 'v1.4.2' in docs, 'Mobile API docs version mismatch'
 readme=(root/'README.md').read_text()
-assert 'xnat update 1.4.1' in readme, 'formal upgrade command missing from README'
-build=(root/'scripts/build-release.sh').read_text()
-assert 'v1.4.0 → v${PANEL_VERSION}' in build, 'v1.4.0 direct-upgrade compatibility missing from release notes generator'
-assert '本次为 XNAT v${RELEASE_VERSION} 的兼容性增量更新' in build, 'release notes version must follow release metadata'
-assert r'Tag \`v${RELEASE_VERSION}\`' in build and r'\`releases/latest\`' in build, 'release-note markdown backticks must be shell-escaped'
-print('v1.4.1 formal release + direct-upgrade guards: ok')
-PYREL141
+assert '最新正式版本：**v1.4.2**' in readme, 'formal release version must be documented'
+assert 'is_prerelease_of_target' in (root/'scripts/xnat').read_text(), 'formalization-aware CLI guard missing'
+print('v1.4.2 Mobile API phase-1 guards: ok')
+PYDEV142
+
 
 echo "[5/7] Clean baseline guard"
 if find . -maxdepth 3 -type f | grep -Ei '(testing|preview-[0-9]|rc[0-9]|patch-panel|patch-management|upgrade-from-v1\.0\.3|UPGRADE-FROM)' >/tmp/xnat-clean-guard.txt; then
