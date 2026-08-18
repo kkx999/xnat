@@ -1891,7 +1891,7 @@ interactive_update(){
       1) show_update_check; pause_return ;;
       2) cmd_update || true; pause_return ;;
       3)
-        read -r -p "目标 XNAT Release（例如 1.4.0）: " v
+        read -r -p "目标 XNAT Release（例如 1.4.1）: " v
         cmd_update "$v" || true
         pause_return
         ;;

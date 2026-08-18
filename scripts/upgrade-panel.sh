@@ -37,6 +37,7 @@ CURRENT_VERSION="$(grep -E '^__version__[[:space:]]*=' "${TARGET_DIR}/app/__init
 CURRENT_VERSION="${CURRENT_VERSION:-unknown}"
 
 case "$CURRENT_VERSION" in
+  1.4.0) UPGRADE_PATH="verified-v1.4.0" ;;
   1.3.3) UPGRADE_PATH="verified-v1.3.3" ;;
   1.3.2) UPGRADE_PATH="verified-v1.3.2" ;;
   1.3.1) UPGRADE_PATH="verified-v1.3.1" ;;
@@ -164,6 +165,10 @@ PY
 for spec in \
   'plans:traffic_reset_price_cents' \
   'plans:virtualization_type' \
+  'plans:country_code' \
+  'plans:server_region' \
+  'plans:region_code' \
+  'plans:network_line' \
   'users:announcement_seen_key' \
   'host_nodes:maintenance_mode' \
   'host_nodes:maintenance_reason' \
@@ -172,11 +177,20 @@ for spec in \
   'host_nodes:schedule_storage_max_percent' \
   'host_nodes:virtualization_modes' \
   'host_nodes:kvm_available' \
+  'host_nodes:country_code' \
+  'host_nodes:server_region' \
+  'host_nodes:region_code' \
+  'host_nodes:network_line' \
   'servers:traffic_cycle_mode' \
   'servers:traffic_cycle_day' \
   'servers:expiry_suspended_at' \
   'servers:expiry_delete_queued_at' \
-  'servers:virtualization_type'; do
+  'servers:virtualization_type' \
+  'servers:display_id' \
+  'servers:server_region_snapshot' \
+  'servers:network_line_snapshot' \
+  'recharge_orders:cancelled_at' \
+  'recharge_orders:cancelled_by'; do
   table="${spec%%:*}"; column="${spec#*:}"
   sqlite3 "${TARGET_DIR}/data/panel.db" "PRAGMA table_info('${table}');" | cut -d'|' -f2 | grep -Fxq "$column" \
     || die "数据库迁移缺少字段：${table}.${column}"

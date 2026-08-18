@@ -104,8 +104,8 @@ grep -q 'traffic_cycle_mode' panel/app/models.py
 grep -q 'queue_admin_notification' panel/app/nodes.py
 grep -q 'admin.payment.repair_no_tx' panel/app/main.py
 grep -q 'FORCE CREDIT' panel/app/templates/admin.html
-grep -q "client.js') }}?v=1.4.0" panel/app/templates/base.html
-grep -q "style.css') }}?v=1.4.0" panel/app/templates/base.html
+grep -q "static_asset_version('client.js')" panel/app/templates/base.html
+grep -q "static_asset_version('style.css')" panel/app/templates/base.html
 grep -q 'class="plan-coupon-field"' panel/app/templates/plans.html
 grep -q 'class="card admin-plan-card admin-plan-fold"' panel/app/templates/admin.html
 grep -q 'admin-plan-summary-specs' panel/app/templates/admin.html
@@ -153,6 +153,7 @@ grep -q '删除公告' panel/app/templates/admin.html
 ! grep -q 'name="announcement_enabled"' panel/app/templates/admin.html
 ! grep -q 'name="announcement_text"' panel/app/templates/admin.html
 grep -q '数据库迁移缺少表' scripts/upgrade-panel.sh
+grep -q '1.4.0) UPGRADE_PATH="verified-v1.4.0"' scripts/upgrade-panel.sh
 grep -q '1.3.3) UPGRADE_PATH="verified-v1.3.3"' scripts/upgrade-panel.sh
 grep -q '1.3.2) UPGRADE_PATH="verified-v1.3.2"' scripts/upgrade-panel.sh
 grep -q '1.3.1) UPGRADE_PATH="verified-v1.3.1"' scripts/upgrade-panel.sh
@@ -240,8 +241,8 @@ grep -q 'notification-admin-fold' panel/app/templates/admin.html
 grep -q 'admin-record-fold' panel/app/templates/admin.html
 grep -q 'settings-section settings-fold' panel/app/templates/admin.html
 grep -q 'page_size=12' panel/app/main.py
-grep -q "style.css') }}?v=1.4.0" panel/app/templates/base.html
-grep -q "client.js') }}?v=1.4.0" panel/app/templates/base.html
+grep -q "static_asset_version('style.css')" panel/app/templates/base.html
+grep -q "static_asset_version('client.js')" panel/app/templates/base.html
 python3 - <<'PYFINAL140'
 from pathlib import Path
 css=Path('panel/app/static/style.css').read_text()
@@ -259,19 +260,137 @@ assert admin.count('class="settings-section settings-fold') == 6, 'site settings
 assert admin.count('class="notification-admin-fold') >= 3, 'notification page is no longer compactly folded'
 assert '<details class="admin-record-fold" {% if q %}open{% endif %}>' in admin, 'notification record fold changed unexpectedly'
 base=Path('panel/app/templates/base.html').read_text()
-assert "style.css') }}?v=1.4.0" in base, 'final style cache-bust missing'
-assert "client.js') }}?v=1.4.0" in base, 'final client cache-bust missing'
+assert "static_asset_version('style.css')" in base, 'content fingerprint style cache-bust missing'
+assert "static_asset_version('client.js')" in base, 'content fingerprint client cache-bust missing'
 assert 'class="balance-action-button credit"' in admin and 'class="balance-action-button debit"' in admin, 'explicit credit/debit buttons missing'
 main=Path('panel/app/main.py').read_text()
-assert 'action: str = Form("adjust")' in main, 'legacy-compatible balance route missing'
-assert 'entered_cents > int(target.balance_cents or 0)' in main, 'debit overdraw guard missing'
+assert 'action: str | None = Form(None)' in main and 'form_version: str = Form("")' in main, 'fail-closed balance route missing'
+assert 'entered_cents > balance_before' in main, 'debit overdraw guard missing'
 assert 'admin.balance.debit' in main and 'admin.balance.credit' in main, 'balance audit actions missing'
 assert 'grid-template-columns:repeat(2,minmax(0,1fr));' in css, 'equal balance action button grid missing'
 assert 'body.admin-body .admin-search input{\n  height:42px!important;\n  min-height:42px!important;\n  margin:0!important;' in css, 'admin search field alignment guard missing'
 assert 'grid-template-columns:repeat(2,80px);' in css, 'compact equal balance button columns missing'
 assert 'width:80px;' in css and 'height:34px;' in css, 'compact balance button geometry missing'
-print('v1.4.0 final ui/balance regression guards: ok')
+client_js=Path('panel/app/static/client.js').read_text()
+assert 'submitter.disabled = true' not in client_js, 'submitter serialization regression returned'
+assert 'form.dataset.xnatSubmitting' in client_js and 'aria-disabled' in client_js, 'safe duplicate-submit guard missing'
+assert 'name="form_version" value="2"' in admin, 'versioned balance form missing'
+assert '余额操作类型缺失或无效' in main, 'balance fail-closed guard missing'
+assert '前端展示旗帜' in admin and '机器编号前缀' in admin, 'host flag/machine-prefix fields missing'
+assert 'server_region_value' in admin and 'network_line_value' in admin, 'plan display metadata fields missing'
+assert 'xnat-country-options' not in admin and 'xnat-node-country-options' in admin, 'country selector scope regression'
+plans=Path('panel/app/templates/plans.html').read_text()
+assert '服务器地区' in plans and '网络线路' in plans and 'NAT 端口' in plans, '3x3 plan location parameters missing'
+assert 'xnat-country-flag' not in plans and 'flags/' not in plans, 'purchase page must not show country flags'
+servers_tpl=Path('panel/app/templates/servers.html').read_text()
+detail_tpl=Path('panel/app/templates/server_detail.html').read_text()
+assert 'server_display_id(s)' in servers_tpl and '/flags/' in servers_tpl, 'server card stable ID/flag missing'
+assert 'server_display_id(server)' in detail_tpl and '/flags/' in detail_tpl, 'server detail stable ID/flag missing'
+for label in ['公网主机','私网 IPv4','SSH','配置','虚拟化','当前带宽','NAT 端口','剩余流量']:
+    assert label in detail_tpl, f'server detail overview card missing: {label}'
+for removed in ['<span>国家 / 地区</span>','<span>服务器地区</span>','<span>区域代码</span>','<span>网络线路</span>','<span>本周期已用</span>','<span>本周期总流量</span>']:
+    assert removed not in detail_tpl.split('<section class="traffic-usage-panel">',1)[0], f'redundant detail overview field returned: {removed}'
+assert "static_asset_version('flags/' ~" in servers_tpl and "static_asset_version('flags/' ~" in detail_tpl, 'per-flag asset fingerprint missing'
+from panel.app.geo import COUNTRY_OPTIONS, normalize_country_code
+flags_dir=Path('panel/app/static/flags')
+for item in COUNTRY_OPTIONS:
+    code=item['code'].lower()
+    assert (flags_dir/f'{code}.svg').is_file(), f'flag asset missing: {code}'
+    assert normalize_country_code(item['name'], allow_empty=False) == item['code'], f'country mapping mismatch: {item}'
+assert normalize_country_code('香港', allow_empty=False) == 'HK', 'Hong Kong mapping regression'
+models=Path('panel/app/models.py').read_text()
+schema=Path('panel/app/schema.py').read_text()
+for field in ['country_code','server_region','region_code','network_line','display_id']:
+    assert field in models and field in schema, f'schema field missing: {field}'
+mobile=Path('panel/app/mobile_api.py').read_text()
+for field in ['"display_id"','"country"','"region"','"region_code"','"network_line"','"nat_port"']:
+    assert field in mobile, f'mobile API metadata missing: {field}'
+print('v1.4.0 final + next-round regression guards: ok')
 PYFINAL140
+
+# v1.4.1 payment state-machine / immutable display snapshot guards
+python3 - <<'PYDEV3'
+from pathlib import Path
+models=Path('panel/app/models.py').read_text()
+schema=Path('panel/app/schema.py').read_text()
+main=Path('panel/app/main.py').read_text()
+pay=Path('panel/app/payments.py').read_text()
+recharge=Path('panel/app/templates/recharge.html').read_text()
+detail=Path('panel/app/templates/recharge_detail.html').read_text()
+geo=Path('panel/app/geo.py').read_text()
+css=Path('panel/app/static/style.css').read_text()
+upgrade=Path('scripts/upgrade-panel.sh').read_text()
+for f in ['cancelled_at','cancelled_by']:
+    assert f in models and f in schema, f'missing recharge cancellation field {f}'
+assert 'def cancel_recharge_order' in pay and 'RechargeOrder.status.in_(["pending", "manual"])' in pay, 'atomic cancellation guard missing'
+assert 'status="exception"' in pay and '系统未自动入账' in pay, 'cancelled late-payment quarantine missing'
+assert '@app.post("/recharge/{recharge_id}/cancel")' in main, 'cancel route missing'
+assert '取消订单' in recharge and 'data-xnat-confirm' in recharge, 'cancel UI/confirmation missing'
+assert "recharge.status == 'cancelled'" in detail and "recharge.status == 'exception'" in detail, 'cancelled/exception detail states missing'
+assert 'payment-cancel-order-form' in detail and detail.index('payment-cancel-order-form') < detail.index('payment-pay-grid'), 'detail cancel action placement regression'
+assert '"cancelled": "已取消"' in main and '"exception": "异常支付"' in main, 'status labels missing'
+for f in ['server_region_snapshot','network_line_snapshot']:
+    assert f in models and f in schema and f in main, f'server display snapshot missing {f}'
+assert 'server_region_snapshot' in geo and 'network_line_snapshot' in geo, 'geo helpers must prefer snapshots'
+assert '机器编号前缀' in geo and '机器编号前缀' in main, 'machine prefix terminology/validation missing'
+assert 'func.upper(HostNode.region_code) == machine_prefix.upper()' in main, 'duplicate machine prefix guard missing'
+assert r'\nbody.client-body .recharge-' not in css and r'\nhtml[data-client-theme=' not in css, 'literal \\n escaped into executable CSS'
+for token in ['.recharge-cancel-button', '.payment-cancel-order-button', '@media(max-width:700px)']:
+    assert token in css, f'recharge responsive style missing: {token}'
+for spec in ['servers:server_region_snapshot','servers:network_line_snapshot','recharge_orders:cancelled_at','recharge_orders:cancelled_by']:
+    assert spec in upgrade, f'upgrade post-migration guard missing: {spec}'
+print('v1.4.1 recharge + snapshot guards: ok')
+PYDEV3
+
+# v1.4.1 Telegram onboarding / configuration-state guards
+python3 - <<'PYDEV5'
+from pathlib import Path
+main=Path('panel/app/main.py').read_text()
+notifications=Path('panel/app/notifications.py').read_text()
+runtime=Path('panel/app/runtime_config.py').read_text()
+account=Path('panel/app/templates/account.html').read_text()
+admin=Path('panel/app/templates/admin.html').read_text()
+css=Path('panel/app/static/style.css').read_text()
+assert 'def telegram_bot_identity' in notifications and '_telegram_api_request(bot_token, "getMe")' in notifications, 'Telegram getMe validator missing'
+assert 'telegram_bot_username' in runtime and 'TELEGRAM_BOT_USERNAME' in runtime, 'runtime bot username missing'
+assert '@app.post("/account/telegram/test")' in main, 'user Telegram test route missing'
+assert '站点暂未配置 Telegram Bot，当前无法开启 Telegram 通知。' in main, 'Telegram enable fail-closed guard missing'
+assert "Preserve the user's existing preference" in main, 'unavailable Telegram preference preservation missing'
+assert 'Telegram Chat ID 格式无效' in main, 'Telegram Chat ID validation missing'
+assert 'values["telegram_bot_username"]' in main and 'telegram_bot_identity(telegram_token)' in main, 'admin bot username discovery missing'
+assert '打开机器人' in account and '发送测试消息' in account and '点击 Start' in account, 'account Telegram onboarding copy/actions missing'
+assert 'disabled' in account and 'telegram_available' in account, 'unconfigured Telegram switch guard missing'
+assert '当前机器人：' in admin and 'Telegram getMe' in admin, 'admin bot identity status missing'
+assert 'XNAT v1.4.1: Telegram account onboarding.' in css and '.telegram-test-button' in css, 'scoped Telegram account styles missing'
+assert 'body.client-body button{' not in css[-7000:], 'v1.4.1 must not add a global client button override'
+print('v1.4.1 Telegram onboarding guards: ok')
+PYDEV5
+
+# v1.4.1 formal release / direct-upgrade guards
+python3 - <<'PYREL141'
+from pathlib import Path
+import json
+root=Path('.')
+release=(root/'VERSION').read_text().strip()
+panel=(root/'panel/VERSION').read_text().strip()
+meta=json.loads((root/'release.json').read_text())
+assert release == '1.4.1', f'unexpected formal release version: {release}'
+assert panel == '1.4.1', f'unexpected Panel version: {panel}'
+assert meta['release_version'] == '1.4.1' and meta['panel_version'] == '1.4.1', 'release.json 1.4.1 metadata mismatch'
+upgrade=(root/'scripts/upgrade-panel.sh').read_text()
+assert '1.4.0) UPGRADE_PATH="verified-v1.4.0"' in upgrade, 'formal v1.4.0 -> v1.4.1 direct upgrade path missing'
+main=(root/'panel/app/main.py').read_text()
+assert '"version": "1.4.1"' in main, 'health version mismatch'
+base=(root/'panel/app/templates/base.html').read_text()
+assert 'XNAT v1.4.1 Multi-Node' in base, 'footer version mismatch'
+readme=(root/'README.md').read_text()
+assert 'xnat update 1.4.1' in readme, 'formal upgrade command missing from README'
+build=(root/'scripts/build-release.sh').read_text()
+assert 'v1.4.0 → v${PANEL_VERSION}' in build, 'v1.4.0 direct-upgrade compatibility missing from release notes generator'
+assert '本次为 XNAT v${RELEASE_VERSION} 的兼容性增量更新' in build, 'release notes version must follow release metadata'
+assert r'Tag \`v${RELEASE_VERSION}\`' in build and r'\`releases/latest\`' in build, 'release-note markdown backticks must be shell-escaped'
+print('v1.4.1 formal release + direct-upgrade guards: ok')
+PYREL141
 
 echo "[5/7] Clean baseline guard"
 if find . -maxdepth 3 -type f | grep -Ei '(testing|preview-[0-9]|rc[0-9]|patch-panel|patch-management|upgrade-from-v1\.0\.3|UPGRADE-FROM)' >/tmp/xnat-clean-guard.txt; then

@@ -1,4 +1,4 @@
-# XNAT v1.4.0 详细使用文档
+# XNAT v1.4.1 详细使用文档
 
 > 本文档负责详细说明 XNAT 的安装和运维。  
 > 根目录 `README.md` 保持简洁，具体操作以这里为准。
@@ -72,15 +72,15 @@ bash <(...)
 # 3. 指定版本安装 Panel
 
 ```bash
-XNAT_VERSION=1.4.0 \
+XNAT_VERSION=1.4.1 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
 ```text
-XNAT_VERSION=1.4.0
+XNAT_VERSION=1.4.1
 ```
 
-表示固定安装 Release `v1.4.0`，不自动跟随以后发布的新版本。
+表示固定安装 Release `v1.4.1`，不自动跟随以后发布的新版本。
 
 ---
 
@@ -1587,3 +1587,16 @@ v1.4.0 在 v1.3.3 统一 CLI 基础上增加三项运维能力：
 - **脱敏诊断报告**：`xnat doctor report` 或管理菜单“系统诊断 → 导出脱敏诊断报告”生成 `/root/xnat-diagnostics/xnat-diagnostic-*.txt`，权限为 600。报告包含版本、服务、磁盘、数据库/Incus、防火墙与最近日志，并自动屏蔽 Token、密码、API Key、Bearer/JWT 等敏感信息。
 
 版本关系：XNAT Release v1.4.0 / Panel v1.4.0 / Mobile API v1 / Host Agent v1.1.1 / Agent API v1。v1.4.0 不改变 Host Agent API，不引入破坏性数据库迁移。
+
+
+# 39. v1.4.1 兼容性增量更新
+
+推荐从 v1.4.0 直接升级：
+
+```bash
+xnat update 1.4.1
+```
+
+Panel v1.4.1 继续使用 Mobile API v1；Host Agent 保持 v1.1.1 / Agent API v1。升级只执行 additive schema 扩展，并在替换代码前备份 `.env`、SQLite、旧代码、systemd 与管理命令；升级后继续执行数据库 `quick_check` 和 `/health` 版本校验。
+
+本版本主要新增稳定机器展示编号/本地国旗、套餐地区和线路展示快照、充值订单取消与异常支付保护，以及 Telegram Bot 配置状态引导。旧服务器内部 `nat-*` 名称、既有 Mobile API 字段、Host Agent 协议均保持兼容。
