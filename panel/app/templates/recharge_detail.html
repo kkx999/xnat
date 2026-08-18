@@ -21,6 +21,12 @@
     <div class="payment-order-state">
       <span class="payment-status {{ recharge.status }}">{{ recharge_status_label(recharge.status) }}</span>
       <span class="payment-chain-chip">{{ 'TRON · TRC20' if recharge.chain == 'tron' else 'Polygon · USDT0' }}</span>
+      {% if recharge.status in ['pending','manual'] and not recharge.tx_hash and not recharge.detected_at %}
+      <form method="post" action="/recharge/{{ recharge.id }}/cancel" class="payment-cancel-order-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="payment-cancel-order-button" data-xnat-confirm data-confirm-tone="danger" data-confirm-kicker="CANCEL PAYMENT" data-confirm-title="取消充值订单 #{{ recharge.id }}？" data-confirm-message="取消只会关闭 XNAT 内的订单；如果链上转账已经发送，它无法被撤销。" data-confirm-note="已经付款时请勿取消" data-confirm-label="确认取消">取消订单</button>
+      </form>
+      {% endif %}
     </div>
   </div>
 
@@ -84,6 +90,14 @@
       </label>
       <button type="submit">{{ '更新交易哈希' if recharge.tx_hash else '提交交易哈希' }}</button>
     </form>
+  {% elif recharge.status == 'cancelled' %}
+    <div class="payment-warning payment-note-v102 payment-notice-text-only payment-cancelled-notice">
+      <div><strong>订单已取消</strong><span>请勿继续向该订单付款。取消 XNAT 订单不会撤销已经发送的链上交易。</span></div>
+    </div>
+  {% elif recharge.status == 'exception' %}
+    <div class="payment-warning payment-note-v102 payment-notice-text-only payment-exception-notice">
+      <div><strong>检测到异常支付</strong><span>该订单取消后检测到链上付款，系统没有自动增加余额。请联系管理员核对处理。</span></div>
+    </div>
   {% elif recharge.status == 'expired' %}
     <div class="payment-warning payment-note-v102 payment-notice-text-only">
       <div><strong>订单已超时</strong><span>请优先创建新的充值订单后再付款，避免延迟到账。</span></div>

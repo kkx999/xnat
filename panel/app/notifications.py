@@ -137,6 +137,30 @@ def _send_email(user: User, notification: Notification, cfg: dict) -> str:
     return "sent" if sent else "unconfigured"
 
 
+def _telegram_api_request(bot_token: str, method: str, *, json_payload: dict | None = None) -> dict:
+    """Call Telegram without ever surfacing the Bot Token in exception text."""
+    token = (bot_token or "").strip()
+    if not token:
+        raise RuntimeError("Telegram Bot Token 未配置")
+    try:
+        response = httpx.request(
+            "POST" if json_payload is not None else "GET",
+            f"https://api.telegram.org/bot{token}/{method}",
+            json=json_payload,
+            timeout=15,
+        )
+    except httpx.RequestError as exc:
+        raise RuntimeError(f"Telegram 网络请求失败：{exc.__class__.__name__}") from exc
+    try:
+        payload = response.json()
+    except Exception:
+        payload = {}
+    if response.status_code >= 400 or not payload.get("ok"):
+        description = str(payload.get("description") or f"Telegram API HTTP {response.status_code}")
+        raise RuntimeError(description[:200])
+    return payload
+
+
 def _send_telegram(user: User, notification: Notification, cfg: dict) -> str:
     if not _channel_allowed(notification, "telegram", cfg):
         return "rule_off"
@@ -148,16 +172,26 @@ def _send_telegram(user: User, notification: Notification, cfg: dict) -> str:
         return "unconfigured"
 
     text = f"{notification.title}\n\n{notification.body}"
-    response = httpx.post(
-        f"https://api.telegram.org/bot{bot_token}/sendMessage",
-        json={"chat_id": chat_id, "text": text, "disable_web_page_preview": True},
-        timeout=15,
+    _telegram_api_request(
+        bot_token,
+        "sendMessage",
+        json_payload={"chat_id": chat_id, "text": text, "disable_web_page_preview": True},
     )
-    response.raise_for_status()
-    payload = response.json()
-    if not payload.get("ok"):
-        raise RuntimeError(payload.get("description") or "Telegram send failed")
     return "sent"
+
+
+def telegram_bot_identity(bot_token: str) -> dict:
+    """Validate a Telegram Bot Token and return a small, safe getMe identity."""
+    payload = _telegram_api_request(bot_token, "getMe")
+    result = payload.get("result") or {}
+    username = str(result.get("username") or "").strip().lstrip("@")
+    if not username:
+        raise RuntimeError("Telegram Bot 未返回 username")
+    return {
+        "id": result.get("id"),
+        "username": username[:64],
+        "first_name": str(result.get("first_name") or "")[:128],
+    }
 
 
 def send_telegram_chat(chat_id: str, text: str) -> bool:
@@ -168,15 +202,11 @@ def send_telegram_chat(chat_id: str, text: str) -> bool:
         raise RuntimeError("Telegram Bot Token 未配置")
     if not target:
         raise RuntimeError("Telegram Chat ID 为空")
-    response = httpx.post(
-        f"https://api.telegram.org/bot{bot_token}/sendMessage",
-        json={"chat_id": target, "text": text, "disable_web_page_preview": True},
-        timeout=15,
+    _telegram_api_request(
+        bot_token,
+        "sendMessage",
+        json_payload={"chat_id": target, "text": text, "disable_web_page_preview": True},
     )
-    response.raise_for_status()
-    payload = response.json()
-    if not payload.get("ok"):
-        raise RuntimeError(payload.get("description") or "Telegram send failed")
     return True
 
 

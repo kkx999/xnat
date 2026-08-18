@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 40" role="img">
+  <rect width="60" height="40" fill="#DE2910"/>
+  <g transform="translate(30 20)">
+    <defs>
+      <path id="petal" d="M0 0C3.1-2.4 7.7-7.1 7.2-12.6C6.8-17.7 2.9-20.4-0.2-19.9C-4.3-19.3-6.4-14.9-5.5-10.8C-4.5-6.3-1.8-2.6 0 0Z" fill="#fff"/>
+      <path id="miniStar" d="M0-1.7.5-.55 1.7-.52.75.2 1.05 1.4 0 .72-1.05 1.4-.75.2-1.7-.52-.5-.55Z" fill="#DE2910"/>
+    </defs>
+    <g id="p0">
+      <use href="#petal"/>
+      <path d="M.1-2.5C1.5-6.5 2.1-10.7 1.1-15.4" fill="none" stroke="#DE2910" stroke-width=".65" stroke-linecap="round"/>
+      <g transform="translate(1.2 -15.1)"><use href="#miniStar"/></g>
+    </g>
+    <use href="#p0" transform="rotate(72)"/>
+    <use href="#p0" transform="rotate(144)"/>
+    <use href="#p0" transform="rotate(216)"/>
+    <use href="#p0" transform="rotate(288)"/>
+  </g>
+</svg>

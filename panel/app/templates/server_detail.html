@@ -1,14 +1,16 @@
 {% extends "base.html" %}
-{% block title %}{{ server.name }} · {{ app_name }}{% endblock %}
+{% block title %}{{ server_display_id(server) }} · {{ app_name }}{% endblock %}
 {% block client_header %}
-<div class="client-breadcrumb"><a href="/servers">我的服务器</a><span>/</span><span>{{ server.name }}</span></div>
+<div class="client-breadcrumb"><a href="/servers">我的服务器</a><span>/</span><span>{{ server_display_id(server) }}</span></div>
+{% set country_code = server_country_code(server) %}
 <div class="client-server-title">
-  <span class="client-status-dot {{ server_ui_status }}"></span>
-  <h1>{{ server.name }}</h1>
+  <span class="client-status-dot {{ server_ui_status }}" title="{{ server_status_label(server_ui_status) }}"></span>
+  {% if country_code %}<img class="xnat-country-flag detail-flag" src="{{ url_for('static', path='/flags/' ~ (country_code|lower) ~ '.svg') }}?v={{ static_asset_version('flags/' ~ (country_code|lower) ~ '.svg') }}" alt="{{ country_name(country_code) }}">{% endif %}
+  <h1>{{ server_display_id(server) }}</h1>
   <span class="client-tag os">{{ server.os_name or "Debian 12" }}</span>
-  <span class="client-tag client-instance-status {{ server_ui_status }}">{{ server_status_label(server_ui_status) }}</span>
+  <span class="client-tag">{{ (server.virtualization_type or "lxc")|upper }}</span>
 </div>
-<p>{{ server.plan.name }} · {{ server.provider }}</p>
+<p>{% if server_region(server) %}{{ server_region(server) }} · {% endif %}{{ server.plan.name }} · {{ server_status_label(server_ui_status) }}</p>
 {% endblock %}
 {% block content %}
 <div class="server-detail-page" data-server-ui-status="{{ server_ui_status }}">
@@ -20,8 +22,7 @@
   <div><span>配置</span><strong>{{ server.cpu }}C / {{ server.memory_mb }}M / {{ server.disk_gb }}G</strong></div>
   <div><span>虚拟化</span><strong>{{ (server.virtualization_type or "lxc")|upper }}</strong></div>
   <div><span>当前带宽</span><strong>{% if server.traffic_throttled %}1 Mbps · 流量限速{% elif (server.bandwidth_mbps or 0) == 0 %}不限速{% else %}{{ server.bandwidth_mbps }} Mbps{% endif %}</strong></div>
-  <div><span>本周期已用</span><strong>{{ human_bytes(traffic_used_bytes(server)) }}</strong></div>
-  <div><span>本周期总流量</span><strong>{% if traffic_quota_gb(server) > 0 %}{{ traffic_quota_gb(server) }} GB{% if traffic_bonus_gb(server) > 0 %} <small>+{{ traffic_bonus_gb(server) }} GB</small>{% endif %}{% else %}不限流量{% endif %}</strong></div>
+  <div><span>NAT 端口</span><strong>{{ server.ports|length }} / {{ server.port_limit }}</strong></div>
   <div><span>剩余流量</span><strong>{% if (server.traffic_gb or 0) > 0 %}{{ human_bytes(traffic_remaining_bytes(server)) }}{% else %}不限流量{% endif %}</strong></div>
 </div>
 
@@ -158,7 +159,7 @@
 <details class="client-detail-section danger">
   <summary>
     <div class="detail-summary-main">
-      <div><strong>系统重装 / 删除实例</strong><span>高风险操作，需要实例名确认</span></div>
+      <div><strong>系统重装 / 删除实例</strong><span>高风险操作，需要服务器编号确认</span></div>
     </div>
     <span class="detail-summary-action">展开</span>
   </summary>
@@ -175,7 +176,7 @@
           {% endfor %}
           </select>
         </label>
-        <label>输入实例名确认<input name="confirm_name" placeholder="{{ server.name }}" required></label>
+        <label>输入服务器编号确认<input name="confirm_name" placeholder="{{ server_display_id(server) }}" required></label>
         <button class="danger" type="submit" data-loading-label="正在提交重装…">确认重装系统</button>
       </form>
 
@@ -183,7 +184,7 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <h3>永久删除实例</h3>
         <p>删除后服务器、映射端口和数据都不可恢复。</p>
-        <label>输入实例名确认<input name="confirm_name" placeholder="{{ server.name }}" required></label>
+        <label>输入服务器编号确认<input name="confirm_name" placeholder="{{ server_display_id(server) }}" required></label>
         <button class="danger" type="submit" data-loading-label="正在提交删除…">永久删除实例</button>
       </form>
     </div>

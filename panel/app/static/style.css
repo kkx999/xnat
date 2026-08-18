@@ -9856,3 +9856,187 @@ body.admin-body .balance-action-button{
   }
   body.admin-body .balance-action-button{width:100%}
 }
+
+
+/* XNAT next-round location metadata, stable server ID and cache-safe UI. */
+.xnat-country-flag{width:26px;height:18px;display:inline-block;flex:0 0 auto;border-radius:4px;overflow:hidden;vertical-align:middle;object-fit:cover;object-position:center;box-shadow:0 0 0 1px rgba(127,127,127,.20)}
+.xnat-country-flag.detail-flag{width:30px;height:20px}
+body.client-body .service-title,body.client-body .client-server-title{align-items:center}
+body.client-body .purchase-plan-card .client-plan-specs{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+body.client-body .purchase-plan-card .client-plan-specs>div{min-width:0}
+body.client-body .purchase-plan-card .client-plan-specs strong{overflow-wrap:anywhere}
+@media(max-width:720px){body.client-body .purchase-plan-card .client-plan-specs{grid-template-columns:repeat(3,minmax(0,1fr))!important}.xnat-country-flag{width:24px;height:16px}}
+
+/* XNAT v1.4.1 — recharge action geometry and responsive layout.
+   Scope is intentionally limited to recharge cancellation UI; global buttons stay untouched. */
+body.client-body .recharge-history-row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:16px;
+}
+body.client-body .recharge-history-main{
+  min-width:0;
+  color:inherit;
+  text-decoration:none;
+}
+body.client-body .recharge-history-side{
+  min-width:0;
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:10px;
+  text-align:right;
+}
+body.client-body .recharge-history-amount{
+  min-width:82px;
+  color:inherit;
+  text-decoration:none;
+}
+body.client-body .recharge-cancel-form,
+body.client-body .payment-cancel-order-form{margin:0}
+body.client-body .recharge-cancel-button,
+body.client-body .payment-cancel-order-button{
+  min-width:0;
+  min-height:30px;
+  padding:0 11px;
+  border:1px solid #68444d;
+  border-radius:8px;
+  background:#24181d;
+  color:#e2a0aa;
+  font-size:8.5px;
+  font-weight:800;
+  line-height:1;
+  white-space:nowrap;
+  box-shadow:none;
+}
+body.client-body .recharge-cancel-button:hover,
+body.client-body .payment-cancel-order-button:hover{
+  border-color:#875763;
+  background:#301e24;
+  color:#ffd5da;
+}
+body.client-body .recharge-state.cancelled,
+body.client-body .recharge-state.exception{color:#df8c94!important}
+body.client-body .payment-status.cancelled,
+body.client-body .payment-status.exception{
+  border-color:#713f48;
+  background:#25171b;
+  color:#e79aa3;
+}
+body.client-body .payment-exception-notice{
+  border-color:#7b4e2e;
+  background:#241b13;
+}
+@media(max-width:700px){
+  body.client-body .recharge-history-row{
+    grid-template-columns:1fr;
+    align-items:stretch;
+    gap:8px;
+    padding-top:11px;
+    padding-bottom:11px;
+  }
+  body.client-body .recharge-history-side{
+    width:100%;
+    align-items:flex-end;
+    justify-content:space-between;
+    gap:12px;
+    text-align:left;
+  }
+  body.client-body .recharge-history-amount{min-width:0}
+}
+html[data-client-theme="light"] body.client-body .recharge-cancel-button,
+html[data-client-theme="light"] body.client-body .payment-cancel-order-button{
+  border-color:#e0b4bc;
+  background:#fff1f3;
+  color:#9f4d5a;
+}
+html[data-client-theme="light"] body.client-body .recharge-cancel-button:hover,
+html[data-client-theme="light"] body.client-body .payment-cancel-order-button:hover{
+  border-color:#d59aa5;
+  background:#ffe5e9;
+  color:#873d49;
+}
+html[data-client-theme="light"] body.client-body .payment-status.cancelled,
+html[data-client-theme="light"] body.client-body .payment-status.exception{
+  border-color:#e3b9c0;
+  background:#fff1f3;
+  color:#a34d5a;
+}
+
+
+/* XNAT v1.4.1: Telegram account onboarding.
+   Scoped to the account Telegram field so existing global/button geometry stays untouched. */
+body.client-body .telegram-account-field{display:flex;flex-direction:column;gap:8px}
+body.client-body .telegram-account-field>label{margin:0!important}
+body.client-body .telegram-setup-note{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  min-width:0;
+  padding:10px 12px;
+  border:1px solid #2f4966;
+  border-radius:12px;
+  background:#101f32;
+}
+body.client-body .telegram-setup-note.is-ready{border-color:#315b84;background:#11243a}
+body.client-body .telegram-setup-note.is-unavailable{border-color:#3a4654;background:#151c26}
+body.client-body .telegram-setup-copy{min-width:0}
+body.client-body .telegram-setup-copy strong,
+body.client-body .telegram-setup-copy span{display:block}
+body.client-body .telegram-setup-copy strong{color:#e8f2ff;font-size:10px;line-height:1.35}
+body.client-body .telegram-setup-copy span{margin-top:3px;color:#8ea2ba;font-size:8.5px;line-height:1.5}
+body.client-body .telegram-setup-copy b{color:#b8d9fb;font-weight:800}
+body.client-body .telegram-setup-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex:0 0 auto}
+body.client-body .telegram-open-bot,
+body.client-body .telegram-test-button{
+  min-height:34px!important;
+  width:auto!important;
+  margin:0!important;
+  padding:7px 11px!important;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:9px!important;
+  font-size:9px!important;
+  font-weight:800;
+  line-height:1!important;
+  white-space:nowrap;
+}
+body.client-body .telegram-open-bot{
+  border:1px solid #3c78ad;
+  background:#163556;
+  color:#bfe0ff;
+  text-decoration:none;
+}
+body.client-body .telegram-open-bot:hover{border-color:#5196d3;background:#1a416a;color:#e9f6ff}
+body.client-body .telegram-test-button{border-color:#3d6f9e!important;background:#173553!important;color:#c9e5ff!important;box-shadow:none!important}
+body.client-body .telegram-test-button:hover{border-color:#5192ca!important;background:#1a4065!important;transform:none!important}
+body.client-body .telegram-service-state{
+  flex:0 0 auto;
+  padding:5px 8px;
+  border:1px solid #4a5868;
+  border-radius:999px;
+  color:#9aa9b8;
+  font-size:8.5px;
+  font-weight:800;
+  line-height:1;
+}
+body.client-body .client-notification-toggle:has(input:disabled){cursor:not-allowed;opacity:.68}
+body.client-body .client-notification-toggle:has(input:disabled):hover{border-color:#2c4059;background:#111c2d;box-shadow:none;transform:none}
+html[data-client-theme="light"] body.client-body .telegram-setup-note{border-color:#c9dae9;background:#f7fbff}
+html[data-client-theme="light"] body.client-body .telegram-setup-note.is-ready{border-color:#b6d2eb;background:#f2f8fe}
+html[data-client-theme="light"] body.client-body .telegram-setup-note.is-unavailable{border-color:#d5dee7;background:#f6f8fa}
+html[data-client-theme="light"] body.client-body .telegram-setup-copy strong{color:#29435e}
+html[data-client-theme="light"] body.client-body .telegram-setup-copy span{color:#70869b}
+html[data-client-theme="light"] body.client-body .telegram-setup-copy b{color:#306b9f}
+html[data-client-theme="light"] body.client-body .telegram-open-bot{border-color:#9fc6e9;background:#eaf5ff;color:#285f91}
+html[data-client-theme="light"] body.client-body .telegram-open-bot:hover{border-color:#78afe0;background:#e1f1ff;color:#204f78}
+html[data-client-theme="light"] body.client-body .telegram-test-button{border-color:#a7c9e7!important;background:#eef7ff!important;color:#2a6294!important}
+html[data-client-theme="light"] body.client-body .telegram-service-state{border-color:#c9d4de;color:#77899a;background:#fff}
+@media(max-width:700px){
+  body.client-body .telegram-setup-note{align-items:flex-start;flex-direction:column;gap:9px}
+  body.client-body .telegram-setup-actions{width:100%;justify-content:flex-start;flex-wrap:wrap}
+  body.client-body .telegram-service-state{align-self:flex-start}
+}

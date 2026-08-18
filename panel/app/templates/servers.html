@@ -17,16 +17,20 @@
   <article class="client-server-card">
     <div class="client-server-card-head">
       <div>
+        {% set country_code = server_country_code(s) %}
         <div class="service-title">
-          <span class="client-status-dot {{ server_ui_status.get(s.id, s.status) }}"></span>
-          <strong>{{ s.name }}</strong>
+          <span class="client-status-dot {{ server_ui_status.get(s.id, s.status) }}" title="{{ server_status_label(server_ui_status.get(s.id, s.status)) }}"></span>
+          {% if country_code %}
+          <img class="xnat-country-flag" src="{{ url_for('static', path='/flags/' ~ (country_code|lower) ~ '.svg') }}?v={{ static_asset_version('flags/' ~ (country_code|lower) ~ '.svg') }}" alt="{{ country_name(country_code) }}">
+          {% endif %}
+          <strong>{{ server_display_id(s) }}</strong>
           <span class="client-tag os">{{ s.os_name or "Debian 12" }}</span>
           <span class="client-tag">{{ (s.virtualization_type or "lxc")|upper }}</span>
           {% if traffic_level(s) in ["warning", "critical", "exhausted", "exempt"] %}
           <span class="traffic-state-badge {{ traffic_level(s) }}">{{ traffic_status_label(s) }}</span>
           {% endif %}
         </div>
-        <span>{{ s.plan.name }} · {{ server_status_label(server_ui_status.get(s.id, s.status)) }}</span>
+        <span>{% if server_region(s) %}{{ server_region(s) }} · {% endif %}{{ s.plan.name }}</span>
       </div>
       <a class="client-detail-link" href="/servers/{{ s.id }}">管理服务器</a>
     </div>

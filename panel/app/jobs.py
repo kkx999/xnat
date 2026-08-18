@@ -9,6 +9,7 @@ from .audit import write_audit
 from .crypto import encrypt_secret
 from .db import SessionLocal
 from .models import BalanceLedger, Job, Order, PortMapping, Server, SystemImage, User
+from .geo import server_display_id
 from .notifications import queue_notification, queue_admin_notification
 from .traffic import apply_sample, ensure_cycle
 
@@ -105,7 +106,7 @@ def _run_provision(db, provider, server: Server, job: Job):
             db,
             user,
             title="VPS 开通成功",
-            body=f"{server.name} 已开通。SSH：{server.public_ip}:{server.ssh_port}，系统：{server.os_name}。root 密码可在服务器详情页查看。",
+            body=f"{server_display_id(server)} 已开通。SSH：{server.public_ip}:{server.ssh_port}，系统：{server.os_name}。root 密码可在服务器详情页查看。",
             kind="server",
             severity="success",
             event_key=f"provisioned:{server.id}:{server.order_id}",
@@ -154,7 +155,7 @@ def _run_reinstall(db, provider, server: Server, job: Job):
             db,
             user,
             title="系统重装完成",
-            body=f"{server.name} 已重装为 {image.name}。原系统数据已清空，新的 root 密码可在服务器详情页查看。",
+            body=f"{server_display_id(server)} 已重装为 {image.name}。原系统数据已清空，新的 root 密码可在服务器详情页查看。",
             kind="server",
             severity="success",
             event_key=f"reinstall:{server.id}:{job.id}",
@@ -178,7 +179,7 @@ def _run_delete(db, provider, server: Server, job: Job):
             db,
             user,
             title="VPS 已删除",
-            body=f"{server.name} 已永久删除。",
+            body=f"{server_display_id(server)} 已永久删除。",
             kind="server",
             severity="warning",
             event_key=f"deleted:{server.id}:{job.id}",
@@ -253,7 +254,7 @@ def run_one_job(provider, provider_name: str) -> bool:
                                 db,
                                 user,
                                 title="VPS 开通失败",
-                                body=f"{server.name} 开通失败，已自动退回本次购买余额。错误：{message[:200]}",
+                                body=f"{server_display_id(server)} 开通失败，已自动退回本次购买余额。错误：{message[:200]}",
                                 kind="server",
                                 severity="error",
                                 event_key=f"provision-failed:{server.id}:{job.id}",

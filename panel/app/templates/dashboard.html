@@ -36,7 +36,7 @@
         <div class="service-primary">
           <div class="service-title">
             <span class="client-status-dot {{ server_ui_status.get(s.id, s.status) }}"></span>
-            <strong>{{ s.name }}</strong>
+            <strong>{{ server_display_id(s) }}</strong>
             <span class="client-tag os">{{ s.os_name or "Debian 12" }}</span>
             <span class="client-tag">{{ (s.virtualization_type or "lxc")|upper }}</span>
           </div>

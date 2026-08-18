@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from .db import SessionLocal
 from .models import Server, User
+from .geo import server_display_id
 from .notifications import queue_notification
 from .providers.base import NetworkStats
 
@@ -280,16 +281,16 @@ def collect_all(provider, provider_name: str) -> tuple[int, int]:
                 cycle_key = (server.traffic_cycle_start or now).strftime("%Y%m%d%H%M%S")
                 level = traffic_level(server)
                 if level == "warning":
-                    queue_notification(db, user, title="流量已使用 80%", body=f"{server.name} 本周期流量已使用 {traffic_raw_percent(server):.1f}%。", kind="traffic", severity="warning", event_key=f"traffic80:{server.id}:{cycle_key}")
+                    queue_notification(db, user, title="流量已使用 80%", body=f"{server_display_id(server)} 本周期流量已使用 {traffic_raw_percent(server):.1f}%。", kind="traffic", severity="warning", event_key=f"traffic80:{server.id}:{cycle_key}")
                 elif level == "critical":
-                    queue_notification(db, user, title="流量已使用 90%", body=f"{server.name} 本周期流量已使用 {traffic_raw_percent(server):.1f}%，请关注剩余流量。", kind="traffic", severity="warning", event_key=f"traffic90:{server.id}:{cycle_key}")
+                    queue_notification(db, user, title="流量已使用 90%", body=f"{server_display_id(server)} 本周期流量已使用 {traffic_raw_percent(server):.1f}%，请关注剩余流量。", kind="traffic", severity="warning", event_key=f"traffic90:{server.id}:{cycle_key}")
                 elif level == "exhausted":
-                    queue_notification(db, user, title="流量已用尽，已自动限速", body=f"{server.name} 已用尽本周期流量，当前带宽自动降为 {THROTTLE_MBPS} Mbps；新周期开始后会自动恢复。", kind="traffic", severity="error", event_key=f"traffic100:{server.id}:{cycle_key}")
+                    queue_notification(db, user, title="流量已用尽，已自动限速", body=f"{server_display_id(server)} 已用尽本周期流量，当前带宽自动降为 {THROTTLE_MBPS} Mbps；新周期开始后会自动恢复。", kind="traffic", severity="error", event_key=f"traffic100:{server.id}:{cycle_key}")
 
                 if cycle_changed and previous_cycle_start is not None:
-                    queue_notification(db, user, title="流量周期已重置", body=f"{server.name} 已进入新的流量周期，流量重新计数。", kind="traffic", severity="success", event_key=f"traffic-reset:{server.id}:{cycle_key}")
+                    queue_notification(db, user, title="流量周期已重置", body=f"{server_display_id(server)} 已进入新的流量周期，流量重新计数。", kind="traffic", severity="success", event_key=f"traffic-reset:{server.id}:{cycle_key}")
                 if previous_throttled and policy_result == "restored":
-                    queue_notification(db, user, title="带宽已恢复", body=f"{server.name} 的流量限速已解除，带宽恢复为 {configured_bandwidth_mbps(server) or '不限'} Mbps。", kind="traffic", severity="success", event_key=f"traffic-restored:{server.id}:{cycle_key}")
+                    queue_notification(db, user, title="带宽已恢复", body=f"{server_display_id(server)} 的流量限速已解除，带宽恢复为 {configured_bandwidth_mbps(server) or '不限'} Mbps。", kind="traffic", severity="success", event_key=f"traffic-restored:{server.id}:{cycle_key}")
 
         db.commit()
 

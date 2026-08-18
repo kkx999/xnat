@@ -25,6 +25,7 @@ from .security import client_ip, login_block_remaining_seconds, record_login_eve
 from .crypto import decrypt_secret
 from .traffic import ensure_cycle, traffic_percent, traffic_quota_gb, traffic_remaining_bytes, traffic_used_bytes
 from .notifications import queue_notification
+from .geo import assign_server_display_id, confirmation_matches, country_name, server_country_code, server_display_id, server_network_line, server_region, server_region_code
 
 router = APIRouter(prefix="/api/v1", tags=["mobile-api"])
 PROVIDER_NAME = os.getenv("VPS_PROVIDER", "mock").strip().lower()
@@ -198,6 +199,13 @@ def _server_payload(db, server: Server, ui_status: str | None = None) -> dict:
     return {
         "id": server.id,
         "name": server.name,
+        "display_id": server_display_id(server),
+        "country": server_country_code(server),
+        "country_name": country_name(server_country_code(server)) if server_country_code(server) else "",
+        "region": server_region(server),
+        "region_code": server_region_code(server),
+        "network_line": server_network_line(server),
+        "nat_port": int(server.port_limit if server.port_limit is not None else (server.plan.port_count if server.plan else 0) or 0),
         "status": ui_status or server.status or "unknown",
         "public_ip": server.public_ip,
         "private_ip": server.private_ip,
@@ -263,6 +271,12 @@ def _plan_payload(db, plan: Plan) -> dict:
         "port_count": int(plan.port_count or 0),
         "bandwidth_mbps": int(plan.bandwidth_mbps or 0),
         "traffic_gb": int(plan.traffic_gb or 0),
+        "country": "",
+        "country_name": "",
+        "region": plan.server_region or "",
+        "region_code": "",
+        "network_line": plan.network_line or "",
+        "nat_port": int(plan.port_count or 0),
         "monthly_price_cents": int(plan.monthly_price_cents or 0),
         "virtualization_type": plan.virtualization_type or "lxc",
         "is_recommended": bool(plan.is_recommended),
@@ -374,12 +388,15 @@ def _queue_purchase_service(db, user: User, plan: Plan, system_image: SystemImag
         traffic_cycle_mode=_get_setting(db, "traffic_cycle_default_mode", "rolling30"),
         traffic_cycle_day=max(1, min(28, int(_get_setting(db, "traffic_cycle_default_day", "1") or 1))),
         monthly_price_cents=plan.monthly_price_cents,
+        server_region_snapshot=(plan.server_region or "").strip(),
+        network_line_snapshot=(plan.network_line or "").strip(),
         virtualization_type=(plan.virtualization_type or "lxc"),
         expires_at=datetime.utcnow() + timedelta(days=30),
         reconcile_status="pending",
     )
     db.add(server)
     db.flush()
+    assign_server_display_id(server)
     order.server_id = server.id
     ensure_cycle(server, datetime.utcnow())
     if coupon:
@@ -732,8 +749,8 @@ async def api_reinstall_server(request: Request, server_id: int):
         blocked = _lifecycle_operation_block(db, server)
         if blocked:
             raise HTTPException(409, blocked)
-        if confirm_name != server.name:
-            raise HTTPException(400, "重装确认名称不正确")
+        if not confirmation_matches(server, confirm_name):
+            raise HTTPException(400, "重装确认编号不正确")
         system_image = db.get(SystemImage, os_image_id)
         if not system_image or not system_image.is_active or system_image.family != "apt":
             raise HTTPException(409, "所选系统镜像不可用")
@@ -835,7 +852,7 @@ async def api_purchase(request: Request):
             return {
                 "ok": True, "replayed": True,
                 "order": {"id": order.id, "amount_cents": int(order.amount_cents or 0), "discount_cents": int(order.discount_cents or 0), "status": order.status},
-                "server": {"id": server.id, "name": server.name, "status": server.status, "os_name": server.os_name},
+                "server": {"id": server.id, "name": server.name, "display_id": server_display_id(server), "country": server_country_code(server), "region": server_region(server), "region_code": server_region_code(server), "network_line": server_network_line(server), "nat_port": int(server.port_limit or 0), "status": server.status, "os_name": server.os_name},
                 "job": {"id": job.id, "status": job.status, "job_type": job.job_type},
                 "balance_after_cents": int(user.balance_cents or 0),
             }
@@ -876,7 +893,7 @@ async def api_purchase(request: Request):
             return {
                 "ok": True,
                 "order": {"id": order.id, "amount_cents": final_price, "discount_cents": int(discount or 0), "status": order.status},
-                "server": {"id": server.id, "name": server.name, "status": server.status, "os_name": server.os_name},
+                "server": {"id": server.id, "name": server.name, "display_id": server_display_id(server), "country": server_country_code(server), "region": server_region(server), "region_code": server_region_code(server), "network_line": server_network_line(server), "nat_port": int(server.port_limit or 0), "status": server.status, "os_name": server.os_name},
                 "job": {"id": job.id, "status": job.status, "job_type": job.job_type},
                 "balance_after_cents": int(user.balance_cents or 0),
             }

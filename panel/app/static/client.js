@@ -553,9 +553,17 @@
       if (event.defaultPrevented || form.dataset.noLoading === "true") return;
       const submitter = event.submitter || form.querySelector('button[type="submit"], button:not([type])');
       if (!submitter || submitter.disabled) return;
+      if (form.dataset.xnatSubmitting === "true") {
+        event.preventDefault();
+        return;
+      }
+      form.dataset.xnatSubmitting = "true";
       submitter.dataset.originalText = submitter.textContent;
       submitter.classList.add("is-loading");
-      submitter.disabled = true;
+      // Do not disable the native submitter here. A disabled submit button is
+      // removed from successful form controls, which would drop name/value
+      // pairs such as action=debit before the browser serializes the POST.
+      submitter.setAttribute("aria-disabled", "true");
       const label = submitter.getAttribute("data-loading-label") || "处理中…";
       submitter.textContent = label;
     });
@@ -572,8 +580,9 @@
 
   // Browser back/forward cache can return a page with disabled submitters.
   window.addEventListener("pageshow", () => {
+    document.querySelectorAll(".client-body form").forEach((form) => delete form.dataset.xnatSubmitting);
     document.querySelectorAll(".client-body button.is-loading").forEach((button) => {
-      button.disabled = false;
+      button.removeAttribute("aria-disabled");
       button.classList.remove("is-loading");
       if (button.dataset.originalText) button.textContent = button.dataset.originalText;
     });
@@ -653,9 +662,16 @@ document.addEventListener('DOMContentLoaded', () => {
       const submitter = event.submitter || form.querySelector('button[type="submit"], button:not([type])');
       if (!submitter || submitter.disabled) return;
       if (submitter.matches('[data-xnat-confirm]') && form.dataset.xnatConfirmed !== 'true') return;
+      if (form.dataset.xnatSubmitting === 'true') {
+        event.preventDefault();
+        return;
+      }
+      form.dataset.xnatSubmitting = 'true';
       submitter.dataset.originalText = submitter.textContent;
       submitter.classList.add('is-loading');
-      submitter.disabled = true;
+      // Keep the submitter enabled until native form serialization completes so
+      // button name/value fields (for example action=debit) are never lost.
+      submitter.setAttribute('aria-disabled', 'true');
       submitter.textContent = submitter.getAttribute('data-loading-label') || '处理中…';
     });
   });
@@ -695,8 +711,9 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('pageshow', () => {
     navigating = false;
     adminBody.classList.remove('xnat-route-leaving');
+    document.querySelectorAll('.admin-body form').forEach((form) => delete form.dataset.xnatSubmitting);
     document.querySelectorAll('.admin-body button.is-loading').forEach((button) => {
-      button.disabled = false;
+      button.removeAttribute('aria-disabled');
       button.classList.remove('is-loading');
       if (button.dataset.originalText) button.textContent = button.dataset.originalText;
     });

@@ -52,6 +52,7 @@ def notification_runtime_config(db) -> dict:
         "smtp_from": runtime_plain(db, "smtp_from", env_name="SMTP_FROM", default=""),
         "smtp_starttls": runtime_bool(db, "smtp_starttls", env_name="SMTP_STARTTLS", default=True),
         "telegram_bot_token": runtime_secret(db, "telegram_bot_token_enc", env_name="TELEGRAM_BOT_TOKEN", default=""),
+        "telegram_bot_username": runtime_plain(db, "telegram_bot_username", env_name="TELEGRAM_BOT_USERNAME", default="").lstrip("@"),
         "trongrid_api_key": runtime_secret(db, "trongrid_api_key_enc", env_name="TRONGRID_API_KEY", default=""),
         "rules": rules,
     }

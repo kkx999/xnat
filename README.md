@@ -4,7 +4,29 @@
 
 XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、多宿主机节点、套餐、用户、流量、通知及日常运维。
 
-当前版本：**v1.4.0**
+当前版本：**v1.4.1**
+
+
+## v1.4.1 机器展示、充值与通知体验
+
+v1.4.1 是基于 v1.4.0 的兼容性增量更新，重点收口机器展示身份、套餐展示信息、充值订单状态与 Telegram 用户通知引导。数据库升级继续采用 additive migration，不重建旧表。
+
+- 修复后台“扣除余额”在浏览器提交参数丢失时可能被错误解释为增加余额的问题；新版余额表单缺失/非法操作类型时 fail closed，并保留旧 signed amount 兼容路径。
+- Host 节点使用“前端展示旗帜 + 机器编号前缀”管理用户侧身份；Panel 生成稳定展示编号（如 `TYO-0002`），Host 内部 `nat-*` 实例名保持不变。
+- 套餐保留服务器地区、网络线路与 NAT 端口作为购买页展示元数据；已开通服务器保存地区/线路快照，后续编辑套餐不会改写旧机器展示。
+- 用户服务器卡片/详情顶部使用本地独立 SVG 国旗资产和稳定编号；详情概览精简为公网主机、私网 IPv4、SSH、配置、虚拟化、当前带宽、NAT 端口、剩余流量。
+- 充值订单支持用户主动取消；已取消订单若随后检测到链上付款会进入异常支付并停止自动入账，避免并发/延迟付款造成余额异常。
+- Telegram 通知增加配置状态联动：管理员保存 Bot Token 时通过 `getMe` 验证并识别机器人用户名；用户端提供 Start 引导、打开机器人和测试消息，未配置 Bot 时不能误开启通知。
+- CSS / JS 与国旗资源使用内容指纹 cache-bust，减少浏览器复用旧静态资源造成的界面回退错觉。
+- Mobile API 继续保持 v1；新增展示字段均为向后兼容字段，旧客户端仍可继续使用内部 `name`，重装确认同时兼容稳定编号与旧内部实例名。
+
+升级：
+
+```bash
+xnat update 1.4.1
+```
+
+版本关系：**XNAT Release v1.4.1 / Panel v1.4.1 / Mobile API v1 / Host Agent v1.1.1 / Agent API v1**。Host Agent 核心协议不变。
 
 
 ## v1.4.0 运维、交互与后台管理
@@ -153,43 +175,43 @@ Host 连接 Panel 成功后，在 Panel 后台节点设置中配置 NAT 端口�
 
 ---
 
-# 指定 v1.4.0 安装
+# 指定 v1.4.1 安装
 
 Panel：
 
 ```bash
-XNAT_VERSION=1.4.0 \
+XNAT_VERSION=1.4.1 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
 Host：
 
 ```bash
-XNAT_VERSION=1.4.0 \
+XNAT_VERSION=1.4.1 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-host.sh)
 ```
 
-> `XNAT_VERSION=1.4.0` 指 XNAT Release 版本。XNAT v1.4.0 使用 **Panel v1.4.0 / Mobile API v1 / Host Agent v1.1.1 / Agent API v1**。
+> `XNAT_VERSION=1.4.1` 指 XNAT Release 版本。XNAT v1.4.1 使用 **Panel v1.4.1 / Mobile API v1 / Host Agent v1.1.1 / Agent API v1**。
 
 ---
 
-# 从 v1.3.2 / v1.3.3 升级到 v1.4.0
+# 从 v1.4.0 升级到 v1.4.1
 
 Panel：
 
 ```bash
-xnat update 1.4.0
+xnat update 1.4.1
 ```
 
 Host：
 
 ```bash
-xnat update 1.4.0
+xnat update 1.4.1
 ```
 
-更新命令会先执行 v1.4.0 升级预检并验证下载的 Release，再询问是否继续。Panel 会保留 `.env`、SQLite、用户、余额、订单、VPS、Host、套餐、端口、工单与支付数据，并继续执行升级前后 `PRAGMA quick_check`、完整备份、健康检查与失败回滚。Host 会保留 Agent Token、TLS、Incus、natpool、虚拟化配置和现有 VPS。
+更新命令会先执行 v1.4.1 升级预检并验证下载的 Release，再询问是否继续。Panel 会保留 `.env`、SQLite、用户、余额、订单、VPS、Host、套餐、端口、工单与支付数据，并继续执行升级前后 `PRAGMA quick_check`、完整备份、健康检查与失败回滚。Host 会保留 Agent Token、TLS、Incus、natpool、虚拟化配置和现有 VPS。
 
-Host Agent 仍为 **v1.1.1 / Agent API v1**；已经运行 v1.1.1 的 Host 仍建议执行本次 Release 更新，以同步新的升级预检、增强诊断和脱敏报告能力。
+Host Agent 仍为 **v1.1.1 / Agent API v1**；本次没有 Host Agent 协议变更。Host 可执行 `xnat update 1.4.1` 同步 Release 元数据与管理脚本。
 
 
 ---

@@ -209,8 +209,78 @@ def create_recharge_order(db, user: User, *, chain: str, cny_amount: Decimal) ->
     return row
 
 
-def _credit_order(db, order: RechargeOrder, *, tx_hash: str, event_index: str, from_address: str | None, amount_units: int, block_number: int | None, raw: dict):
+def cancel_recharge_order(db, *, order_id: int, user_id: int) -> tuple[bool, str]:
+    """Cancel an unpaid recharge order atomically.
+
+    Cancellation only closes the Panel order. It cannot reverse an already-broadcast
+    blockchain transfer, so detected/paid orders are intentionally non-cancellable.
+    """
+    now = datetime.utcnow()
+    claimed = db.execute(
+        update(RechargeOrder)
+        .where(
+            RechargeOrder.id == int(order_id),
+            RechargeOrder.user_id == int(user_id),
+            RechargeOrder.status.in_(["pending", "manual"]),
+            RechargeOrder.detected_at.is_(None),
+            RechargeOrder.tx_hash.is_(None),
+            RechargeOrder.expires_at > now,
+        )
+        .values(status="cancelled", cancelled_at=now, cancelled_by="user")
+    )
+    if claimed.rowcount == 1:
+        return True, "订单已取消。"
+
+    order = db.get(RechargeOrder, int(order_id))
+    if not order or order.user_id != int(user_id):
+        return False, "充值订单不存在。"
+    if order.status in {"pending", "manual"} and order.expires_at <= now:
+        order.status = "expired"
+        return False, "订单已经过期，无需取消。"
     if order.status == "paid":
+        return False, "订单已经到账，不能取消。"
+    if order.status == "exception":
+        return False, "该订单存在异常支付，请联系管理员处理。"
+    if order.status == "cancelled":
+        return False, "订单已经取消。"
+    if order.status == "expired":
+        return False, "订单已经过期，无需取消。"
+    if order.status == "detected" or order.detected_at or order.tx_hash:
+        return False, "系统已经检测到支付信息，当前订单不能取消。"
+    return False, "当前订单状态不允许取消。"
+
+
+def _credit_order(db, order: RechargeOrder, *, tx_hash: str, event_index: str, from_address: str | None, amount_units: int, block_number: int | None, raw: dict, allow_cancelled: bool = False):
+    if order.status == "paid":
+        return False
+
+    # A cancelled order remains observable for a short grace window. If money
+    # arrives after cancellation, quarantine it for manual review instead of
+    # silently crediting or discarding the payment.
+    if order.status in {"cancelled", "exception"} and not allow_cancelled:
+        now = datetime.utcnow()
+        db.execute(
+            update(RechargeOrder)
+            .where(RechargeOrder.id == order.id, RechargeOrder.status.in_(["cancelled", "exception"]))
+            .values(
+                status="exception", tx_hash=tx_hash, tx_event_index=str(event_index),
+                from_address=from_address, confirmations=max(order.confirmations or 0, 1),
+                detected_at=order.detected_at or now,
+            )
+        )
+        order.status = "exception"
+        order.tx_hash = tx_hash
+        order.tx_event_index = str(event_index)
+        order.from_address = from_address
+        order.detected_at = order.detected_at or now
+        user = db.get(User, order.user_id)
+        if user:
+            queue_notification(
+                db, user, title="充值订单检测到异常付款",
+                body=f"已取消的充值订单 #{order.id} 检测到链上付款，系统未自动入账，请联系管理员核对。",
+                kind="payment", severity="warning", event_key=f"recharge-exception:{order.id}",
+            )
+        print(f"[payment] cancelled order #{order.id} received payment {tx_hash}; quarantined")
         return False
 
     existing = db.scalar(select(ChainTransaction).where(
@@ -220,6 +290,17 @@ def _credit_order(db, order: RechargeOrder, *, tx_hash: str, event_index: str, f
     ))
     if existing:
         # Transaction already processed elsewhere. Do not double-credit.
+        return False
+
+    allowed_statuses = ["pending", "expired", "detected", "manual"]
+    if allow_cancelled:
+        allowed_statuses += ["cancelled", "exception"]
+    claimed = db.execute(
+        update(RechargeOrder)
+        .where(RechargeOrder.id == order.id, RechargeOrder.status.in_(allowed_statuses))
+        .values(status="detected", tx_hash=tx_hash, tx_event_index=str(event_index), detected_at=order.detected_at or datetime.utcnow())
+    )
+    if claimed.rowcount != 1:
         return False
 
     tx = ChainTransaction(
@@ -308,7 +389,7 @@ def _scan_tron(db, orders: list[RechargeOrder], cfg: dict) -> int:
                 amount = int(item.get("value") or 0)
             except Exception:
                 continue
-            order = next((o for o in orders if o.expected_usdt_units == amount and o.status != "paid"), None)
+            order = next((o for o in orders if o.expected_usdt_units == amount and o.status in {"pending", "expired", "cancelled"}), None)
             if not order:
                 continue
             tx_hash = item.get("transaction_id") or item.get("transactionId") or ""
@@ -383,7 +464,7 @@ def _scan_polygon(db, orders: list[RechargeOrder], cfg: dict) -> int:
             from_addr = "0x" + topics[1][-40:] if len(topics) >= 2 else None
         except Exception:
             continue
-        order = next((o for o in orders if o.expected_usdt_units == amount and o.status != "paid" and (o.start_block or 0) <= block_number), None)
+        order = next((o for o in orders if o.expected_usdt_units == amount and o.status in {"pending", "expired", "cancelled"} and (o.start_block or 0) <= block_number), None)
         if not order:
             continue
         order.confirmations = max(0, latest - block_number + 1)
@@ -702,6 +783,7 @@ def repair_credit_order(
             amount_units=int(verified["amount_units"]),
             block_number=verified.get("block_number"),
             raw={"source": "admin_repair_verified", "verification": verified.get("raw") or {}},
+            allow_cancelled=True,
         )
 
     if not force:
@@ -839,6 +921,9 @@ def manual_credit_order(db, order: RechargeOrder, *, tx_hash: str | None = None)
 
     now = datetime.utcnow()
     final_tx_hash = (tx_hash or order.tx_hash or "").strip()[:128] or None
+    if final_tx_hash:
+        final_tx_hash = normalize_tx_hash(order.chain, final_tx_hash)
+        _ensure_repair_tx_unused(db, order, final_tx_hash)
     claimed = db.execute(
         update(RechargeOrder)
         .where(RechargeOrder.id == order.id, RechargeOrder.status == "manual")
@@ -852,6 +937,14 @@ def manual_credit_order(db, order: RechargeOrder, *, tx_hash: str | None = None)
     )
     if claimed.rowcount != 1:
         return False
+
+    if final_tx_hash:
+        db.add(ChainTransaction(
+            chain=order.chain, tx_hash=final_tx_hash, event_index="manual",
+            from_address=None, to_address=order.deposit_address, token_contract=order.token_contract,
+            amount_units=order.expected_usdt_units, block_number=None,
+            raw_json=json.dumps({"source": "manual_confirm", "order_id": order.id}, ensure_ascii=False, separators=(",", ":")),
+        ))
 
     user = db.get(User, order.user_id)
     if not user:
@@ -889,18 +982,23 @@ def poll_pending_payments() -> tuple[int, int]:
             return 0, 0
 
         grace_cutoff = now - timedelta(hours=cfg["late_grace_hours"])
-        candidates = db.scalars(
+        rows = db.scalars(
             select(RechargeOrder).where(
-                RechargeOrder.status.in_(["pending", "expired"]),
-                RechargeOrder.created_at >= grace_cutoff,
+                RechargeOrder.status.in_(["pending", "expired", "cancelled"])
             ).order_by(RechargeOrder.id)
         ).all()
-        for order in candidates:
+        candidates = []
+        for order in rows:
             if order.status == "pending" and order.expires_at <= now:
                 order.status = "expired"
+            if order.status == "expired" and order.expires_at < grace_cutoff:
+                continue
+            if order.status == "cancelled" and (order.cancelled_at or order.created_at) < grace_cutoff:
+                continue
+            candidates.append(order)
 
-        tron = [o for o in candidates if o.chain == "tron" and o.status != "paid"]
-        polygon = [o for o in candidates if o.chain == "polygon" and o.status != "paid"]
+        tron = [o for o in candidates if o.chain == "tron" and o.status in {"pending", "expired", "cancelled"}]
+        polygon = [o for o in candidates if o.chain == "polygon" and o.status in {"pending", "expired", "cancelled"}]
         try:
             if cfg["tron_enabled"]:
                 credited += _scan_tron(db, tron, cfg)

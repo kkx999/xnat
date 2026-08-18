@@ -6,7 +6,31 @@
 <div class="settings-grid">
 <section class="client-panel"><div class="client-panel-head"><div><h2>个人资料与通知</h2><p>邮件和 Telegram 通知可分别开关</p></div></div>
 <form class="settings-form" method="post" action="/account/profile"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-<label>用户名<input value="{{ user.username }}" disabled></label><label>邮箱<input type="email" name="email" value="{{ user.email }}" required></label><label>Telegram Chat ID<input name="telegram_chat_id" value="{{ user.telegram_chat_id or '' }}" placeholder="例如 123456789"></label>
+<label>用户名<input value="{{ user.username }}" disabled></label><label>邮箱<input type="email" name="email" value="{{ user.email }}" required></label>
+<div class="telegram-account-field">
+  <label>Telegram Chat ID<input name="telegram_chat_id" value="{{ user.telegram_chat_id or '' }}" placeholder="例如 123456789" inputmode="numeric" autocomplete="off"></label>
+  {% if telegram_available %}
+    <div class="telegram-setup-note is-ready">
+      <div class="telegram-setup-copy">
+        <strong>启用前先连接机器人</strong>
+        {% if telegram_bot_username %}
+          <span>请先私聊 <b>@{{ telegram_bot_username }}</b> 并点击 Start（或发送 /start），然后填写 Chat ID。</span>
+        {% else %}
+          <span>请先私聊站点 Telegram 机器人并点击 Start（或发送 /start），然后填写 Chat ID。</span>
+        {% endif %}
+      </div>
+      <div class="telegram-setup-actions">
+        {% if telegram_bot_username %}<a class="telegram-open-bot" href="https://t.me/{{ telegram_bot_username }}" target="_blank" rel="noopener noreferrer">打开机器人</a>{% endif %}
+        <button class="telegram-test-button" type="submit" formaction="/account/telegram/test" formmethod="post" formnovalidate>发送测试消息</button>
+      </div>
+    </div>
+  {% else %}
+    <div class="telegram-setup-note is-unavailable">
+      <div class="telegram-setup-copy"><strong>Telegram 通知暂不可用</strong><span>管理员尚未配置 Telegram Bot。你可以先保存 Chat ID，服务配置完成后再开启通知。</span></div>
+      <span class="telegram-service-state">未配置</span>
+    </div>
+  {% endif %}
+</div>
 <div class="client-notification-preferences" aria-label="通知偏好">
   <label class="client-notification-toggle">
     <input type="checkbox" name="notify_email" {% if user.notify_email %}checked{% endif %}>
@@ -14,8 +38,8 @@
     <span class="client-toggle-control" aria-hidden="true"><span></span></span>
   </label>
   <label class="client-notification-toggle">
-    <input type="checkbox" name="notify_telegram" {% if user.notify_telegram %}checked{% endif %}>
-    <span class="client-notification-copy"><strong>Telegram 通知</strong><small>接收即时服务提醒</small></span>
+    <input type="checkbox" name="notify_telegram" {% if user.notify_telegram %}checked{% endif %} {% if not telegram_available %}disabled{% endif %}>
+    <span class="client-notification-copy"><strong>Telegram 通知</strong><small>{{ '接收即时服务提醒' if telegram_available else '管理员尚未配置 Telegram Bot' }}</small></span>
     <span class="client-toggle-control" aria-hidden="true"><span></span></span>
   </label>
 </div><button type="submit">保存资料</button></form></section>

@@ -9,6 +9,7 @@ from .audit import write_audit
 from .db import SessionLocal
 from .jobs import enqueue_job
 from .models import Job, Server, SiteSetting, User
+from .geo import server_display_id
 from .notifications import queue_notification, queue_admin_notification
 
 
@@ -168,7 +169,7 @@ def run_expiry_lifecycle(provider, provider_name: str) -> dict:
                             db,
                             user,
                             title=f"VPS 将在 {threshold} 天内到期",
-                            body=f"{server.name} 将于 {server.expires_at:%Y-%m-%d %H:%M} UTC 到期，请及时续费。",
+                            body=f"{server_display_id(server)} 将于 {server.expires_at:%Y-%m-%d %H:%M} UTC 到期，请及时续费。",
                             kind="expiry",
                             severity="warning",
                             event_key=f"expiry-{threshold}:{server.id}:{expiry_key}",
@@ -182,7 +183,7 @@ def run_expiry_lifecycle(provider, provider_name: str) -> dict:
                     db,
                     user,
                     title="VPS 已到期，当前处于宽限期",
-                    body=f"{server.name} 已到期，将在宽限期结束后暂停服务。宽限结束：{grace_end:%Y-%m-%d %H:%M} UTC。",
+                    body=f"{server_display_id(server)} 已到期，将在宽限期结束后暂停服务。宽限结束：{grace_end:%Y-%m-%d %H:%M} UTC。",
                     kind="expiry",
                     severity="warning",
                     event_key=f"expiry-grace:{server.id}:{expiry_key}",
@@ -195,7 +196,7 @@ def run_expiry_lifecycle(provider, provider_name: str) -> dict:
                 user,
                 title="VPS 已到期",
                 body=(
-                    f"{server.name} 已超过到期宽限期。"
+                    f"{server_display_id(server)} 已超过到期宽限期。"
                     + ("服务将保持停止，续费后可自动恢复。" if cfg["auto_stop"] else "当前站点未启用自动停机。")
                 ),
                 kind="expiry",
@@ -222,7 +223,7 @@ def run_expiry_lifecycle(provider, provider_name: str) -> dict:
                     queue_admin_notification(
                         db,
                         title="到期 VPS 自动停机失败",
-                        body=f"{server.name} (#{server.id}) 自动停机失败：{str(exc)[:240]}",
+                        body=f"{server_display_id(server)} (#{server.id}) 自动停机失败：{str(exc)[:240]}",
                         kind="system",
                         severity="error",
                         event_key=f"expiry-stop-failed:{server.id}:{now:%Y%m%d%H}",
@@ -238,7 +239,7 @@ def run_expiry_lifecycle(provider, provider_name: str) -> dict:
                     db,
                     user,
                     title="VPS 即将自动删除",
-                    body=f"{server.name} 预计在 {delete_at:%Y-%m-%d %H:%M} UTC 永久删除。请在删除前完成续费。",
+                    body=f"{server_display_id(server)} 预计在 {delete_at:%Y-%m-%d %H:%M} UTC 永久删除。请在删除前完成续费。",
                     kind="expiry",
                     severity="error",
                     event_key=f"expiry-delete-warning:{server.id}:{expiry_key}",
@@ -271,7 +272,7 @@ def run_expiry_lifecycle(provider, provider_name: str) -> dict:
                 db,
                 user,
                 title="VPS 已进入自动删除队列",
-                body=f"{server.name} 已超过自动删除期限，删除任务 #{job.id} 已进入队列。",
+                body=f"{server_display_id(server)} 已超过自动删除期限，删除任务 #{job.id} 已进入队列。",
                 kind="expiry",
                 severity="error",
                 event_key=f"expiry-delete-queued:{server.id}:{expiry_key}",

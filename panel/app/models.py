@@ -52,6 +52,11 @@ class Plan(Base):
     stock_limit: Mapped[int] = mapped_column(Integer, default=0)  # 0 = unlimited
     # Instance virtualization requested by this plan. Existing plans default to LXC.
     virtualization_type: Mapped[str] = mapped_column(String(16), default="lxc")
+    # Legacy compatibility columns plus catalog display metadata. New admin UI uses only server_region/network_line on Plan; Host owns flag/prefix.
+    country_code: Mapped[str] = mapped_column(String(2), default="")
+    server_region: Mapped[str] = mapped_column(String(120), default="")
+    region_code: Mapped[str] = mapped_column(String(16), default="")
+    network_line: Mapped[str] = mapped_column(String(160), default="")
 
     # Homepage merchandising controls.
     # sort_order remains package-center/catalog order for compatibility.
@@ -82,6 +87,11 @@ class HostNode(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     region: Mapped[str] = mapped_column(String(80), default="default", index=True)
+    # Host presentation identity. country_code selects the front-end flag; region_code is the machine-number prefix. Legacy server_region/network_line columns remain for schema compatibility only.
+    country_code: Mapped[str] = mapped_column(String(2), default="")
+    server_region: Mapped[str] = mapped_column(String(120), default="")
+    region_code: Mapped[str] = mapped_column(String(16), default="")
+    network_line: Mapped[str] = mapped_column(String(160), default="")
     api_url: Mapped[str] = mapped_column(String(255))
     api_token_enc: Mapped[str] = mapped_column(Text)
     public_ip: Mapped[str] = mapped_column(String(64))
@@ -163,6 +173,9 @@ class Server(Base):
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"))
     host_id: Mapped[int | None] = mapped_column(ForeignKey("host_nodes.id"), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(80))
+    # Stable Panel-facing identifier (for example TYO-0002). Provider/internal
+    # instance names such as nat-1-2 remain unchanged and are never repurposed.
+    display_id: Mapped[str | None] = mapped_column(String(32), nullable=True, unique=True, index=True)
     provider: Mapped[str] = mapped_column(String(32), default="mock")
     provider_instance_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     status: Mapped[str] = mapped_column(String(24), default="provisioning")
@@ -183,6 +196,10 @@ class Server(Base):
     bandwidth_mbps: Mapped[int | None] = mapped_column(Integer, nullable=True)
     traffic_gb: Mapped[int | None] = mapped_column(Integer, nullable=True)
     monthly_price_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Catalog presentation snapshot: already-opened servers must not silently move
+    # region/line when an administrator later edits the plan.
+    server_region_snapshot: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    network_line_snapshot: Mapped[str | None] = mapped_column(String(160), nullable=True)
     # Snapshot so reinstall keeps the original virtualization type even if the plan changes later.
     virtualization_type: Mapped[str] = mapped_column(String(16), default="lxc")
 
@@ -340,6 +357,8 @@ class RechargeOrder(Base):
     start_block: Mapped[int | None] = mapped_column(Integer, nullable=True)
     detected_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cancelled_by: Mapped[str | None] = mapped_column(String(24), nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 

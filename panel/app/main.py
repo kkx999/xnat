@@ -31,9 +31,9 @@ from .crypto import decrypt_secret, encrypt_secret
 from .audit import write_audit
 from .backups import BACKUP_DIR, create_backup, create_scheduled_backup_if_due, delete_backup, list_backups, restore_backup, store_uploaded_backup, validate_backup_file
 from .jobs import enqueue_job, process_jobs
-from .notifications import process_pending_notifications, queue_notification, queue_admin_notification, send_email_address, send_telegram_chat
+from .notifications import process_pending_notifications, queue_notification, queue_admin_notification, send_email_address, send_telegram_chat, telegram_bot_identity
 from .runtime_config import notification_runtime_config, runtime_plain, runtime_secret
-from .payments import (POLYGON_USDT0_CONTRACT, TRON_USDT_CONTRACT, create_recharge_order, manual_credit_order, normalize_tx_hash, payment_config, poll_pending_payments, rate_text, repair_credit_order, force_credit_order_without_tx, test_polygon_configuration, test_tron_configuration, usdt_units_to_text, valid_evm_address, valid_tron_address, verify_recharge_transaction)
+from .payments import (POLYGON_USDT0_CONTRACT, TRON_USDT_CONTRACT, cancel_recharge_order, create_recharge_order, manual_credit_order, normalize_tx_hash, payment_config, poll_pending_payments, rate_text, repair_credit_order, force_credit_order_without_tx, test_polygon_configuration, test_tron_configuration, usdt_units_to_text, valid_evm_address, valid_tron_address, verify_recharge_transaction)
 from .reconcile import reconcile_all, reconcile_server as reconcile_one_server
 from .security import (client_ip, consume_password_reset_token, create_login_session, create_password_reset_token, get_login_session, login_block_remaining_seconds, new_totp_secret, record_login_event, revoke_current_session, revoke_other_sessions, totp_uri, verify_totp)
 from .db import Base, SessionLocal, engine
@@ -59,6 +59,11 @@ from .nodes import (
     HostAPIError, allocate_host_port, host_request, host_summary, host_port_pool_stats, host_schedule_state,
     refresh_all_hosts, refresh_host, select_host_for_plan,
 )
+from .geo import (
+    COUNTRY_OPTIONS, assign_server_display_id, confirmation_matches, country_name,
+    infer_country_code, infer_region_code, normalize_country_code, normalize_region_code,
+    server_country_code, server_display_id, server_network_line, server_region, server_region_code,
+)
 
 APP_NAME = os.getenv("APP_NAME", "XNAT")
 APP_SECRET = os.getenv("APP_SECRET", "dev-only-change-me")
@@ -72,7 +77,21 @@ except Exception:
     APP_TZ = timezone.utc
 
 BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+_STATIC_FINGERPRINTS: dict[str, str] = {}
+def static_asset_version(name: str) -> str:
+    key = str(name or "").lstrip("/")
+    cached = _STATIC_FINGERPRINTS.get(key)
+    if cached:
+        return cached
+    path = (STATIC_DIR / key).resolve()
+    if STATIC_DIR.resolve() not in path.parents or not path.is_file():
+        return "missing"
+    value = hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    _STATIC_FINGERPRINTS[key] = value
+    return value
 
 def get_provider():
     if PROVIDER_NAME == "remote":
@@ -164,7 +183,6 @@ def order_status_label(value: str | None) -> str:
         "failed": "失败",
         "cancelled": "已取消",
         "refunded": "已退款",
-        "cancelled": "已取消",
     }.get((value or "").lower(), value or "未知")
 
 
@@ -186,6 +204,8 @@ def recharge_status_label(value: str | None) -> str:
         "paid": "已到账",
         "expired": "已过期",
         "manual": "人工处理",
+        "cancelled": "已取消",
+        "exception": "异常支付",
     }.get((value or "pending").lower(), value or "未知")
 
 
@@ -403,11 +423,14 @@ def provision_service(db, request, user, plan, system_image, *, order_amount_cen
         traffic_cycle_mode=get_setting(db, "traffic_cycle_default_mode", "rolling30"),
         traffic_cycle_day=max(1, min(28, int(get_setting(db, "traffic_cycle_default_day", "1") or 1))),
         monthly_price_cents=plan.monthly_price_cents,
+        server_region_snapshot=(plan.server_region or "").strip(),
+        network_line_snapshot=(plan.network_line or "").strip(),
         virtualization_type=(plan.virtualization_type or "lxc"),
         expires_at=datetime.utcnow() + timedelta(days=30),
     )
     db.add(server)
     db.flush()
+    assign_server_display_id(server)
     order.server_id = server.id
 
     ssh_port = allocate_public_port(db, "tcp")
@@ -449,7 +472,7 @@ def provision_service(db, request, user, plan, system_image, *, order_amount_cen
         server.root_password_enc = encrypt_secret(result.root_password)
         one_time_secret(
             request,
-            f"{server.name} root 初始密码（仅本次显示）",
+            f"{server_display_id(server)} root 初始密码（仅本次显示）",
             result.root_password,
         )
 
@@ -485,11 +508,14 @@ def queue_service_provision(db, user, plan, system_image, *, order_amount_cents:
         traffic_cycle_mode=get_setting(db, "traffic_cycle_default_mode", "rolling30"),
         traffic_cycle_day=max(1, min(28, int(get_setting(db, "traffic_cycle_default_day", "1") or 1))),
         monthly_price_cents=plan.monthly_price_cents,
+        server_region_snapshot=(plan.server_region or "").strip(),
+        network_line_snapshot=(plan.network_line or "").strip(),
         virtualization_type=(plan.virtualization_type or "lxc"),
         expires_at=datetime.utcnow() + timedelta(days=30), reconcile_status="pending",
     )
     db.add(server)
     db.flush()
+    assign_server_display_id(server)
     order.server_id = server.id
     ensure_cycle(server, datetime.utcnow())
 
@@ -531,6 +557,13 @@ templates.env.globals["rate_text"] = rate_text
 templates.env.globals["urlencode"] = quote_plus
 templates.env.globals["decrypt_secret"] = decrypt_secret
 templates.env.globals["host_summary"] = host_summary
+templates.env.globals["country_name"] = country_name
+templates.env.globals["server_display_id"] = server_display_id
+templates.env.globals["server_country_code"] = server_country_code
+templates.env.globals["server_region"] = server_region
+templates.env.globals["server_region_code"] = server_region_code
+templates.env.globals["server_network_line"] = server_network_line
+templates.env.globals["static_asset_version"] = static_asset_version
 
 
 def migrate_legacy_announcement(db) -> int | None:
@@ -589,6 +622,20 @@ def mark_announcement_read(db, user_id: int, announcement_id: int) -> bool:
     return True
 
 
+def backfill_location_metadata_and_display_ids(db):
+    """Backfill Host flag/prefix and stable display IDs without reviving retired Host display fields."""
+    for host in db.scalars(select(HostNode)).all():
+        legacy_region = (host.server_region or host.region or "").strip()
+        if not (host.region_code or "").strip():
+            host.region_code = infer_region_code(legacy_region)[:16]
+        if not (host.country_code or "").strip():
+            host.country_code = infer_country_code(legacy_region)[:2]
+    db.flush()
+    for server in db.scalars(select(Server).where(Server.display_id.is_(None))).all():
+        if server_region_code(server):
+            assign_server_display_id(server)
+
+
 def seed():
     Path("data").mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
@@ -597,6 +644,7 @@ def seed():
         print("[schema] added: " + ", ".join(migrated))
 
     with SessionLocal() as db:
+        backfill_location_metadata_and_display_ids(db)
 
         if not (db.scalar(select(func.count()).select_from(Plan)) or 0):
             db.add_all([
@@ -677,6 +725,7 @@ def seed():
             "smtp_from": os.getenv("SMTP_FROM", "").strip(),
             "smtp_starttls": os.getenv("SMTP_STARTTLS", "true").strip().lower(),
             "telegram_bot_token_enc": "",
+            "telegram_bot_username": os.getenv("TELEGRAM_BOT_USERNAME", "").strip().lstrip("@"),
             "trongrid_api_key_enc": "",
             # Global notification channel rules. User preferences are applied on top.
             "notify_rule_server_email": "true",
@@ -900,6 +949,7 @@ def render(request: Request, template_name: str, db, **context):
             "announcement_unread_count": announcement_unread_count,
             "registration_enabled": registration_enabled,
             "unread_notifications": unread_notifications,
+            "country_options": COUNTRY_OPTIONS,
             **context,
         },
     )
@@ -976,6 +1026,22 @@ def lifecycle_operation_block(db, server: Server) -> str | None:
     if state["code"] in {"expired", "suspended", "delete_queued"}:
         return "服务器已超过到期宽限期，请续费后再执行此操作。"
     return None
+
+def clean_host_identity(country: str, region_code_value: str):
+    country_code = normalize_country_code(country, allow_empty=False)
+    machine_prefix = normalize_region_code(region_code_value, allow_empty=False)
+    return country_code, machine_prefix
+
+
+def clean_plan_display_metadata(server_region_value: str, network_line_value: str):
+    server_region_value = (server_region_value or "").strip()
+    network_line_value = (network_line_value or "").strip()
+    if not server_region_value or len(server_region_value) > 120:
+        raise ValueError("服务器地区不能为空且不能超过 120 个字符")
+    if not network_line_value or len(network_line_value) > 160:
+        raise ValueError("网络线路不能为空且不能超过 160 个字符")
+    return server_region_value, network_line_value
+
 
 def parse_plan_form(
     name: str,
@@ -1291,6 +1357,10 @@ def account_page(request: Request):
         login_events = db.scalars(
             select(LoginEvent).where(LoginEvent.user_id == user.id).order_by(LoginEvent.id.desc()).limit(20)
         ).all()
+        telegram_cfg = notification_runtime_config(db)
+        telegram_bot_username = str(telegram_cfg.get("telegram_bot_username") or "").strip().lstrip("@")
+        if not re.fullmatch(r"[A-Za-z0-9_]{5,64}", telegram_bot_username):
+            telegram_bot_username = ""
         pending_secret = None
         pending_uri = None
         pending_enc = request.session.get("pending_totp_secret_enc")
@@ -1308,6 +1378,8 @@ def account_page(request: Request):
             pending_totp_secret=pending_secret,
             pending_totp_uri=pending_uri,
             force_2fa_setup=bool(request.session.pop("force_2fa_setup", False)),
+            telegram_available=bool(str(telegram_cfg.get("telegram_bot_token") or "").strip()),
+            telegram_bot_username=telegram_bot_username,
         )
 
 
@@ -1331,13 +1403,61 @@ def account_profile_update(
         if duplicate:
             flash(request, "该邮箱已被其他账号使用。", "error")
             return RedirectResponse("/account", status_code=303)
+        telegram_chat_id_value = telegram_chat_id.strip()[:64]
+        if telegram_chat_id_value and not re.fullmatch(r"-?\d{5,20}", telegram_chat_id_value):
+            flash(request, "Telegram Chat ID 格式无效，请填写数字 Chat ID。", "error")
+            return RedirectResponse("/account", status_code=303)
+        telegram_cfg = notification_runtime_config(db)
+        telegram_service_available = bool(str(telegram_cfg.get("telegram_bot_token") or "").strip())
+        if notify_telegram is not None:
+            if not telegram_service_available:
+                flash(request, "站点暂未配置 Telegram Bot，当前无法开启 Telegram 通知。", "error")
+                return RedirectResponse("/account", status_code=303)
+            if not telegram_chat_id_value:
+                flash(request, "开启 Telegram 通知前，请先填写 Telegram Chat ID。", "error")
+                return RedirectResponse("/account", status_code=303)
         user.email = email
-        user.telegram_chat_id = telegram_chat_id.strip()[:64] or None
+        user.telegram_chat_id = telegram_chat_id_value or None
         user.notify_email = notify_email is not None
-        user.notify_telegram = notify_telegram is not None
+        if not telegram_chat_id_value:
+            user.notify_telegram = False
+        elif telegram_service_available:
+            user.notify_telegram = notify_telegram is not None
+        # If the site Bot is temporarily unavailable, the disabled switch is not
+        # submitted by the browser. Preserve the user's existing preference instead
+        # of silently turning it off while they edit unrelated profile fields.
         write_audit(db, actor=user, request=request, action="account.profile.update", target_type="user", target_id=user.id, target_name=user.username)
         db.commit()
     flash(request, "账户设置已保存。", "success")
+    return RedirectResponse("/account", status_code=303)
+
+
+@app.post("/account/telegram/test")
+def account_test_telegram(
+    request: Request,
+    telegram_chat_id: str = Form(""),
+    csrf_token: str = Form(...),
+):
+    validate_csrf(request, csrf_token)
+    target = telegram_chat_id.strip()[:64]
+    if not re.fullmatch(r"-?\d{5,20}", target):
+        flash(request, "请先填写有效的 Telegram Chat ID。", "error")
+        return RedirectResponse("/account", status_code=303)
+    with db_session() as db:
+        user = login_required(request, db)
+        cfg = notification_runtime_config(db)
+        if not str(cfg.get("telegram_bot_token") or "").strip():
+            flash(request, "站点暂未配置 Telegram Bot，当前无法发送测试消息。", "error")
+            return RedirectResponse("/account", status_code=303)
+        try:
+            send_telegram_chat(target, f"{APP_NAME} Telegram 通知测试成功。\n\n如果你收到这条消息，Chat ID 配置正确。")
+            write_audit(db, actor=user, request=request, action="account.telegram.test", target_type="user", target_id=user.id, target_name=user.username, detail={"chat_id": target})
+            db.commit()
+            flash(request, "Telegram 测试消息已发送，请检查机器人私聊。", "success")
+        except Exception as exc:
+            db.rollback()
+            detail = str(exc)[:140]
+            flash(request, f"Telegram 测试失败。请先私聊机器人并点击 Start，再确认 Chat ID；接口返回：{detail}", "error")
     return RedirectResponse("/account", status_code=303)
 
 
@@ -1468,7 +1588,7 @@ def recharge_page(request: Request):
         user = login_required(request, db)
         cfg = payment_config(db)
         orders = db.scalars(select(RechargeOrder).where(RechargeOrder.user_id == user.id).order_by(RechargeOrder.id.desc()).limit(20)).all()
-        return render(request, "recharge.html", db, payment_cfg=cfg, recharge_orders=orders)
+        return render(request, "recharge.html", db, payment_cfg=cfg, recharge_orders=orders, now=datetime.utcnow())
 
 
 @app.post("/recharge")
@@ -1490,6 +1610,33 @@ def recharge_create(request: Request, chain: str = Form(...), amount: str = Form
             db.rollback()
             flash(request, f"创建充值订单失败：{str(exc)[:180]}", "error")
             return RedirectResponse("/recharge", status_code=303)
+
+
+@app.post("/recharge/{recharge_id}/cancel")
+def recharge_cancel(request: Request, recharge_id: int, csrf_token: str = Form(...)):
+    validate_csrf(request, csrf_token)
+    with db_session() as db:
+        user = login_required(request, db)
+        order = db.get(RechargeOrder, recharge_id)
+        if not order or order.user_id != user.id:
+            raise HTTPException(404, "充值订单不存在")
+        try:
+            cancelled, reason = cancel_recharge_order(db, order_id=order.id, user_id=user.id)
+            if cancelled:
+                write_audit(
+                    db, actor=user, request=request, action="payment.recharge.cancel",
+                    target_type="recharge_order", target_id=order.id,
+                    detail={"chain": order.chain, "requested_cny_cents": order.requested_cny_cents},
+                )
+                db.commit()
+                flash(request, f"充值订单 #{order.id} 已取消。", "success")
+            else:
+                db.commit()
+                flash(request, reason, "warning")
+        except Exception as exc:
+            db.rollback()
+            flash(request, f"取消充值订单失败：{str(exc)[:180]}", "error")
+    return RedirectResponse("/recharge", status_code=303)
 
 
 @app.get("/recharge/{recharge_id}", response_class=HTMLResponse)
@@ -1923,10 +2070,10 @@ def reset_password(
         try:
             password = provider.reset_password(server.provider_instance_id)
             server.root_password_enc = encrypt_secret(password)
-            queue_notification(db, user, title="root 密码已重置", body=f"{server.name} 的 root 密码已重置。新密码可在服务器详情页的“当前 root 密码”中查看。", kind="security", severity="warning", event_key=f"root-reset:{server.id}:{int(datetime.utcnow().timestamp())}")
+            queue_notification(db, user, title="root 密码已重置", body=f"{server_display_id(server)} 的 root 密码已重置。新密码可在服务器详情页的“当前 root 密码”中查看。", kind="security", severity="warning", event_key=f"root-reset:{server.id}:{int(datetime.utcnow().timestamp())}")
             write_audit(db, actor=user, request=request, action="server.root_password.reset", target_type="server", target_id=server.id, target_name=server.name)
             db.commit()
-            one_time_secret(request, f"{server.name} 新 root 密码（仅本次显示）", password)
+            one_time_secret(request, f"{server_display_id(server)} 新 root 密码（仅本次显示）", password)
             flash(request, "root 密码已重置。", "success")
         except Exception as exc:
             write_audit(db, actor=user, request=request, action="server.root_password.reset", target_type="server", target_id=server.id, target_name=server.name, detail=str(exc), success=False)
@@ -2018,7 +2165,7 @@ def customer_reset_traffic_cycle(
             db, user,
             title="流量重置成功",
             body=(
-                f"{server.name} 已扣除 {money(reset_price)} 并开启新的流量周期，本周期用量已清零。"
+                f"{server_display_id(server)} 已扣除 {money(reset_price)} 并开启新的流量周期，本周期用量已清零。"
                 + (" 带宽恢复正在等待后台重试。" if provider_error else f" 当前带宽已恢复为 {configured_bandwidth_mbps(server)} Mbps。")
                 + f" 当前余额 {money(user.balance_cents)}。"
             ),
@@ -2050,8 +2197,8 @@ def reinstall_server(
         if blocked:
             flash(request, blocked, "error")
             return RedirectResponse(f"/servers/{server.id}", status_code=303)
-        if confirm_name.strip() != server.name:
-            flash(request, "重装确认名称不正确。", "error")
+        if not confirmation_matches(server, confirm_name):
+            flash(request, "重装确认编号不正确。", "error")
             return RedirectResponse(f"/servers/{server.id}", status_code=303)
         system_image = db.get(SystemImage, os_image_id)
         if not system_image or not system_image.is_active or system_image.family != "apt":
@@ -2079,8 +2226,8 @@ def delete_server(
     with db_session() as db:
         user = login_required(request, db)
         server = active_server_for_user(db, user, server_id)
-        if confirm_name.strip() != server.name:
-            flash(request, "删除确认名称不正确。", "error")
+        if not confirmation_matches(server, confirm_name):
+            flash(request, "删除确认编号不正确。", "error")
             return RedirectResponse(f"/servers/{server.id}", status_code=303)
         active_job = db.scalar(select(Job).where(Job.server_id == server.id, Job.status.in_(["pending","running"]), Job.job_type == "delete_server"))
         if active_job:
@@ -2128,7 +2275,7 @@ def renew_server(
             user,
             title="续费成功",
             body=(
-                f"{server.name} 已续费 30 天，新到期时间：{local_dt(server.expires_at):%Y-%m-%d %H:%M}。"
+                f"{server_display_id(server)} 已续费 30 天，新到期时间：{local_dt(server.expires_at):%Y-%m-%d %H:%M}。"
                 + (" 到期停机实例已自动恢复开机。" if restarted else "")
             ),
             kind="billing",
@@ -2488,7 +2635,7 @@ def admin_page(
             bool_setting_keys=["payment_enabled","payment_tron_enabled","payment_polygon_enabled"]
         elif section == "notifications":
             setting_keys=[
-                "smtp_host","smtp_port","smtp_username","smtp_from","smtp_starttls",
+                "smtp_host","smtp_port","smtp_username","smtp_from","smtp_starttls","telegram_bot_username",
                 "notify_rule_server_email","notify_rule_server_telegram",
                 "notify_rule_traffic_email","notify_rule_traffic_telegram",
                 "notify_rule_expiry_email","notify_rule_expiry_telegram",
@@ -2530,7 +2677,9 @@ def admin_page(
 def admin_create_node(
     request: Request,
     name: str = Form(...),
-    region: str = Form("default"),
+    country: str = Form(""),
+    region_code_value: str = Form(""),
+    region: str = Form(""),
     api_url: str = Form(...),
     api_token: str = Form(...),
     public_ip: str = Form(""),
@@ -2543,10 +2692,16 @@ def admin_create_node(
 ):
     validate_csrf(request, csrf_token)
     name = name.strip()
-    region = region.strip() or "default"
     api_url = api_url.strip().rstrip("/")
     public_ip = public_ip.strip()
     api_token = api_token.strip()
+    try:
+        country_code, machine_prefix = clean_host_identity(country, region_code_value)
+    except ValueError as exc:
+        flash(request, str(exc), "error")
+        return RedirectResponse("/admin?section=nodes", status_code=303)
+    # Legacy region remains an internal sort bucket; new UI semantics use machine_prefix.
+    region = machine_prefix
     if not name or not api_url.startswith(("http://", "https://")) or len(api_token) < 20:
         flash(request, "节点名称、Agent URL 或 Token 无效。", "error")
         return RedirectResponse("/admin?section=nodes", status_code=303)
@@ -2556,9 +2711,14 @@ def admin_create_node(
         if db.scalar(select(HostNode).where(HostNode.name == name)):
             flash(request, "节点名称已存在。", "error")
             return RedirectResponse("/admin?section=nodes", status_code=303)
+        if db.scalar(select(HostNode).where(func.upper(HostNode.region_code) == machine_prefix.upper())):
+            flash(request, f"机器编号前缀 {machine_prefix} 已被其他宿主机使用，请换一个。", "error")
+            return RedirectResponse("/admin?section=nodes", status_code=303)
         row = HostNode(
             name=name,
             region=region,
+            country_code=country_code,
+            region_code=machine_prefix,
             api_url=api_url,
             api_token_enc=encrypt_secret(api_token),
             public_ip=public_ip,
@@ -2592,7 +2752,11 @@ def admin_create_node(
             target_type="host_node",
             target_id=row.id,
             target_name=row.name,
-            detail={"region": row.region, "api_url": row.api_url, "public_ip": row.public_ip},
+            detail={
+                "region": row.region, "country_code": row.country_code,
+                "region_code": row.region_code,
+                "api_url": row.api_url, "public_ip": row.public_ip,
+            },
         )
         db.commit()
         flash(request, msg, kind)
@@ -2604,7 +2768,9 @@ def admin_update_node(
     request: Request,
     node_id: int,
     name: str = Form(...),
-    region: str = Form("default"),
+    country: str = Form(""),
+    region_code_value: str = Form(""),
+    region: str = Form(""),
     api_url: str = Form(...),
     public_ip: str = Form(""),
     max_vps: int = Form(0),
@@ -2624,7 +2790,12 @@ def admin_update_node(
         name = name.strip()
         api_url = api_url.strip().rstrip("/")
         public_ip = public_ip.strip()
-        region = region.strip() or "default"
+        try:
+            country_code, machine_prefix = clean_host_identity(country, region_code_value)
+        except ValueError as exc:
+            flash(request, str(exc), "error")
+            return RedirectResponse("/admin?section=nodes", status_code=303)
+        region = machine_prefix
         if not name or not api_url.startswith(("http://", "https://")):
             flash(request, "节点参数无效。", "error")
             return RedirectResponse("/admin?section=nodes", status_code=303)
@@ -2632,9 +2803,15 @@ def admin_update_node(
         if duplicate:
             flash(request, "节点名称已存在。", "error")
             return RedirectResponse("/admin?section=nodes", status_code=303)
+        duplicate_prefix = db.scalar(select(HostNode).where(func.upper(HostNode.region_code) == machine_prefix.upper(), HostNode.id != row.id))
+        if duplicate_prefix:
+            flash(request, f"机器编号前缀 {machine_prefix} 已被宿主机 {duplicate_prefix.name} 使用，请换一个。", "error")
+            return RedirectResponse("/admin?section=nodes", status_code=303)
 
         row.name = name
         row.region = region
+        row.country_code = country_code
+        row.region_code = machine_prefix
         row.api_url = api_url
         row.public_ip = public_ip
         row.max_vps = max(0, max_vps)
@@ -2644,6 +2821,10 @@ def admin_update_node(
         row.schedule_storage_max_percent = max(0, min(100, schedule_storage_max_percent))
         if api_token.strip():
             row.api_token_enc = encrypt_secret(api_token.strip())
+
+        db.flush()
+        for server in db.scalars(select(Server).where(Server.host_id == row.id, Server.display_id.is_(None))).all():
+            assign_server_display_id(server)
 
         write_audit(
             db,
@@ -2858,62 +3039,86 @@ def admin_delete_node(request: Request, node_id: int, confirm_name: str = Form(.
     return RedirectResponse("/admin?section=nodes",status_code=303)
 
 @app.post("/admin/balance")
-def admin_balance(request: Request, user_id: int = Form(...), amount: str = Form(...), action: str = Form("adjust"), csrf_token: str = Form(...)):
+def admin_balance(
+    request: Request,
+    user_id: int = Form(...),
+    amount: str = Form(...),
+    action: str | None = Form(None),
+    form_version: str = Form(""),
+    csrf_token: str = Form(...),
+):
     validate_csrf(request, csrf_token)
-    action=(action or "adjust").strip().lower()
+    action_value = (action or "").strip().lower()
+    is_current_form = (form_version or "").strip() == "2"
+
+    # Current UI is fail-closed: if the submit button name/value disappears for
+    # any browser/JS reason, the backend must refuse the operation rather than
+    # guessing "credit". Legacy signed-amount forms remain compatible only when
+    # they do not identify themselves as form_version=2.
+    if is_current_form and action_value not in {"credit", "debit"}:
+        flash(request, "余额操作类型缺失或无效，本次未修改任何余额。", "error")
+        return RedirectResponse("/admin?section=users", status_code=303)
+    if not is_current_form and action_value not in {"", "adjust", "credit", "debit"}:
+        flash(request, "余额操作类型无效，本次未修改任何余额。", "error")
+        return RedirectResponse("/admin?section=users", status_code=303)
+
     try:
-        value=Decimal(amount.strip())
+        value = Decimal(amount.strip())
         if not value.is_finite():
             raise ValueError
-        cents_value=value*Decimal("100")
+        cents_value = value * Decimal("100")
         if cents_value != cents_value.to_integral_value():
             raise ValueError
-        entered_cents=int(cents_value)
-        if action in {"credit","debit"}:
+        entered_cents = int(cents_value)
+
+        if action_value in {"credit", "debit"}:
             if entered_cents <= 0:
                 raise ValueError
-            delta_cents=entered_cents if action == "credit" else -entered_cents
-        elif action == "adjust":
-            # Backward compatibility for older admin forms that submitted a signed amount.
-            delta_cents=entered_cents
-            if delta_cents == 0:
+            delta_cents = entered_cents if action_value == "credit" else -entered_cents
+        else:
+            # Compatibility path for the old signed amount form only.
+            if entered_cents == 0:
                 raise ValueError
-        else:
-            raise ValueError
+            delta_cents = entered_cents
+            action_value = "adjust"
     except Exception:
-        flash(request,"余额操作金额格式错误，请输入大于 0 且最多两位小数的金额。","error")
-        return RedirectResponse("/admin?section=users",status_code=303)
-    with db_session() as db:
-        admin=admin_required(request,db); target=db.get(User,user_id)
-        if not target: raise HTTPException(404,"用户不存在")
-        if action == "debit" and entered_cents > int(target.balance_cents or 0):
-            flash(request,f"{target.username} 当前余额仅 {money(target.balance_cents)}，不能扣除 {money(entered_cents)}。","error")
-            return RedirectResponse("/admin?section=users",status_code=303)
+        flash(request, "余额操作金额格式错误，请输入大于 0 且最多两位小数的金额。" if action_value in {"credit", "debit"} else "旧版余额调整金额格式错误。", "error")
+        return RedirectResponse("/admin?section=users", status_code=303)
 
-        if action == "credit":
-            verb="增加"; audit_action="admin.balance.credit"; title="账户余额已增加"
-        elif action == "debit":
-            verb="扣除"; audit_action="admin.balance.debit"; title="账户余额已扣除"
+    with db_session() as db:
+        admin = admin_required(request, db)
+        target = db.get(User, user_id)
+        if not target:
+            raise HTTPException(404, "用户不存在")
+        balance_before = int(target.balance_cents or 0)
+        if action_value == "debit" and entered_cents > balance_before:
+            flash(request, f"{target.username} 当前余额仅 {money(balance_before)}，不能扣除 {money(entered_cents)}。", "error")
+            return RedirectResponse("/admin?section=users", status_code=303)
+
+        if action_value == "credit":
+            verb = "增加"; audit_action = "admin.balance.credit"; title = "账户余额已增加"
+        elif action_value == "debit":
+            verb = "扣除"; audit_action = "admin.balance.debit"; title = "账户余额已扣除"
         else:
-            verb="调整"; audit_action="admin.balance.adjust"; title="账户余额已调整"
+            verb = "调整"; audit_action = "admin.balance.adjust"; title = "账户余额已调整"
 
         change_balance(
-            db,target,delta_cents,kind="admin_adjustment",reference_type="user",reference_id=target.id,
+            db, target, delta_cents, kind="admin_adjustment", reference_type="user", reference_id=target.id,
             note=f"管理员 {admin.username} 手动{verb}余额",
         )
         queue_notification(
-            db,target,title=title,
+            db, target, title=title,
             body=f"管理员{verb}余额 {money(abs(delta_cents))}，当前余额 {money(target.balance_cents)}。",
-            kind="billing",severity="info",
-            event_key=f"admin-balance-{action}:{target.id}:{int(datetime.utcnow().timestamp())}",
+            kind="billing", severity="info",
+            event_key=f"admin-balance-{action_value}:{target.id}:{int(datetime.utcnow().timestamp())}",
         )
         write_audit(
-            db,actor=admin,request=request,action=audit_action,target_type="user",target_id=target.id,target_name=target.username,
-            detail={"delta_cents":delta_cents,"balance_before_cents":int(target.balance_cents or 0)-delta_cents,"balance_after_cents":target.balance_cents},
+            db, actor=admin, request=request, action=audit_action, target_type="user", target_id=target.id, target_name=target.username,
+            detail={"delta_cents": delta_cents, "balance_before_cents": balance_before, "balance_after_cents": int(target.balance_cents or 0), "form_version": form_version or "legacy"},
         )
         db.commit()
-        flash(request,f"{target.username} 已{verb}余额 {money(abs(delta_cents))}，当前 {money(target.balance_cents)}。","success")
-    return RedirectResponse("/admin?section=users",status_code=303)
+        flash(request, f"{target.username} 已{verb}余额 {money(abs(delta_cents))}，当前 {money(target.balance_cents)}。", "success")
+    return RedirectResponse("/admin?section=users", status_code=303)
 
 
 @app.post("/admin/users/{user_id}/toggle")
@@ -2943,6 +3148,8 @@ def admin_create_plan(
     bandwidth_mbps: int = Form(...),
     traffic_gb: int = Form(...),
     port_count: int = Form(...),
+    server_region_value: str = Form(""),
+    network_line_value: str = Form(""),
     virtualization_type: str = Form("lxc"),
     monthly_price: str = Form(...),
     traffic_reset_price: str = Form(...),
@@ -2965,6 +3172,11 @@ def admin_create_plan(
     clean_name = name.strip()
     virtualization_type = (virtualization_type or "lxc").strip().lower()
     clean_label = (recommendation_label or "").strip()[:32] or "推荐"
+    try:
+        clean_server_region, clean_network_line = clean_plan_display_metadata(server_region_value, network_line_value)
+    except ValueError as exc:
+        flash(request, str(exc), "error")
+        return RedirectResponse("/admin?section=plans", status_code=303)
     if virtualization_type == "kvm" and (memory_mb < 512 or disk_gb < 4):
         flash(request, "KVM 套餐最低需要 512 MB 内存和 4 GB 磁盘。", "error")
         return RedirectResponse("/admin?section=plans", status_code=303)
@@ -2989,6 +3201,8 @@ def admin_create_plan(
             bandwidth_mbps=max(0, bandwidth_mbps),
             traffic_gb=max(0, traffic_gb),
             port_count=max(0, port_count),
+            server_region=clean_server_region,
+            network_line=clean_network_line,
             virtualization_type=virtualization_type,
             monthly_price_cents=price,
             traffic_reset_price_cents=reset_price,
@@ -3007,6 +3221,8 @@ def admin_create_plan(
             target_type="plan", target_id=row.id, target_name=row.name,
             detail={
                 "virtualization_type": row.virtualization_type,
+                "server_region": row.server_region,
+                "network_line": row.network_line,
                 "homepage_visible": row.homepage_visible,
                 "homepage_sort_order": row.homepage_sort_order,
                 "catalog_sort_order": row.sort_order,
@@ -3030,6 +3246,8 @@ def admin_update_plan(
     bandwidth_mbps: int = Form(...),
     traffic_gb: int = Form(...),
     port_count: int = Form(...),
+    server_region_value: str = Form(""),
+    network_line_value: str = Form(""),
     virtualization_type: str = Form("lxc"),
     monthly_price: str = Form(...),
     traffic_reset_price: str = Form(...),
@@ -3052,6 +3270,11 @@ def admin_update_plan(
     clean_name = name.strip()
     virtualization_type = (virtualization_type or "lxc").strip().lower()
     clean_label = (recommendation_label or "").strip()[:32] or "推荐"
+    try:
+        clean_server_region, clean_network_line = clean_plan_display_metadata(server_region_value, network_line_value)
+    except ValueError as exc:
+        flash(request, str(exc), "error")
+        return RedirectResponse("/admin?section=plans", status_code=303)
 
     with db_session() as db:
         admin = admin_required(request, db)
@@ -3080,6 +3303,7 @@ def admin_update_plan(
             "name": row.name, "cpu": row.cpu, "memory_mb": row.memory_mb,
             "disk_gb": row.disk_gb, "bandwidth": row.bandwidth_mbps,
             "traffic": row.traffic_gb, "ports": row.port_count, "virtualization_type": row.virtualization_type,
+            "server_region": row.server_region, "network_line": row.network_line,
             "price": row.monthly_price_cents, "traffic_reset_price": row.traffic_reset_price_cents, "stock": row.stock_limit,
             "catalog_sort_order": row.sort_order,
             "homepage_visible": row.homepage_visible,
@@ -3095,6 +3319,11 @@ def admin_update_plan(
         row.bandwidth_mbps = max(0, bandwidth_mbps)
         row.traffic_gb = max(0, traffic_gb)
         row.port_count = max(0, port_count)
+        # Plan metadata is display-only: region + network line. Host owns flag/prefix.
+        row.country_code = ""
+        row.region_code = ""
+        row.server_region = clean_server_region
+        row.network_line = clean_network_line
         row.virtualization_type = virtualization_type
         row.monthly_price_cents = price
         row.traffic_reset_price_cents = reset_price
@@ -3105,10 +3334,13 @@ def admin_update_plan(
         row.is_recommended = str(is_recommended).lower() == "true"
         row.recommendation_label = clean_label
 
+        db.flush()
+
         after = {
             "name": row.name, "cpu": row.cpu, "memory_mb": row.memory_mb,
             "disk_gb": row.disk_gb, "bandwidth": row.bandwidth_mbps,
             "traffic": row.traffic_gb, "ports": row.port_count, "virtualization_type": row.virtualization_type,
+            "server_region": row.server_region, "network_line": row.network_line,
             "price": row.monthly_price_cents, "traffic_reset_price": row.traffic_reset_price_cents, "stock": row.stock_limit,
             "catalog_sort_order": row.sort_order,
             "homepage_visible": row.homepage_visible,
@@ -3187,7 +3419,7 @@ def admin_resize_server_resources(
         }
 
         if old == {"cpu": cpu, "memory_mb": memory_mb, "disk_gb": disk_gb}:
-            flash(request, f"{server.name} 资源配置没有变化。", "info")
+            flash(request, f"{server_display_id(server)} 资源配置没有变化。", "info")
             return RedirectResponse("/admin?section=servers", status_code=303)
 
         try:
@@ -3226,7 +3458,7 @@ def admin_resize_server_resources(
             db.commit()
             flash(
                 request,
-                f"{server.name} 资源已调整为 {server.cpu}C / {server.memory_mb}MB / {server.disk_gb}GB。",
+                f"{server_display_id(server)} 资源已调整为 {server.cpu}C / {server.memory_mb}MB / {server.disk_gb}GB。",
                 "success",
             )
         except Exception as exc:
@@ -3245,7 +3477,7 @@ def admin_set_bandwidth(request:Request,server_id:int,bandwidth_mbps:int=Form(..
         old=server.bandwidth_mbps or 0; server.bandwidth_mbps=bandwidth_mbps
         try:
             if server.provider==PROVIDER_NAME and server.provider_instance_id: provider.set_bandwidth(server.provider_instance_id,effective_bandwidth_mbps(server))
-            write_audit(db,actor=admin,request=request,action="admin.server.bandwidth",target_type="server",target_id=server.id,target_name=server.name,detail={"old":old,"new":bandwidth_mbps}); db.commit(); flash(request,f"{server.name} 带宽已调整。","success")
+            write_audit(db,actor=admin,request=request,action="admin.server.bandwidth",target_type="server",target_id=server.id,target_name=server.name,detail={"old":old,"new":bandwidth_mbps}); db.commit(); flash(request,f"{server_display_id(server)} 带宽已调整。","success")
         except Exception as exc:
             db.rollback(); flash(request,f"带宽调整失败：{str(exc)[:180]}","error")
     return RedirectResponse("/admin?section=servers",status_code=303)
@@ -3263,7 +3495,7 @@ def admin_add_traffic_quota(request:Request,server_id:int,extra_gb:int=Form(...)
         try: enforce_traffic_policy(server,provider)
         except Exception as exc: err=str(exc)[:160]
         write_audit(db,actor=admin,request=request,action="admin.server.traffic.add",target_type="server",target_id=server.id,target_name=server.name,detail={"extra_gb":extra_gb}); db.commit()
-        flash(request,f"{server.name} 当前周期增加 {extra_gb} GB。"+(f" Provider 应用失败：{err}" if err else ""),"error" if err else "success")
+        flash(request,f"{server_display_id(server)} 当前周期增加 {extra_gb} GB。"+(f" Provider 应用失败：{err}" if err else ""),"error" if err else "success")
     return RedirectResponse("/admin?section=servers",status_code=303)
 
 
@@ -3316,7 +3548,7 @@ def admin_set_traffic_quota(
             },
         )
         db.commit()
-        text = f"{server.name} 流量额度已调整为 {'不限' if traffic_gb == 0 else str(traffic_gb) + ' GB'}。"
+        text = f"{server_display_id(server)} 流量额度已调整为 {'不限' if traffic_gb == 0 else str(traffic_gb) + ' GB'}。"
         if provider_error:
             text += f" 限速策略同步失败：{provider_error}"
         flash(request, text, "warning" if provider_error else "success")
@@ -3371,7 +3603,7 @@ def admin_set_traffic_cycle(
             },
         )
         db.commit()
-        message = f"{server.name} 流量周期已改为 {traffic_cycle_mode_label(server)}，本周期用量已重置。"
+        message = f"{server_display_id(server)} 流量周期已改为 {traffic_cycle_mode_label(server)}，本周期用量已重置。"
         if provider_error:
             message += f" 带宽策略同步失败：{provider_error}"
         flash(request, message, "warning" if provider_error else "success")
@@ -3389,7 +3621,7 @@ def admin_reset_traffic_cycle(request:Request,server_id:int,csrf_token:str=Form(
             if server.provider==PROVIDER_NAME and server.provider_instance_id: provider.set_bandwidth(server.provider_instance_id,configured_bandwidth_mbps(server))
             server.traffic_throttled=False; server.traffic_throttled_at=None
         except Exception: pass
-        write_audit(db,actor=admin,request=request,action="admin.server.traffic.reset",target_type="server",target_id=server.id,target_name=server.name); db.commit(); flash(request,f"{server.name} 流量周期已重置。","success")
+        write_audit(db,actor=admin,request=request,action="admin.server.traffic.reset",target_type="server",target_id=server.id,target_name=server.name); db.commit(); flash(request,f"{server_display_id(server)} 流量周期已重置。","success")
     return RedirectResponse("/admin?section=servers",status_code=303)
 
 
@@ -3402,7 +3634,7 @@ def admin_unthrottle_traffic(request:Request,server_id:int,csrf_token:str=Form(.
         server.traffic_throttle_exempt=True
         try:
             provider.set_bandwidth(server.provider_instance_id,configured_bandwidth_mbps(server)); server.traffic_throttled=False; server.traffic_throttled_at=None
-            write_audit(db,actor=admin,request=request,action="admin.server.traffic.unthrottle",target_type="server",target_id=server.id,target_name=server.name); db.commit(); flash(request,f"{server.name} 本周期已解除限速。","success")
+            write_audit(db,actor=admin,request=request,action="admin.server.traffic.unthrottle",target_type="server",target_id=server.id,target_name=server.name); db.commit(); flash(request,f"{server_display_id(server)} 本周期已解除限速。","success")
         except Exception as exc: db.rollback(); flash(request,f"解除限速失败：{str(exc)[:180]}","error")
     return RedirectResponse("/admin?section=servers",status_code=303)
 
@@ -3416,7 +3648,7 @@ def admin_resume_traffic_policy(request:Request,server_id:int,csrf_token:str=For
         server.traffic_throttle_exempt=False; err=None
         try: enforce_traffic_policy(server,provider)
         except Exception as exc: err=str(exc)[:160]
-        write_audit(db,actor=admin,request=request,action="admin.server.traffic.auto",target_type="server",target_id=server.id,target_name=server.name); db.commit(); flash(request,f"{server.name} 已恢复自动流量策略。"+(f" Provider 应用失败：{err}" if err else ""),"error" if err else "success")
+        write_audit(db,actor=admin,request=request,action="admin.server.traffic.auto",target_type="server",target_id=server.id,target_name=server.name); db.commit(); flash(request,f"{server_display_id(server)} 已恢复自动流量策略。"+(f" Provider 应用失败：{err}" if err else ""),"error" if err else "success")
     return RedirectResponse("/admin?section=servers",status_code=303)
 
 
@@ -3494,7 +3726,7 @@ def admin_set_server_expiry(
         )
         db.commit()
         local_expiry = local_dt(new_expiry).strftime("%Y-%m-%d %H:%M")
-        msg = f"{server.name} 到期时间已调整为 {local_expiry}。"
+        msg = f"{server_display_id(server)} 到期时间已调整为 {local_expiry}。"
         if stopped:
             msg += " 已按当前生命周期策略停止服务。"
         if restarted:
@@ -3513,7 +3745,7 @@ def admin_extend_server(request:Request,server_id:int,csrf_token:str=Form(...)):
         admin=admin_required(request,db); server=db.get(Server,server_id)
         if not server or server.deleted_at is not None: raise HTTPException(404,"服务器不存在")
         base=server.expires_at if server.expires_at and server.expires_at>datetime.utcnow() else datetime.utcnow(); old=server.expires_at; server.expires_at=base+timedelta(days=30)
-        write_audit(db,actor=admin,request=request,action="admin.server.extend.legacy",target_type="server",target_id=server.id,target_name=server.name,detail={"days":30,"before":old.isoformat() if old else None,"after":server.expires_at.isoformat()}); db.commit(); flash(request,f"{server.name} 已延长 30 天。","success")
+        write_audit(db,actor=admin,request=request,action="admin.server.extend.legacy",target_type="server",target_id=server.id,target_name=server.name,detail={"days":30,"before":old.isoformat() if old else None,"after":server.expires_at.isoformat()}); db.commit(); flash(request,f"{server_display_id(server)} 已延长 30 天。","success")
     return RedirectResponse("/admin?section=servers",status_code=303)
 
 
@@ -3523,11 +3755,11 @@ def admin_delete_server(request:Request,server_id:int,confirm_name:str=Form(...)
     with db_session() as db:
         admin=admin_required(request,db); server=db.get(Server,server_id)
         if not server or server.deleted_at is not None: raise HTTPException(404,"服务器不存在")
-        if confirm_name.strip()!=server.name: flash(request,"删除确认名称不正确。","error"); return RedirectResponse("/admin?section=servers",status_code=303)
+        if not confirmation_matches(server, confirm_name): flash(request,"删除确认名称不正确。","error"); return RedirectResponse("/admin?section=servers",status_code=303)
         existing=db.scalar(select(Job).where(Job.server_id==server.id,Job.job_type=="delete_server",Job.status.in_(["pending","running"])))
         if existing: flash(request,f"删除任务 #{existing.id} 已在执行。","info"); return RedirectResponse("/admin?section=servers",status_code=303)
         job=enqueue_job(db,"delete_server",user_id=server.user_id,server_id=server.id,payload={"requested_by":"admin"})
-        write_audit(db,actor=admin,request=request,action="admin.server.delete.queue",target_type="server",target_id=server.id,target_name=server.name,detail={"job_id":job.id}); db.commit(); flash(request,f"{server.name} 删除任务 #{job.id} 已进入队列。","success")
+        write_audit(db,actor=admin,request=request,action="admin.server.delete.queue",target_type="server",target_id=server.id,target_name=server.name,detail={"job_id":job.id}); db.commit(); flash(request,f"{server_display_id(server)} 删除任务 #{job.id} 已进入队列。","success")
     return RedirectResponse("/admin?section=servers",status_code=303)
 
 
@@ -3538,7 +3770,7 @@ def admin_reconcile_server(request:Request,server_id:int,csrf_token:str=Form(...
         admin=admin_required(request,db); server=db.get(Server,server_id)
         if not server or server.deleted_at is not None: raise HTTPException(404,"服务器不存在")
         try:
-            result=reconcile_one_server(db,provider,server,repair=True); write_audit(db,actor=admin,request=request,action="admin.server.reconcile",target_type="server",target_id=server.id,target_name=server.name,detail=result); db.commit(); flash(request,f"{server.name} 状态校验完成：{server.reconcile_status}。","success")
+            result=reconcile_one_server(db,provider,server,repair=True); write_audit(db,actor=admin,request=request,action="admin.server.reconcile",target_type="server",target_id=server.id,target_name=server.name,detail=result); db.commit(); flash(request,f"{server_display_id(server)} 状态校验完成：{server.reconcile_status}。","success")
         except Exception as exc: db.rollback(); flash(request,f"校验失败：{str(exc)[:180]}","error")
     return RedirectResponse("/admin?section=servers",status_code=303)
 
@@ -3886,9 +4118,15 @@ async def admin_update_settings(request: Request):
 
                 if str(form.get("clear_telegram_bot_token")) == "true":
                     values["telegram_bot_token_enc"] = ""
+                    values["telegram_bot_username"] = ""
                     secret_keys_changed.append("telegram_bot_token")
                 elif telegram_token:
+                    try:
+                        bot_identity = telegram_bot_identity(telegram_token)
+                    except Exception as exc:
+                        raise ValueError(f"Telegram Bot Token 验证失败：{str(exc)[:140]}") from exc
                     values["telegram_bot_token_enc"] = encrypt_secret(telegram_token)
+                    values["telegram_bot_username"] = str(bot_identity.get("username") or "").strip().lstrip("@")[:64]
                     secret_keys_changed.append("telegram_bot_token")
 
                 # Partial configuration is allowed. The status card clearly reports what is usable.
@@ -4469,7 +4707,7 @@ def admin_backup_download(request:Request,backup_name:str):
 def health():
     return {
         "status": "ok",
-        "version": "1.4.0",
+        "version": "1.4.1",
         "provider": PROVIDER_NAME,
         "timezone": APP_TIMEZONE,
     }

@@ -168,7 +168,7 @@
             <thead><tr><th>实例</th><th>用户</th><th>系统</th><th>状态</th></tr></thead>
             <tbody>
             {% for s in dashboard_recent_servers %}
-              <tr><td>{{ s.name }}</td><td>{{ s.user.username }}</td><td>{{ s.os_name or "Debian 12" }}</td><td>{{ s.status }}</td></tr>
+              <tr><td>{{ server_display_id(s) }}</td><td>{{ s.user.username }}</td><td>{{ s.os_name or "Debian 12" }}</td><td>{{ s.status }}</td></tr>
             {% else %}<tr><td colspan="4">暂无服务器</td></tr>{% endfor %}
             </tbody>
           </table></div>
@@ -258,6 +258,8 @@
               <label>带宽 Mbps<input type="number" name="bandwidth_mbps" min="0" value="{{ p.bandwidth_mbps }}" required></label>
               <label>流量 GB<input type="number" name="traffic_gb" min="0" value="{{ p.traffic_gb }}" required></label>
               <label>NAT 端口<input type="number" name="port_count" min="0" value="{{ p.port_count }}" required></label>
+              <label>服务器地区<input name="server_region_value" value="{{ p.server_region or '' }}" placeholder="例如 Tokyo / 日本 · 东京" required><small>仅用于套餐购买页和服务器卡片展示</small></label>
+              <label>网络线路<input name="network_line_value" value="{{ p.network_line or '' }}" placeholder="例如 IIJ / SoftBank" required><small>仅用于套餐购买页展示</small></label>
               <label>虚拟化类型<select name="virtualization_type" data-virt-select><option value="lxc" {% if (p.virtualization_type or "lxc") == "lxc" %}selected{% endif %}>LXC 容器</option><option value="kvm" {% if p.virtualization_type == "kvm" %}selected{% endif %}>KVM 虚拟机</option></select><small data-virt-hint>新购买实例按此类型调度；KVM 最低 512MB / 4GB；已售实例不变</small></label>
               <label>月付价格 ¥<input name="monthly_price" value="{{ '%.2f'|format(p.monthly_price_cents / 100) }}" required></label>
               <label>流量重置价 ¥<input name="traffic_reset_price" value="{{ '%.2f'|format(p.traffic_reset_price_cents / 100) }}" required><small>流量用尽后用户自助重置时扣除</small></label>
@@ -292,6 +294,8 @@
           <label>带宽 Mbps<input type="number" name="bandwidth_mbps" min="0" value="100" required></label>
           <label>流量 GB<input type="number" name="traffic_gb" min="0" value="200" required></label>
           <label>NAT 端口<input type="number" name="port_count" min="0" value="5" required></label>
+          <label>服务器地区<input name="server_region_value" value="Tokyo" placeholder="例如 Tokyo / 日本 · 东京" required><small>仅用于套餐购买页和服务器卡片展示</small></label>
+          <label>网络线路<input name="network_line_value" value="IIJ" placeholder="例如 IIJ / SoftBank" required><small>仅用于套餐购买页展示</small></label>
           <label>虚拟化类型<select name="virtualization_type" data-virt-select><option value="lxc" selected>LXC 容器</option><option value="kvm">KVM 虚拟机</option></select><small data-virt-hint>KVM 套餐只会调度到已启用且当前可用 KVM 的 Host；KVM 最低 512MB / 4GB</small></label>
           <label>月付价格 ¥<input name="monthly_price" value="3.00" required></label>
           <label>流量重置价 ¥<input name="traffic_reset_price" value="3.00" required><small>必须大于 0</small></label>
@@ -422,6 +426,7 @@
             <form class="balance-action-form" method="post" action="/admin/balance">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="user_id" value="{{ u.id }}">
+              <input type="hidden" name="form_version" value="2">
               <label class="balance-action-amount">
                 <input type="number" name="amount" min="0.01" step="0.01" inputmode="decimal" placeholder="金额" required aria-label="余额操作金额">
               </label>
@@ -508,7 +513,7 @@
           <header class="v112-server-head">
             <div class="v112-server-identity">
               <div class="v112-server-title-row">
-                <strong>{{ s.name }}</strong>
+                <strong>{{ server_display_id(s) }}</strong>
                 <span class="v112-server-state {{ s.status }}">{{ server_status_label(s.status) }}</span>
                 <span class="v112-server-id">#{{ s.id }}</span>
               </div>
@@ -612,8 +617,8 @@
               <summary><span>删除服务器</span><small>永久操作</small></summary>
               <form method="post" action="/admin/servers/{{ s.id }}/delete">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <small>输入 <code>{{ s.name }}</code> 确认永久删除。</small>
-                <input name="confirm_name" placeholder="{{ s.name }}" required>
+                <small>输入 <code>{{ server_display_id(s) }}</code> 确认永久删除。</small>
+                <input name="confirm_name" placeholder="{{ server_display_id(s) }}" required>
                 <button class="danger" type="submit">永久删除</button>
               </form>
             </details>
@@ -817,7 +822,7 @@
       </section>
       {% endif %}
 
-      <div class="table-wrap payment-orders-table"><table><thead><tr><th>订单</th><th>用户</th><th>网络</th><th>充值</th><th>应付 USDT</th><th>状态</th><th>TxHash</th><th>创建/到期</th><th>操作</th></tr></thead><tbody>{% for r in recharge_orders %}<tr><td>#{{ r.id }}</td><td>{{ r.user.username }}</td><td>{{ "TRON" if r.chain == "tron" else "Polygon" }}</td><td>{{ money(r.requested_cny_cents) }}</td><td><code>{{ usdt_units_to_text(r.expected_usdt_units) }}</code></td><td>{{ recharge_status_label(r.status) }}</td><td><code class="hash-code">{{ r.tx_hash or "-" }}</code></td><td>{{ local_dt(r.created_at).strftime('%m-%d %H:%M') }}<small>→ {{ local_dt(r.expires_at).strftime('%m-%d %H:%M') }}</small></td><td><div class="payment-order-actions">{% if r.status != 'paid' %}<a href="/admin?section=payments&repair_order_id={{ r.id }}#payment-repair">补单</a>{% else %}<span>已入账</span>{% endif %}</div></td></tr>{% else %}<tr><td colspan="9">暂无充值订单</td></tr>{% endfor %}</tbody></table></div>
+      <div class="table-wrap payment-orders-table"><table><thead><tr><th>订单</th><th>用户</th><th>网络</th><th>充值</th><th>应付 USDT</th><th>状态</th><th>TxHash</th><th>创建/到期</th><th>操作</th></tr></thead><tbody>{% for r in recharge_orders %}<tr><td>#{{ r.id }}</td><td>{{ r.user.username }}</td><td>{{ "TRON" if r.chain == "tron" else "Polygon" }}</td><td>{{ money(r.requested_cny_cents) }}</td><td><code>{{ usdt_units_to_text(r.expected_usdt_units) }}</code></td><td>{{ recharge_status_label(r.status) }}</td><td><code class="hash-code">{{ r.tx_hash or "-" }}</code></td><td>{{ local_dt(r.created_at).strftime('%m-%d %H:%M') }}<small>{% if r.cancelled_at %}取消 {{ local_dt(r.cancelled_at).strftime('%m-%d %H:%M') }} · {{ '用户' if r.cancelled_by == 'user' else (r.cancelled_by or '未知') }}{% else %}→ {{ local_dt(r.expires_at).strftime('%m-%d %H:%M') }}{% endif %}</small></td><td><div class="payment-order-actions">{% if r.status == 'paid' %}<span>已入账</span>{% elif r.status == 'exception' %}<a href="/admin?section=payments&repair_order_id={{ r.id }}#payment-repair">异常处理</a>{% else %}<a href="/admin?section=payments&repair_order_id={{ r.id }}#payment-repair">补单</a>{% endif %}</div></td></tr>{% else %}<tr><td colspan="9">暂无充值订单</td></tr>{% endfor %}</tbody></table></div>
       {% include "_admin_pagination.html" %}
 
     {% elif section == "tickets" %}
@@ -929,7 +934,7 @@
     {% elif section == "jobs" %}
       <form class="admin-search" method="get" action="/admin"><input type="hidden" name="section" value="jobs"><input name="q" value="{{ q }}" placeholder="搜索任务号、类型、状态、服务器 ID"><button>搜索</button>{% if q %}<a href="/admin?section=jobs">清除</a>{% endif %}</form>
       <div class="result-meta">共 {{ total_rows }} 条任务</div>
-      <div class="table-wrap"><table><thead><tr><th>任务</th><th>类型</th><th>用户</th><th>服务器</th><th>状态</th><th>尝试</th><th>错误/结果</th><th>时间</th><th>操作</th></tr></thead><tbody>{% for j in jobs %}<tr><td>#{{ j.id }}</td><td>{{ j.job_type }}</td><td>{{ j.user.username if j.user else '-' }}</td><td>{{ j.server.name if j.server else (j.server_id or '-') }}</td><td><span class="job-state {{ j.status }}">{{ job_status_label(j.status) }}</span></td><td>{{ j.attempts }}/{{ j.max_attempts }}</td><td class="job-detail">{% if j.error_text %}<span class="job-error-text">{{ j.error_text }}</span>{% elif j.result_json %}<code class="job-result-code">{{ j.result_json }}</code>{% else %}-{% endif %}</td><td>{{ local_dt(j.created_at).strftime('%m-%d %H:%M:%S') }}</td><td>{% if j.status == 'failed' and j.job_type != 'provision_server' %}<form method="post" action="/admin/jobs/{{ j.id }}/retry"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>重试</button></form>{% else %}-{% endif %}</td></tr>{% else %}<tr><td colspan="9">暂无任务</td></tr>{% endfor %}</tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>任务</th><th>类型</th><th>用户</th><th>服务器</th><th>状态</th><th>尝试</th><th>错误/结果</th><th>时间</th><th>操作</th></tr></thead><tbody>{% for j in jobs %}<tr><td>#{{ j.id }}</td><td>{{ j.job_type }}</td><td>{{ j.user.username if j.user else '-' }}</td><td>{{ server_display_id(j.server) if j.server else (j.server_id or '-') }}</td><td><span class="job-state {{ j.status }}">{{ job_status_label(j.status) }}</span></td><td>{{ j.attempts }}/{{ j.max_attempts }}</td><td class="job-detail">{% if j.error_text %}<span class="job-error-text">{{ j.error_text }}</span>{% elif j.result_json %}<code class="job-result-code">{{ j.result_json }}</code>{% else %}-{% endif %}</td><td>{{ local_dt(j.created_at).strftime('%m-%d %H:%M:%S') }}</td><td>{% if j.status == 'failed' and j.job_type != 'provision_server' %}<form method="post" action="/admin/jobs/{{ j.id }}/retry"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>重试</button></form>{% else %}-{% endif %}</td></tr>{% else %}<tr><td colspan="9">暂无任务</td></tr>{% endfor %}</tbody></table></div>
       {% include "_admin_pagination.html" %}
 
     {% elif section == "audit" %}
@@ -1050,7 +1055,7 @@
             <div>
               <span class="node-state-dot {{ h.status }}"></span>
               <strong>{{ h.name }}</strong>
-              <small>{{ h.region }} · {{ h.public_ip }}</small>
+              <small>{{ country_name(h.country_code) if h.country_code else '未设置旗帜' }} · 编号前缀 {{ h.region_code or "-" }} · {{ h.public_ip }}</small>
             </div>
             <span class="node-status-pill {{ sched.get('code', h.status) }}">{{ sched.get('label', h.status) }}</span>
           </div>
@@ -1098,6 +1103,8 @@
             <div class="node-meta-list">
               <div><span>Agent</span><code>{{ h.api_url }}</code></div>
               <div><span>公网 IP</span><code>{{ h.public_ip }}</code></div>
+              <div><span>前端展示旗帜</span><code>{{ country_name(h.country_code) if h.country_code else '-' }}{% if h.country_code %} · {{ h.country_code }}{% endif %}</code></div>
+              <div><span>机器编号前缀</span><code>{{ h.region_code or '-' }}</code></div>
               <div><span>虚拟化</span><code>{% if "lxc" in (hs.get("virtualization_modes") or []) and "kvm" in (hs.get("virtualization_modes") or []) %}LXC + KVM{% elif "kvm" in (hs.get("virtualization_modes") or []) %}KVM{% else %}LXC{% endif %}{% if "kvm" in (hs.get("virtualization_modes") or []) %} · /dev/kvm {{ "OK" if hs.get("kvm_available") else "不可用" }}{% endif %}</code></div>
               {% set hp = host_port_stats.get(h.id, {}) %}
               <div><span>NAT 端口池</span><code>{% if hp.get('configured') %}{{ hp.start }}-{{ hp.end }}{% else %}未配置{% endif %}</code></div>
@@ -1112,7 +1119,8 @@
             <form class="node-edit-form" method="post" action="/admin/nodes/{{ h.id }}/update">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <label>名称<input name="name" value="{{ h.name }}" required></label>
-              <label>区域<input name="region" value="{{ h.region }}" required></label>
+              <label>前端展示旗帜<input name="country" list="xnat-node-country-options" value="{{ country_name(h.country_code) if h.country_code else '' }}" placeholder="输入中文搜索，例如 香港" required><small>只决定服务器卡片和详情顶部显示哪面国旗</small></label>
+              <label>机器编号前缀<input name="region_code_value" value="{{ h.region_code or '' }}" placeholder="例如 HKG / TYO" maxlength="8" required><small>例如 HKG 会生成 HKG-0002；不会修改 Host 内部实例名</small></label>
               <label>Agent URL<input name="api_url" value="{{ h.api_url }}" required></label>
               <label>公网 IP<input name="public_ip" value="{{ h.public_ip }}" required></label>
               <label>最大 VPS<input type="number" name="max_vps" min="0" value="{{ h.max_vps }}"><small>0 = 不限制</small></label>
@@ -1208,12 +1216,17 @@
       {% endfor %}
       </div>
 
+      <datalist id="xnat-node-country-options">
+      {% for item in country_options %}<option value="{{ item.name }}">{{ item.code }}</option>{% endfor %}
+      </datalist>
+
       <details class="admin-create-box node-create-box">
         <summary>＋ 添加宿主机节点</summary>
         <form class="node-create-form" method="post" action="/admin/nodes">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <label>节点名称<input name="name" placeholder="例如 Tokyo-01" required></label>
-          <label>区域<input name="region" value="Tokyo" placeholder="Tokyo / Hong Kong" required></label>
+          <label>前端展示旗帜<input name="country" list="xnat-node-country-options" value="日本" placeholder="输入中文搜索，例如 香港" required><small>只决定服务器卡片和详情顶部显示哪面国旗</small></label>
+          <label>机器编号前缀<input name="region_code_value" value="TYO" placeholder="例如 HKG / TYO" maxlength="8" required><small>例如 TYO 会生成 TYO-0002</small></label>
           <label>Host Agent URL<input name="api_url" placeholder="https://203.0.113.10:29443" required></label>
           <label>Agent Token<input type="password" name="api_token" placeholder="Host 安装脚本生成的 Token" required></label>
           <label>宿主机公网 IP<input name="public_ip" placeholder="可留空，连接成功后从 Agent 自动读取"><small>通常留空即可；仅在 Agent 无法正确识别公网 IP 时手动填写。</small></label>
@@ -1271,7 +1284,8 @@
                     <label>Bot Token
                       <input type="password" name="telegram_bot_token" autocomplete="new-password" placeholder="{{ '已保存，留空不修改' if env_status.telegram else '输入 Telegram Bot Token' }}">
                     </label>
-                    <p class="settings-note">用户自己的 Chat ID 仍在用户账户中心填写；这里配置整个站点共用的 Bot Token。</p>
+                    <p class="settings-note">保存 Bot Token 时会通过 Telegram getMe 自动验证，并识别机器人用户名。用户自己的 Chat ID 仍在账户中心填写。</p>
+                    {% if site_settings.telegram_bot_username %}<p class="settings-note telegram-admin-bot-identity">当前机器人：<strong>@{{ site_settings.telegram_bot_username }}</strong></p>{% endif %}
                     {% if env_status.telegram %}<label class="secret-clear-row"><input type="checkbox" name="clear_telegram_bot_token" value="true"> 清除已保存的 Bot Token</label>{% endif %}
                   </div>
                 </div>
