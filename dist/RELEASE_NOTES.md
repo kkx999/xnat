@@ -1,21 +1,16 @@
-# XNAT v1.4.2
+# XNAT v1.4.3
 
-本次为 XNAT v1.4.2 的 Mobile API 向后兼容增量更新，重点为 XNAT Android v1.2.0 补齐原生接口。
+本次为 XNAT Panel 的套餐展示一致性修复。
 
-- Panel：v1.4.2
+- Panel：v1.4.3
 - Host Agent：v1.1.1
 - Agent API：v1
 - Mobile API：v1
-- 服务器接口新增套餐名称、中文状态、流量周期、流量重置价格/可用状态等向后兼容字段
-- 新增 Mobile API 删除机器，继续复用稳定展示编号确认与既有 delete_server Job
-- 新增 Mobile API 付费流量重置；Web 与 App 共用同一业务逻辑，统一订单、扣费、周期、带宽、审计与通知
-- 新增原生 USDT 充值 API：配置、创建订单、订单详情、取消和人工模式 TxHash；既有异常支付保护保持不变
-- Billing 支持 month=YYYY-MM 自然月读取与 available_months，并补齐订单、流水和充值中文状态标签
-- 修复 Mobile API total_spend_cents 漏计 paid 新购订单的问题
-- Mobile API 继续保持 v1；旧 XNAT Android v1.1.0 不受新增字段和新增路由影响
-- Panel 数据库迁移保持 additive，本轮不新增数据库列、不删除旧字段、不重建旧表
-- 正式支持 v1.4.1 → v1.4.2 原地升级，并支持已安装 v1.4.2-dev1 的测试机收口到正式版
-- v1.4.2-dev1 已完成实机 API 验收：health、登录、账户、套餐参数、月份账务、充值创建/查询/取消，以及删除/流量重置不存在服务器错误路径均通过
+- 首页“在售套餐”补齐“服务器地区”和“网络线路”
+- 首页与登录后的套餐中心统一为完整的 3×3 套餐规格布局
+- 直接复用套餐已有字段，不新增数据库列，不改变套餐、库存或购买逻辑
+- Mobile API v1 保持不变，XNAT Android 无需更新
+- 正式支持 v1.4.2 → v1.4.3 原地升级
 - 升级继续执行 SQLite quick_check、完整备份、健康检查与失败回滚；.env、用户、余额、订单、VPS、Host、套餐、端口、工单、充值和通知数据全部保留
 - Host Agent v1.1.1 / Agent API v1 核心协议不变
 
@@ -23,10 +18,6 @@
 
 Panel / Host 推荐升级命令：
 
-    xnat update 1.4.2
+    xnat update 1.4.3
 
-已经安装 v1.4.2-dev1 的测试机首次收口正式版时，由于旧 dev1 CLI 的 Debian 版本比较行为，请使用：
-
-    XNAT_ALLOW_DOWNGRADE=1 xnat update 1.4.2
-
-GitHub 发布时请创建并真正 Publish Tag `v1.4.2` 的 Release，不要只保留 Draft；无版本安装器通过 `releases/latest` 识别最新正式版。
+GitHub 发布时请创建并真正 Publish Tag `v1.4.3` 的 Release，不要只保留 Draft；无版本安装器通过 `releases/latest` 识别最新正式版。

@@ -4,8 +4,8 @@
 
 XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、多宿主机节点、套餐、用户、流量、通知及日常运维。
 
-当前版本：**v1.4.2**  
-最新正式版本：**v1.4.2**
+当前版本：**v1.4.3**<br>
+最新正式版本：**v1.4.3**
 
 
 ## 更新日志
@@ -14,7 +14,7 @@ XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、
 
 > 📋 **[查看完整更新日志（CHANGELOG.md）](CHANGELOG.md)**
 
-当前正式源码关系：**XNAT Release v1.4.2 / Panel v1.4.2 / Mobile API v1 / Host Agent v1.1.1 / Agent API v1**。
+当前正式源码关系：**XNAT Release v1.4.3 / Panel v1.4.3 / Mobile API v1 / Host Agent v1.1.1 / Agent API v1**。
 
 ---
 
@@ -91,45 +91,43 @@ Host 连接 Panel 成功后，在 Panel 后台节点设置中配置 NAT 端口�
 
 ---
 
-# 指定 v1.4.2 安装
+# 指定 v1.4.3 安装
 
 Panel：
 
 ```bash
-XNAT_VERSION=1.4.2 \
+XNAT_VERSION=1.4.3 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
 Host：
 
 ```bash
-XNAT_VERSION=1.4.2 \
+XNAT_VERSION=1.4.3 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-host.sh)
 ```
 
-> `XNAT_VERSION=1.4.2` 指 XNAT Release 版本。XNAT v1.4.1 使用 **Panel v1.4.1 / Mobile API v1 / Host Agent v1.1.1 / Agent API v1**。
+> `XNAT_VERSION=1.4.3` 指 XNAT Release 版本。XNAT v1.4.3 使用 **Panel v1.4.3 / Mobile API v1 / Host Agent v1.1.1 / Agent API v1**。
 
 ---
 
-# 从 v1.4.1 升级到 v1.4.2
+# 从 v1.4.2 升级到 v1.4.3
 
 Panel：
 
 ```bash
-xnat update 1.4.2
+xnat update 1.4.3
 ```
 
 Host：
 
 ```bash
-xnat update 1.4.2
+xnat update 1.4.3
 ```
 
-更新命令会先执行 v1.4.2 升级预检并验证下载的 Release，再询问是否继续。Panel 会保留 `.env`、SQLite、用户、余额、订单、VPS、Host、套餐、端口、工单与支付数据，并继续执行升级前后 `PRAGMA quick_check`、完整备份、健康检查与失败回滚。Host 会保留 Agent Token、TLS、Incus、natpool、虚拟化配置和现有 VPS。
+更新命令会先执行 v1.4.3 升级预检并验证下载的 Release，再询问是否继续。Panel 会保留 `.env`、SQLite、用户、余额、订单、VPS、Host、套餐、端口、工单与支付数据，并继续执行升级前后 `PRAGMA quick_check`、完整备份、健康检查与失败回滚。Host 会保留 Agent Token、TLS、Incus、natpool、虚拟化配置和现有 VPS。
 
-Host Agent 仍为 **v1.1.1 / Agent API v1**；本次没有 Host Agent 协议变更。Host 可执行 `xnat update 1.4.2` 同步 Release 元数据与管理脚本。
-
-> 如果机器已经安装过测试版 `v1.4.2-dev1`，由于该测试版旧 `xnat` 使用 Debian 版本比较规则，会把正式 `1.4.2` 误判为较低版本。仅这一次收口正式版时使用：`XNAT_ALLOW_DOWNGRADE=1 xnat update 1.4.2`。升级脚本会将它识别为经过验证的 dev1 → 正式版收口路径，不会删除业务数据。
+Host Agent 仍为 **v1.1.1 / Agent API v1**；本次没有 Host Agent 协议变更。Host 无需升级 Agent，必要时可执行 `xnat update 1.4.3` 同步 Release 元数据与管理脚本。
 
 
 ---

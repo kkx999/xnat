@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.4.3
+
+- 首页“在售套餐”补齐“服务器地区”和“网络线路”，与登录后的套餐中心保持相同的 3×3 规格布局。
+- 首页继续直接读取套餐已有的 `server_region` 与 `network_line` 字段；不新增数据库列，不改变套餐、库存或购买逻辑。
+- Panel 升级至 v1.4.3；Mobile API v1、Host Agent v1.1.1 与 Agent API v1 均保持不变。
+- 正式支持 v1.4.2 → v1.4.3 原地升级，继续执行升级前 SQLite `quick_check`、完整备份、健康检查与失败回滚。
+
 ## v1.4.2
 
 - Mobile API v1 服务器 payload 新增 `plan_name`、中文状态、流量周期与付费重置可用性/价格字段，保留全部旧字段兼容 Android v1.1.0。

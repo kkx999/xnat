@@ -1,6 +1,6 @@
 # XNAT Mobile API v1
 
-XNAT Panel `v1.4.2` 继续保持 **Mobile API v1**。本轮仅增加向后兼容字段与新接口，不改变既有 Android v1.1.0 已使用的接口语义，也不要求 Host Agent / Agent API 升级。
+XNAT Panel `v1.4.3` 继续保持 **Mobile API v1**。本次仅修复 Web 首页套餐规格展示，不改变 v1.4.2 已提供的接口字段、路由或 Android 客户端语义，也不要求 Host Agent / Agent API 升级。
 
 Base prefix: `/api/v1`
 
@@ -101,7 +101,7 @@ Base prefix: `/api/v1`
 
 ## 兼容性
 
-- Panel：v1.4.2
+- Panel：v1.4.3
 - Mobile API：v1
 - XNAT Android：v1.1.0 继续兼容；v1.2.0 可接入本轮新增接口
 - Host Agent：v1.1.1
