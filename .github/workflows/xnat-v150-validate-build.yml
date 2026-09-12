@@ -19,6 +19,16 @@ jobs:
           find panel agent scripts -type d -name '__pycache__' -prune -exec rm -rf {} +
           printf '%s\n' '__pycache__/' '*.py[cod]' > .gitignore
           python3 -c 'from pathlib import Path; p=Path("CHANGELOG.md"); t=p.read_text(); e="## v1.5.0\n\n- LXC Host 最低安装门槛调整为 1C / 1GB / 4.5GB 可用硬盘；KVM / 混合 Host 调整为 1C / 1GB / 6.5GB，并继续强制检查 `/dev/kvm`。\n- Host 安装菜单新增模式最低门槛、当前资源检测、低容量提示、系统安全预留和 natpool 自动建议。\n- 新增 Alpine 3.24 LXC；Host Agent v1.2.0 支持 apk + OpenRC SSH 初始化，Debian / Ubuntu 原流程保持兼容。\n- LXC 套餐资源下限放宽到 1C / 64MB / 128MB，管理员可自由向上配置；KVM 小鸡继续保留 512MB / 4GB 技术下限。\n- 宿主机后台可分配资源同时参考逻辑分配量和实际资源水位，并区分逻辑分配与 natpool 实际余量。\n- Panel 升级至 v1.5.0，Host Agent 升级至 v1.2.0；Agent API 与 Mobile API 继续保持 v1。\n- 正式支持 v1.4.3 → v1.5.0 原地升级，已有业务数据与自定义镜像保持兼容。\n\n"; p.write_text(t if "## v1.5.0" in t else t.replace("# Changelog\n\n", "# Changelog\n\n"+e, 1))'
+          sed -i "s/assert release == '1.4.3'/assert release == '1.5.0'/" scripts/check.sh
+          sed -i "s/assert panel == '1.4.3'/assert panel == '1.5.0'/" scripts/check.sh
+          sed -i 's/\"version\": \"1.4.3\"/\"version\": \"1.5.0\"/' scripts/check.sh
+          sed -i 's/XNAT v1.4.3 Multi-Node/XNAT v1.5.0 Multi-Node/' scripts/check.sh
+          sed -i "s/'v1.4.3' in docs/'v1.5.0' in docs/" scripts/check.sh
+          sed -i 's/最新正式版本：\*\*v1.4.3\*\*/最新正式版本：**v1.5.0**/' scripts/check.sh
+          sed -i 's/当前版本：\*\*v1.4.3\*\*/当前版本：**v1.5.0**/' README.md
+          sed -i 's/最新正式版本：\*\*v1.4.3\*\*/最新正式版本：**v1.5.0**/' README.md
+          sed -i 's/XNAT Release v1.4.3 \/ Panel v1.4.3 \/ Mobile API v1 \/ Host Agent v1.1.1 \/ Agent API v1/XNAT Release v1.5.0 \/ Panel v1.5.0 \/ Mobile API v1 \/ Host Agent v1.2.0 \/ Agent API v1/' README.md
+          python3 -c 'from pathlib import Path; p=Path("docs/MOBILE_API.md"); t=p.read_text(); old="XNAT Panel `v1.4.3` 继续保持 **Mobile API v1**。本次仅修复 Web 首页套餐规格展示，不改变 v1.4.2 已提供的接口字段、路由或 Android 客户端语义，也不要求 Host Agent / Agent API 升级。"; new="XNAT Panel `v1.5.0` 继续保持 **Mobile API v1**。本次新增 Alpine LXC、低资源 Host 与分数 GiB LXC 磁盘支持；Mobile API v1 的版本号及既有接口语义保持兼容。"; assert old in t; p.write_text(t.replace(old,new,1))'
           git config user.name 'XNAT Release Bot'
           git config user.email 'actions@users.noreply.github.com'
           git add -A
