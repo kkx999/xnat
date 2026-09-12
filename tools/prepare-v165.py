@@ -1,0 +1,290 @@
+from pathlib import Path
+import json
+
+
+def replace_once(path: str, old: str, new: str) -> None:
+    p = Path(path)
+    text = p.read_text()
+    count = text.count(old)
+    assert count == 1, f"{path}: expected one match, got {count}: {old[:120]!r}"
+    p.write_text(text.replace(old, new, 1))
+
+
+# ---- Host installer: size natpool only after the heavy Host dependencies are installed. ----
+p = Path("scripts/install-host.sh")
+s = p.read_text()
+
+old_guard = '''if command -v incus >/dev/null 2>&1; then
+  [[ -z "$(incus storage list --format csv -c n 2>/dev/null || true)" ]] ||
+    die "检测到已有 Incus Storage。本脚本仅用于全新 Host。"
+  [[ -z "$(incus list --format csv -c n 2>/dev/null || true)" ]] ||
+    die "检测到已有 Incus VPS。本脚本拒绝覆盖。"
+fi
+'''
+assert s.count(old_guard) == 1
+s = s.replace(old_guard, "", 1)
+
+old_deps = '''info "1/7 安装系统 / Incus 依赖"
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install -y \\
+  ca-certificates curl gnupg openssl python3 python3-venv python3-pip \\
+  lvm2 thin-provisioning-tools iproute2 nftables
+
+timedatectl set-timezone Asia/Shanghai || true
+
+mkdir -p /etc/apt/keyrings
+curl -fsSL https://pkgs.zabbly.com/key.asc -o /tmp/xnat-zabbly.asc
+
+FPR="$(gpg --show-keys --with-colons /tmp/xnat-zabbly.asc | awk -F: '$1=="fpr"{print $10;exit}')"
+[[ "${FPR}" == "${ZABBLY_FPR}" ]] || die "Zabbly Key 指纹不匹配: ${FPR}"
+
+install -m 0644 /tmp/xnat-zabbly.asc /etc/apt/keyrings/zabbly-incus.asc
+
+cat > /etc/apt/sources.list.d/zabbly-incus-lts-7.0.sources <<EOF
+Enabled: yes
+Types: deb
+URIs: https://pkgs.zabbly.com/incus/lts-7.0
+Suites: ${INCUS_SUITE}
+Components: main
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/zabbly-incus.asc
+EOF
+
+cat > /etc/apt/preferences.d/xnat-zabbly-incus <<'EOF_PIN'
+Package: incus incus-base incus-client
+Pin: origin pkgs.zabbly.com
+Pin-Priority: 1001
+EOF_PIN
+
+apt-get update
+apt-get install -y incus
+systemctl enable --now incus
+sleep 2
+'''
+assert s.count(old_deps) == 1
+s = s.replace(old_deps, "", 1)
+
+replacements = {
+    'lxc) prefix="LXC"; total_min=4608; reserve=1024; min_pool=1; warn_total=8192 ;;':
+        'lxc) prefix="LXC"; total_min=4608; reserve=2048; min_pool=1; warn_total=8192 ;;',
+    'kvm) prefix="KVM"; total_min=6656; reserve=1536; min_pool=4; warn_total=12288; requires_kvm="true" ;;':
+        'kvm) prefix="KVM"; total_min=6656; reserve=3072; min_pool=4; warn_total=12288; requires_kvm="true" ;;',
+    'hybrid) prefix="HYBRID"; total_min=6656; reserve=1536; min_pool=4; warn_total=12288; requires_kvm="true" ;;':
+        'hybrid) prefix="HYBRID"; total_min=6656; reserve=3072; min_pool=4; warn_total=12288; requires_kvm="true" ;;',
+    '当前预计可用于 natpool：${LXC_POOL_GB} GiB（已预留约 1GiB 给系统/XNAT）':
+        '当前预计可用于 natpool：${LXC_POOL_GB} GiB（基础依赖安装后，继续为 Host 系统保留约 2GiB）',
+    '当前预计可用于 natpool：${KVM_POOL_GB} GiB（已预留约 1.5GiB 给系统/XNAT）':
+        '当前预计可用于 natpool：${KVM_POOL_GB} GiB（基础依赖安装后，继续为 Host 系统保留约 3GiB）',
+    '当前预计可用于 natpool：${HYBRID_POOL_GB} GiB（已预留约 1.5GiB 给系统/XNAT）':
+        '当前预计可用于 natpool：${HYBRID_POOL_GB} GiB（基础依赖安装后，继续为 Host 系统保留约 3GiB）',
+    '系统/XNAT安装预留：约 {reserve/1024:.2f} GiB（不等同于长期安全余量）':
+        '系统/XNAT长期预留：约 {reserve/1024:.2f} GiB（不会分给 natpool）',
+    '系统/XNAT安装预留：  约 {reserve/1024:.2f} GiB（长期运行仍需额外余量）':
+        'Host 长期运行保留：   约 {reserve/1024:.2f} GiB（natpool 满载后仍保留）',
+}
+for old, new in replacements.items():
+    assert old in s, f"missing installer token: {old}"
+    s = s.replace(old, new, 1)
+
+marker = '\nselect_virtualization_mode\nRECOMMENDED_GB="${MAX_SAFE_GB}"\n'
+assert s.count(marker) == 1
+new_prep = r'''
+# Refuse an existing Incus deployment before changing packages or storage.
+if command -v incus >/dev/null 2>&1; then
+  [[ -z "$(incus storage list --format csv -c n 2>/dev/null || true)" ]] ||
+    die "检测到已有 Incus Storage。本脚本仅用于全新 Host。"
+  [[ -z "$(incus list --format csv -c n 2>/dev/null || true)" ]] ||
+    die "检测到已有 Incus VPS。本脚本拒绝覆盖。"
+fi
+
+# Install the heavy Host dependencies first. Capacity planning below must use
+# the real post-install root free space, otherwise natpool can consume space
+# that Incus/Python/APT still need and later drive / below the 512MiB guard.
+info "1/7 安装 Host 基础依赖 / Incus"
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install -y \
+  ca-certificates curl gnupg openssl python3 python3-venv python3-pip \
+  lvm2 thin-provisioning-tools iproute2 nftables
+
+timedatectl set-timezone Asia/Shanghai || true
+
+mkdir -p /etc/apt/keyrings
+curl -fsSL https://pkgs.zabbly.com/key.asc -o /tmp/xnat-zabbly.asc
+
+FPR="$(gpg --show-keys --with-colons /tmp/xnat-zabbly.asc | awk -F: '$1=="fpr"{print $10;exit}')"
+[[ "${FPR}" == "${ZABBLY_FPR}" ]] || die "Zabbly Key 指纹不匹配: ${FPR}"
+
+install -m 0644 /tmp/xnat-zabbly.asc /etc/apt/keyrings/zabbly-incus.asc
+
+cat > /etc/apt/sources.list.d/zabbly-incus-lts-7.0.sources <<EOF
+Enabled: yes
+Types: deb
+URIs: https://pkgs.zabbly.com/incus/lts-7.0
+Suites: ${INCUS_SUITE}
+Components: main
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/zabbly-incus.asc
+EOF
+
+cat > /etc/apt/preferences.d/xnat-zabbly-incus <<'EOF_PIN'
+Package: incus incus-base incus-client
+Pin: origin pkgs.zabbly.com
+Pin-Priority: 1001
+EOF_PIN
+
+apt-get update
+apt-get install -y incus
+systemctl enable --now incus
+apt-get clean
+rm -f /tmp/xnat-zabbly.asc
+sleep 2
+
+# This resource read happens after the large package installation and cache
+# cleanup, so MAX_SAFE_GB is based on the space a real installed Host has.
+select_virtualization_mode
+RECOMMENDED_GB="${MAX_SAFE_GB}"
+'''.strip("\n") + "\n"
+s = s.replace(marker, "\n" + new_prep, 1)
+
+old_validation = '''[[ "${NATPOOL_GB}" =~ ^[0-9]+$ ]] || die "NATPOOL_GB 必须是整数 GiB"
+(( NATPOOL_GB >= MIN_POOL_GB )) || die "${VIRTUALIZATION_LABEL} 模式 natpool 至少需要 ${MIN_POOL_GB}GiB"
+(( NATPOOL_GB <= MAX_SAFE_GB )) || die "natpool=${NATPOOL_GB}GiB 超过当前安全上限 ${MAX_SAFE_GB}GiB；请保留系统/XNAT运行空间"
+'''
+new_validation = '''[[ "${NATPOOL_GB}" =~ ^[0-9]+$ ]] || die "NATPOOL_GB 必须是整数 GiB"
+(( NATPOOL_GB >= MIN_POOL_GB )) || die "${VIRTUALIZATION_LABEL} 模式 natpool 至少需要 ${MIN_POOL_GB}GiB"
+(( NATPOOL_GB <= MAX_SAFE_GB )) || die "natpool=${NATPOOL_GB}GiB 超过当前安全上限 ${MAX_SAFE_GB}GiB；请保留系统/XNAT运行空间"
+
+# Re-read / immediately before creating the loop-backed LVM pool. This closes
+# the gap between the interactive estimate and the destructive storage step.
+detect_host_resources
+CURRENT_SAFE_MIB=$(( ROOT_AVAIL_MIB > SYSTEM_RESERVE_MIB ? ROOT_AVAIL_MIB - SYSTEM_RESERVE_MIB : 0 ))
+CURRENT_MAX_SAFE_GB=$(( CURRENT_SAFE_MIB / 1024 ))
+(( NATPOOL_GB <= CURRENT_MAX_SAFE_GB )) ||
+  die "磁盘空间在安装过程中发生变化：当前最多只能安全创建 ${CURRENT_MAX_SAFE_GB}GiB natpool；请减小 natpool 或扩容 Host 系统盘"
+PROJECTED_HOST_FREE_MIB=$(( ROOT_AVAIL_MIB - NATPOOL_GB * 1024 ))
+(( PROJECTED_HOST_FREE_MIB >= SYSTEM_RESERVE_MIB )) ||
+  die "natpool 满载后 Host 系统预留不足：预计仅剩 ${PROJECTED_HOST_FREE_MIB}MiB，至少需保留 ${SYSTEM_RESERVE_MIB}MiB"
+'''
+assert s.count(old_validation) == 1
+s = s.replace(old_validation, new_validation, 1)
+
+assert s.index('info "1/7 安装 Host 基础依赖 / Incus"') < s.index('\nselect_virtualization_mode\nRECOMMENDED_GB=')
+assert s.index('apt-get install -y incus') < s.index('\nselect_virtualization_mode\nRECOMMENDED_GB=')
+assert s.count('apt-get install -y incus') == 1
+assert 'info "1/7 安装系统 / Incus 依赖"' not in s
+assert 'CURRENT_MAX_SAFE_GB' in s and 'PROJECTED_HOST_FREE_MIB' in s
+p.write_text(s)
+
+# ---- Release metadata: installer/management release only; runtime Agent stays v1.2.1. ----
+Path('VERSION').write_text('1.6.5\n')
+meta_path = Path('release.json')
+meta = json.loads(meta_path.read_text())
+meta['release_version'] = '1.6.5'
+assert meta['panel_version'] == '1.6.3'
+assert meta['agent_version'] == '1.2.1'
+assert str(meta['agent_api_version']) == '1'
+meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2) + '\n')
+
+# ---- Landing page ----
+readme_path = Path('README.md')
+readme = readme_path.read_text()
+assert '**当前正式版本：XNAT v1.6.4**' in readme
+readme = readme.replace('**当前正式版本：XNAT v1.6.4**', '**当前正式版本：XNAT v1.6.5**', 1)
+readme = readme.replace('| XNAT Release | v1.6.4 |', '| XNAT Release | v1.6.5 |', 1)
+old = '> v1.6.4 为 Host 稳定性修复：Host Agent 增加系统盘低空间保护与白名单安全清理，Host 管理菜单加入手动清理入口；安装器同时明确区分“最低安装”与“建议长期运行”配置。Panel、Agent API 与 Mobile API 保持兼容。'
+new = '> v1.6.5 修复 Host 安装阶段的磁盘规划：先安装 Incus/LVM/Python 等基础依赖并清理 APT 缓存，再按真实剩余空间计算 natpool；LXC 强制为 Host 长期保留约 2GiB，KVM/混合保留约 3GiB。Panel v1.6.3、Host Agent v1.2.1、Agent API v1 与 Mobile API v1 均保持兼容。'
+assert old in readme
+readme = readme.replace(old, new, 1)
+old_lxc = '| LXC | 1C / 1GB / 4.5GiB 总硬盘 | 1C / 1GB / 8GiB+ | 最低值仅用于测试或少量轻量实例；安装阶段仍按可用空间预留约 1GiB 后计算 natpool |'
+new_lxc = '| LXC | 1C / 1GB / 4.5GiB 总硬盘 | 1C / 1GB / 8GiB+ | 先完成 Host 基础依赖安装，再按真实剩余空间计算 natpool；natpool 满载后仍为 Host 保留约 2GiB |'
+assert old_lxc in readme
+readme = readme.replace(old_lxc, new_lxc, 1)
+old_kvm = '| KVM | 1C / 1GB / 6.5GiB 总硬盘 | 2C / 2GB / 12GiB+ | 需要可用 `/dev/kvm`，安装阶段预留约 1.5GiB，natpool 至少 4GiB |'
+new_kvm = '| KVM | 1C / 1GB / 6.5GiB 总硬盘 | 2C / 2GB / 12GiB+ | 需要可用 `/dev/kvm`；依赖安装完成后再计算，natpool 满载后仍为 Host 保留约 3GiB，natpool 至少 4GiB |'
+assert old_kvm in readme
+readme = readme.replace(old_kvm, new_kvm, 1)
+readme = readme.replace('3. Host 真实资源检测与 natpool 安全建议。', '3. 完成 Host 基础依赖 / Incus 安装后重新读取真实可用硬盘，再计算 natpool 安全上限。', 1)
+start = readme.index('## 升级到 v1.6.4')
+end = readme.index('更早版本的升级历史与兼容说明', start)
+upgrade = '''## 升级到 v1.6.5
+
+现有 Host 可直接原地同步本次 Release：
+
+```bash
+xnat update 1.6.5
+```
+
+v1.6.5 不修改 Panel 业务组件，也不修改 Host Agent 运行时 API：Panel 继续为 v1.6.3，Host Agent 继续为 v1.2.1，Agent API / Mobile API 继续为 v1。现有 VPS、Agent Token、TLS、Incus、natpool、端口和 `/etc/xnat/node.json` 均保持不变。
+
+本版修复的是 **全新 Host 安装器的 natpool 容量规划**：重型依赖安装完成后才读取根分区真实剩余空间；LXC 以约 2GiB、KVM/混合以约 3GiB 作为长期 Host 预留，并在创建 LVM Thin 前再次校验，避免把“安装前空闲空间”误算给 natpool。
+
+> 已经创建好的 natpool 不会被升级器自动缩容。自动缩小现有 LVM Thin 风险很高，因此旧 Host 如果已经因为 natpool 过大而接近满盘，应扩容 Host 系统盘，或迁移/重装 Host 后按 v1.6.5 新算法重新分配；不要删除 `/var/lib/incus/disks`。
+
+v1.6.4 引入的 512MiB 根分区保护、白名单安全清理和 HTTP 507 fail-closed 机制继续保留。
+
+'''
+readme_path.write_text(readme[:start] + upgrade + readme[end:])
+
+# ---- Changelog ----
+changelog_path = Path('CHANGELOG.md')
+changelog = changelog_path.read_text()
+assert changelog.startswith('# Changelog\n\n')
+entry = '''## v1.6.5
+
+- 修复 Host 安装器在 Incus/LVM/Python 等重型依赖安装前就计算 natpool，导致把“安装前空闲空间”错误当作可分配容量的问题。
+- 全新 Host 现在先完成基础依赖与 Incus 安装、清理 APT 下载缓存，再重新读取根分区真实可用空间后计算 natpool。
+- LXC 长期 Host 预留从约 1GiB 提高到约 2GiB；KVM / 混合从约 1.5GiB 提高到约 3GiB。该预留按 natpool 满载后的最坏情况计算，不再只是安装前提示。
+- 创建 LVM Thin 前再次读取 `/` 可用空间；如果交互期间空间发生变化，会拒绝创建过大的 natpool，而不是继续把 Host 系统盘压到 512MiB 紧急保护线。
+- v1.6.4 的 512MiB 根分区保护、自动安全清理、HTTP 507 与 Incus ENOSPC 单次恢复继续保持不变。
+- 本次只修改 Host 安装/管理 Release；Panel 保持 v1.6.3，Host Agent 运行时保持 v1.2.1，Agent API v1、Mobile API v1 不变。现有 natpool 不自动缩容。
+
+'''
+changelog_path.write_text('# Changelog\n\n' + entry + changelog[len('# Changelog\n\n'):])
+
+# ---- Regression checks ----
+check_path = Path('scripts/check.sh')
+check = check_path.read_text()
+assert "assert '当前正式版本：XNAT v1.6.4' in readme" in check
+check = check.replace("assert '当前正式版本：XNAT v1.6.4' in readme", "assert '当前正式版本：XNAT v1.6.5' in readme", 1)
+assert "grep -q 'total_min=4608; reserve=1024; min_pool=1' scripts/install-host.sh" in check
+check = check.replace("grep -q 'total_min=4608; reserve=1024; min_pool=1' scripts/install-host.sh", "grep -q 'total_min=4608; reserve=2048; min_pool=1' scripts/install-host.sh", 1)
+assert "grep -q 'total_min=6656; reserve=1536; min_pool=4' scripts/install-host.sh" in check
+check = check.replace("grep -q 'total_min=6656; reserve=1536; min_pool=4' scripts/install-host.sh", "grep -q 'total_min=6656; reserve=3072; min_pool=4' scripts/install-host.sh", 1)
+marker = '# v1.3.2 Mobile API v1 contract for XNAT Android v1.0.0.\n'
+assert check.count(marker) == 1
+contract = r'''# v1.6.5 Host storage-planning contract: install heavy dependencies before
+# sizing natpool, preserve long-running root headroom, then revalidate just
+# before creating the loop-backed LVM pool.
+python3 - <<'PYV165'
+from pathlib import Path
+s=Path('scripts/install-host.sh').read_text()
+plan='\nselect_virtualization_mode\nRECOMMENDED_GB="${MAX_SAFE_GB}"\n'
+assert s.count(plan) == 1, 'capacity-planning call missing/duplicated'
+plan_pos=s.index(plan)
+assert s.index('info "1/7 安装 Host 基础依赖 / Incus"') < plan_pos
+assert s.index('apt-get install -y incus') < plan_pos
+assert s.index('apt-get clean') < plan_pos
+assert s.count('apt-get install -y incus') == 1, 'Incus dependency install duplicated'
+assert 'info "1/7 安装系统 / Incus 依赖"' not in s, 'old post-planning dependency block returned'
+assert 'total_min=4608; reserve=2048; min_pool=1' in s
+assert 'total_min=6656; reserve=3072; min_pool=4' in s
+assert 'CURRENT_MAX_SAFE_GB' in s and 'PROJECTED_HOST_FREE_MIB' in s
+assert 'natpool 满载后 Host 系统预留不足' in s
+assert '系统/XNAT长期预留' in s and 'Host 长期运行保留' in s
+print('v1.6.5 post-dependency natpool planning contract: ok')
+PYV165
+
+'''
+check_path.write_text(check.replace(marker, contract + marker, 1))
+
+# Final metadata assertions.
+assert Path('VERSION').read_text().strip() == '1.6.5'
+final = json.loads(Path('release.json').read_text())
+assert final == {
+    'release_version': '1.6.5',
+    'panel_version': '1.6.3',
+    'agent_version': '1.2.1',
+    'agent_api_version': '1',
+    'supported_agent_api_versions': ['1'],
+    'mobile_api_version': '1',
+}
