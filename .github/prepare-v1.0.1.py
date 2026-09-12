@@ -60,36 +60,77 @@ nginx_default_port_exists(){
 
 write_uninstall_nginx_guard(){
   have nginx || return 0
-  local need80=true need443=true
+  local retired_domain="${1:-}" need80=true need443=true need_cert=false cert_cn="localhost"
 
   rm -f "$NGINX_UNINSTALL_GUARD"
+  if [[ -n "$retired_domain" ]]; then
+    if [[ "$retired_domain" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$ ]]; then
+      retired_domain="${retired_domain,,}"
+      cert_cn="$retired_domain"
+    else
+      warn "旧 Panel 域名记录格式异常，跳过域名级拒绝占位。"
+      retired_domain=""
+    fi
+  fi
+
   nginx_default_port_exists 80 && need80=false || true
   nginx_default_port_exists 443 && need443=false || true
-  if [[ "$need80" != true && "$need443" != true ]]; then
+  if [[ -z "$retired_domain" && "$need80" != true && "$need443" != true ]]; then
     rm -rf "$NGINX_UNINSTALL_GUARD_SSL_DIR"
     return 0
   fi
 
+  if [[ -n "$retired_domain" || "$need443" == true ]]; then
+    need_cert=true
+  fi
+
   install -d -m 0755 "$(dirname "$NGINX_UNINSTALL_GUARD")"
-  if [[ "$need443" == true ]]; then
+  if [[ "$need_cert" == true ]]; then
     install -d -m 0700 "$NGINX_UNINSTALL_GUARD_SSL_DIR"
     if [[ ! -s "$NGINX_UNINSTALL_GUARD_SSL_DIR/fullchain.pem" || ! -s "$NGINX_UNINSTALL_GUARD_SSL_DIR/privkey.pem" ]]; then
-      openssl req -x509 -nodes -newkey rsa:2048 -sha256 -days 3650 \
-        -subj '/CN=localhost' \
+      if ! openssl req -x509 -nodes -newkey rsa:2048 -sha256 -days 3650 \
+        -subj "/CN=${cert_cn}" \
         -keyout "$NGINX_UNINSTALL_GUARD_SSL_DIR/privkey.pem" \
-        -out "$NGINX_UNINSTALL_GUARD_SSL_DIR/fullchain.pem" >/dev/null 2>&1
-      chmod 0600 "$NGINX_UNINSTALL_GUARD_SSL_DIR/privkey.pem"
-      chmod 0644 "$NGINX_UNINSTALL_GUARD_SSL_DIR/fullchain.pem"
+        -out "$NGINX_UNINSTALL_GUARD_SSL_DIR/fullchain.pem" >/dev/null 2>&1; then
+        warn "无法生成卸载后的 Nginx 拒绝占位证书；HTTPS 串站保护无法启用。"
+        rm -rf "$NGINX_UNINSTALL_GUARD_SSL_DIR"
+        need443=false
+        retired_domain=""
+      else
+        chmod 0600 "$NGINX_UNINSTALL_GUARD_SSL_DIR/privkey.pem"
+        chmod 0644 "$NGINX_UNINSTALL_GUARD_SSL_DIR/fullchain.pem"
+      fi
     fi
   else
     rm -rf "$NGINX_UNINSTALL_GUARD_SSL_DIR"
   fi
 
   {
+    if [[ -n "$retired_domain" ]]; then
+      cat <<EOF_RETIRED_DOMAIN
+# XNAT retired Panel hostname guard. It intentionally contains no Panel data.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${retired_domain};
+    return 444;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name ${retired_domain};
+    ssl_certificate ${NGINX_UNINSTALL_GUARD_SSL_DIR}/fullchain.pem;
+    ssl_certificate_key ${NGINX_UNINSTALL_GUARD_SSL_DIR}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    return 444;
+}
+EOF_RETIRED_DOMAIN
+    fi
     if [[ "$need80" == true ]]; then
       cat <<'EOF_GUARD_80'
-# Installed by XNAT after Panel removal to prevent unmatched hostnames from
-# falling through to another virtual host on the same Nginx instance.
+# XNAT fallback default guard. Prevents unmatched Host headers from falling
+# through to another virtual host after the Panel site is removed.
 server {
     listen 80 default_server;
     listen [::]:80 default_server;
@@ -117,7 +158,7 @@ EOF_GUARD_443
   if nginx -t >/dev/null 2>&1; then
     systemctl reload nginx >/dev/null 2>&1 || true
   else
-    warn "卸载后的 Nginx 默认拒绝站点配置失败，已回滚该保护配置。"
+    warn "卸载后的 Nginx 拒绝占位配置失败，已回滚该保护配置。"
     rm -f "$NGINX_UNINSTALL_GUARD"
     rm -rf "$NGINX_UNINSTALL_GUARD_SSL_DIR"
     nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || true
@@ -162,6 +203,7 @@ new_uninstall = r'''cmd_uninstall(){
         expected="PURGE PANEL"
         echo "警告：完全卸载会删除 Panel 数据库、.env、安装凭据、Panel 升级/卸载备份和 XNAT 托管的域名证书。"
         echo "不会删除 Nginx、Certbot 软件，也不会修改 Komari 或其他站点配置。"
+        echo "为避免旧 Panel 域名串到其他站点，会保留一个不含业务数据的 Nginx 拒绝占位。"
         ;;
       0) echo "已取消。"; return 0 ;;
       *) echo "无效选择，已取消。"; return 0 ;;
@@ -211,7 +253,7 @@ new_uninstall = r'''cmd_uninstall(){
       fi
     fi
 
-    write_uninstall_nginx_guard
+    write_uninstall_nginx_guard "$panel_domain"
   else
     [[ -f "$AGENT_ENV" ]] && cp -a "$AGENT_ENV" "$backup/.env" || true
     [[ -d "$AGENT_DIR/tls" ]] && cp -a "$AGENT_DIR/tls" "$backup/tls" || true
@@ -231,6 +273,9 @@ new_uninstall = r'''cmd_uninstall(){
   elif [[ "$role" == panel ]]; then
     echo "已执行完全卸载：未保留 XNAT Panel 数据备份。"
   fi
+  if [[ "$role" == panel && -n "$panel_domain" ]]; then
+    echo "旧域名保护：${panel_domain} 已加入 Nginx 拒绝占位，避免串到 Komari 或其他站点。"
+  fi
   rm -f /usr/local/sbin/xnat
 }
 '''
@@ -247,12 +292,14 @@ r = r.replace("| XNAT Panel | v1.0.0 |", "| XNAT Panel | v1.0.1 |", 1)
 baseline = "> v1.0.0 是重新整理后的正式基线。Panel 与 Host 统一从 v1.0.0 开始；旧开发阶段版本不提供原地升级兼容，建议在全新系统上部署。"
 if baseline not in r:
     raise SystemExit("README baseline anchor missing")
-r = r.replace(baseline, baseline + "\n\n> v1.0.1 修复 Panel 卸载后的 Nginx 虚拟主机串站问题，并新增‘保留备份 / 完全卸载’两种卸载方式。", 1)
+r = r.replace(baseline, baseline + "\n\n> v1.0.1 修复 Panel 卸载后的 Nginx 虚拟主机串站问题，并新增‘保留备份 / 完全卸载’两种卸载方式。旧 Panel 域名会保留无业务数据的拒绝占位，避免误显示同机 Komari 或其他站点。", 1)
 readme.write_text(r, encoding="utf-8")
 
 Path("panel/README.md").write_text("""# XNAT Panel v1.0.1
 
 XNAT 控制平面正式组件。v1.0.1 基于重新整理后的 v1.0.0 正式基线，修复 Panel 与其他 Nginx 站点共存时的卸载后虚拟主机串站问题，并提供“保留数据备份 / 完全卸载”两种明确的卸载模式。
+
+卸载后会为旧 Panel 域名保留一个不含业务数据的 Nginx 拒绝占位，避免该域名落入 Komari 或其他虚拟主机；重新配置 XNAT 域名时会自动移除该占位。
 
 本次不修改 Panel 页面布局、视觉风格、业务交互、Agent API 或 Mobile API。Host Agent 继续保持 v1.0.0。
 """, encoding="utf-8")
@@ -263,10 +310,10 @@ entry = """# Changelog
 
 ## v1.0.1 - 2026-09-13
 
-- 修复卸载 Panel 后 Nginx 缺少默认拒绝站点，导致旧 Panel 域名可能显示同机 Komari / 其他站点内容的问题。
+- 修复卸载 Panel 后 Nginx 虚拟主机回退导致旧 Panel 域名可能显示同机 Komari / 其他站点内容的问题。
 - Panel 卸载新增“保留数据备份”和“完全卸载”两种模式。
 - 完全卸载会清理 Panel 数据库、`.env`、安装凭据、Panel 升级/卸载备份、Panel 诊断文件与 XNAT 托管的域名证书。
-- Nginx、Certbot 以及 Komari / 其他虚拟主机不会被删除或改写；必要时仅保留一个无业务数据的默认拒绝站点，避免 Host 头串站。
+- Nginx、Certbot 以及 Komari / 其他虚拟主机不会被删除或改写；旧 Panel 域名会保留一个无业务数据的拒绝占位，必要时同时补充默认拒绝站点。
 - Panel UI、页面布局、视觉风格和现有业务交互保持不变。
 - Panel v1.0.1；Host v1.0.0；Agent API / Mobile API 继续保持 v1。
 
@@ -297,6 +344,7 @@ Panel 卸载安全与数据清理修复。
 - 修复卸载 Panel 后旧 Panel 域名可能落入同机 Komari / 其他 Nginx 站点的问题
 - 卸载 Panel 可选择保留备份或完全清除 XNAT Panel 数据
 - 完全卸载清理数据库、.env、安装凭据、Panel 备份、诊断文件与 XNAT 托管证书
+- 旧 Panel 域名保留无业务数据的 Nginx 拒绝占位，避免跨站回退
 - 不删除 Nginx、Certbot，也不修改 Komari 或其他站点配置
 - Panel UI、页面布局、视觉风格和业务交互保持不变
 
@@ -311,6 +359,8 @@ c = ck.read_text(encoding="utf-8")
 marker = 'grep -q \'1.6.0) UPGRADE_PATH="verified-v1.6.0"\' scripts/upgrade-panel.sh\n'
 extra = '''grep -q '1.0.0) UPGRADE_PATH="verified-v1.0.0"' scripts/upgrade-panel.sh
 grep -q 'write_uninstall_nginx_guard' scripts/xnat
+grep -q 'write_uninstall_nginx_guard "$panel_domain"' scripts/xnat
+grep -q 'XNAT retired Panel hostname guard' scripts/xnat
 grep -q '完全卸载，删除所有 XNAT Panel 数据' scripts/xnat
 grep -q '00-xnat-default-deny.conf' scripts/xnat
 '''
