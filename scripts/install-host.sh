@@ -58,7 +58,7 @@ compute_mode_capacity(){
   pool_gb=$(( pool_mib / 1024 ))
   if (( CPU_CORES < 1 )); then ok="false"; reason="${reason:+${reason}；}CPU 少于 1 核"; fi
   if (( MEM_TOTAL_MIB < 900 )); then ok="false"; reason="${reason:+${reason}；}总内存不足 1GB"; fi
-  if (( ROOT_TOTAL_MIB < total_min )); then ok="false"; reason="${reason:+${reason}；}总硬盘低于 $((total_min/1024)).$(((total_min%1024)*10/1024))GiB 基线"; fi
+  if (( ROOT_TOTAL_MIB < total_min )); then ok="false"; reason="${reason:+${reason}；}总硬盘低于 $((total_min/1024)).$(((total_min%1024)*10/1024))GiB 最低安装要求"; fi
   if (( pool_gb < min_pool )); then ok="false"; reason="${reason:+${reason}；}当前可用空间只能安全提供 ${pool_gb}GiB natpool，至少需要 ${min_pool}GiB"; fi
   if [[ "$requires_kvm" == "true" ]] && ! detect_kvm; then ok="false"; reason="${reason:+${reason}；}/dev/kvm 不可用"; fi
   printf -v "${prefix}_OK" '%s' "$ok"

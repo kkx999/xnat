@@ -916,7 +916,7 @@ current_release(){
 }
 
 print_menu_header(){
-  local role="$1" service="" version release
+  local role="$1" service="" version release root_free
   version="$(current_version "$role")"
   release="$(current_release)"
   case "$role" in
@@ -932,6 +932,10 @@ print_menu_header(){
   [[ "$role" == panel && "$release" != unknown ]] && printf 'Release    v%s\n' "$release"
   if [[ "$role" == host ]]; then
     printf 'Agent API  v%s\n' "$(current_agent_api_version)"
+    root_free="$(fs_available_mb /)"
+    if [[ "$root_free" =~ ^[0-9]+$ ]] && (( root_free < 512 )); then
+      printf '%b\n' "${XNAT_YELLOW}! 系统盘可用仅 ${root_free} MB，建议运行『清理 Host 系统空间』${XNAT_RESET}"
+    fi
   fi
   printf '状态       '
   if systemctl is-active --quiet "$service" 2>/dev/null; then
@@ -1387,9 +1391,17 @@ cmd_update(){
 
   if [[ "$current" == "$target" ]]; then
     if [[ "$current_rel" != unknown ]] && valid_version "$current_rel" && dpkg --compare-versions "$release" lt "$current_rel" && [[ "${XNAT_ALLOW_DOWNGRADE:-0}" != 1 ]]; then
-      die "目标 XNAT Release 低于当前 Release。若确需降级，请设置 XNAT_ALLOW_DOWNGRADE=1。"
+      if [[ "$role" == host ]]; then
+        die "目标 Host 更新包低于当前已同步的更新包。若确需降级，请设置 XNAT_ALLOW_DOWNGRADE=1。"
+      else
+        die "目标 XNAT Release 低于当前 Release。若确需降级，请设置 XNAT_ALLOW_DOWNGRADE=1。"
+      fi
     fi
-    ui_notice "组件版本保持 v${target}，将同步 Release v${release} 的管理脚本与发布文件"
+    if [[ "$role" == host ]]; then
+      ui_notice "Host Agent 版本保持 v${target}，仅同步更新包 v${release} 中的 Host 管理脚本"
+    else
+      ui_notice "组件版本保持 v${target}，将同步 Release v${release} 的管理脚本与发布文件"
+    fi
   fi
 
   if [[ "$current" != unknown ]] && dpkg --compare-versions "$target" lt "$current" && [[ "${XNAT_ALLOW_DOWNGRADE:-0}" != 1 ]]; then
@@ -1422,7 +1434,11 @@ cmd_update(){
   if [[ "${XNAT_UPDATE_ASSUME_YES:-0}" != 1 ]]; then
     if [[ -t 0 ]]; then
       if [[ "$current" == "$target" ]]; then
-        printf '%b' "${XNAT_YELLOW}${XNAT_BOLD}▶${XNAT_RESET} 确认同步 $(component_label "$role") 到 XNAT Release v${release}？[y/N]: "
+        if [[ "$role" == host ]]; then
+          printf '%b' "${XNAT_YELLOW}${XNAT_BOLD}▶${XNAT_RESET} 确认同步 Host 管理脚本（更新包 v${release}）？[y/N]: "
+        else
+          printf '%b' "${XNAT_YELLOW}${XNAT_BOLD}▶${XNAT_RESET} 确认同步 $(component_label "$role") 到 XNAT Release v${release}？[y/N]: "
+        fi
       else
         printf '%b' "${XNAT_YELLOW}${XNAT_BOLD}▶${XNAT_RESET} 确认更新 $(component_label "$role") 到 v${target}？[y/N]: "
       fi
@@ -1440,7 +1456,11 @@ cmd_update(){
   installed="$(current_version "$role")"
   write_runtime_meta "$role" "$installed" "$release"
   echo
-  ui_success "更新完成：$(component_label "$role") v${installed} / XNAT Release v${release}"
+  if [[ "$role" == host ]]; then
+    ui_success "更新完成：Host Agent v${installed}（更新包 v${release}）"
+  else
+    ui_success "更新完成：$(component_label "$role") v${installed} / XNAT Release v${release}"
+  fi
 }
 
 cmd_firewall(){
