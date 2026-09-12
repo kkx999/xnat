@@ -1,6 +1,6 @@
 # XNAT Mobile API v1
 
-XNAT Panel `v1.0.0` 保持 **Mobile API v1**。本次重新整理 Panel / Host 正式基线与 Host 安装逻辑；Mobile API v1 的路由、认证和既有客户端语义保持兼容。
+XNAT Panel `v1.0.1` 保持 **Mobile API v1**。本次重新整理 Panel / Host 正式基线与 Host 安装逻辑；Mobile API v1 的路由、认证和既有客户端语义保持兼容。
 
 Base prefix: `/api/v1`
 

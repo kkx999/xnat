@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.0.1 - 2026-09-13
+
+- 修复卸载 Panel 后 Nginx 虚拟主机回退导致旧 Panel 域名可能显示同机 Komari / 其他站点内容的问题。
+- Panel 卸载新增“保留数据备份”和“完全卸载”两种模式。
+- 完全卸载会清理 Panel 数据库、`.env`、安装凭据、Panel 升级/卸载备份、Panel 诊断文件与 XNAT 托管的域名证书。
+- Nginx、Certbot 以及 Komari / 其他虚拟主机不会被删除或改写；旧 Panel 域名会保留一个无业务数据的拒绝占位，必要时同时补充默认拒绝站点。
+- Panel UI、页面布局、视觉风格和现有业务交互保持不变。
+- Panel v1.0.1；Host v1.0.0；Agent API / Mobile API 继续保持 v1。
+
+**由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**
+
 ## v1.0.0 - 2026-09-13
 
 XNAT 正式基线重新整理。
