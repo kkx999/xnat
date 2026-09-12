@@ -1,0 +1,530 @@
+name: Prepare XNAT v1.0.0 v2
+
+on:
+  push:
+    branches:
+      - release/v1.0.0-reset
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: release/v1.0.0-reset
+          fetch-depth: 0
+
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zip
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r panel/requirements.txt -r agent/requirements.txt
+
+      - name: Apply v1.0.0 baseline
+        shell: bash
+        run: |
+          cat > /tmp/reset_v100.py <<'PY'
+          from pathlib import Path
+          import json, re, textwrap
+
+          def rd(p): return Path(p).read_text(encoding='utf-8')
+          def wr(p,s): Path(p).write_text(s, encoding='utf-8')
+          def one(s, old, new, label):
+              n=s.count(old)
+              if n != 1: raise SystemExit(f'{label}: expected 1, found {n}')
+              return s.replace(old,new)
+          def sub1(s, pat, repl, label, flags=0):
+              out,n=re.subn(pat,repl,s,count=1,flags=flags)
+              if n != 1: raise SystemExit(f'{label}: expected 1 regex match, found {n}')
+              return out
+
+          # Public component versions. API generations intentionally remain v1.
+          wr('VERSION','1.0.0\n')
+          wr('panel/VERSION','1.0.0\n')
+          wr('agent/VERSION','1.0.0\n')
+          wr('panel/app/__init__.py','__version__ = "1.0.0"\n')
+          wr('agent/natvps_agent/__init__.py','__version__ = "1.0.0"\n__api_version__ = "1"\n')
+
+          s=rd('agent/natvps_agent/main.py')
+          s=re.sub(r'^AGENT_VERSION = "[^"]+"$', 'AGENT_VERSION = "1.0.0"', s, count=1, flags=re.M)
+          wr('agent/natvps_agent/main.py',s)
+
+          s=rd('panel/app/main.py')
+          s,n=re.subn(r'("version"\s*:\s*")[0-9A-Za-z.-]+(")', r'\g<1>1.0.0\2', s, count=1)
+          if n != 1: raise SystemExit(f'panel runtime version: found {n}')
+          wr('panel/app/main.py',s)
+
+          s=rd('panel/app/templates/base.html')
+          s,n=re.subn(r'XNAT v[0-9A-Za-z.-]+ Multi-Node','XNAT v1.0.0 Multi-Node',s,count=1)
+          if n != 1: raise SystemExit(f'base version: found {n}')
+          wr('panel/app/templates/base.html',s)
+
+          meta={
+            'release_version':'1.0.0',
+            'panel_version':'1.0.0',
+            'agent_version':'1.0.0',
+            'agent_api_version':'1',
+            'supported_agent_api_versions':['1'],
+            'mobile_api_version':'1',
+          }
+          wr('release.json',json.dumps(meta,ensure_ascii=False,indent=2)+'\n')
+
+          # Host installer: hide storage implementation details from normal install,
+          # while keeping a real Host disk budget and a final free-space recheck.
+          p='scripts/install-host.sh'; s=rd(p)
+          new_capacity=r'''compute_mode_capacity(){
+            local mode="$1" prefix total_min host_budget min_pool requires_kvm="false"
+            local headroom_mib pool_mib pool_gb ok="true" reason=""
+            case "$mode" in
+              lxc) prefix="LXC"; total_min=8192; host_budget=4096; min_pool=1 ;;
+              kvm) prefix="KVM"; total_min=12288; host_budget=6144; min_pool=4; requires_kvm="true" ;;
+              hybrid) prefix="HYBRID"; total_min=12288; host_budget=6144; min_pool=4; requires_kvm="true" ;;
+              *) die "未知虚拟化模式：${mode}" ;;
+            esac
+
+            # host_budget is the total disk budget reserved for the Host itself,
+            # including Debian/Ubuntu + XNAT/Incus already installed. Only the
+            # unused part of that budget must remain free when the guest pool is full.
+            headroom_mib=$(( host_budget > ROOT_USED_MIB ? host_budget - ROOT_USED_MIB : 1024 ))
+            (( headroom_mib < 1024 )) && headroom_mib=1024
+            pool_mib=$(( ROOT_AVAIL_MIB > headroom_mib ? ROOT_AVAIL_MIB - headroom_mib : 0 ))
+            pool_gb=$(( pool_mib / 1024 ))
+
+            if (( CPU_CORES < 1 )); then ok="false"; reason="${reason:+${reason}；}CPU 少于 1 核"; fi
+            if (( MEM_TOTAL_MIB < 900 )); then ok="false"; reason="${reason:+${reason}；}总内存不足 1GB"; fi
+            if (( ROOT_TOTAL_MIB < total_min )); then ok="false"; reason="${reason:+${reason}；}总硬盘低于 $((total_min/1024))GiB 最低配置"; fi
+            if (( pool_gb < min_pool )); then ok="false"; reason="${reason:+${reason}；}安装 XNAT 后当前最多只能给小鸡 ${pool_gb}GiB 硬盘，至少需要 ${min_pool}GiB"; fi
+            if [[ "$requires_kvm" == "true" ]] && ! detect_kvm; then ok="false"; reason="${reason:+${reason}；}/dev/kvm 不可用"; fi
+
+            printf -v "${prefix}_OK" '%s' "$ok"
+            printf -v "${prefix}_REASON" '%s' "${reason:-满足安装条件}"
+            printf -v "${prefix}_POOL_GB" '%s' "$pool_gb"
+            printf -v "${prefix}_HOST_BUDGET_MIB" '%s' "$host_budget"
+            printf -v "${prefix}_MIN_POOL_GB" '%s' "$min_pool"
+          }
+
+          mode_status(){
+            local ok="$1" reason="$2"
+            [[ "$ok" == "true" ]] && printf '✓ 可安装' || printf '✗ %s' "$reason"
+          }
+
+          select_virtualization_mode(){
+            local choice mode="${VIRTUALIZATION_MODE,,}"
+            case "$mode" in
+              1|lxc) mode="lxc" ;;
+              2|kvm) mode="kvm" ;;
+              3|hybrid|both|lxc+kvm|kvm+lxc) mode="hybrid" ;;
+              "") ;;
+              *) die "VIRTUALIZATION_MODE 仅支持 lxc / kvm / hybrid" ;;
+            esac
+            detect_host_resources
+            compute_mode_capacity lxc
+            compute_mode_capacity kvm
+            compute_mode_capacity hybrid
+
+            if [[ -z "$mode" && -t 0 ]]; then
+              echo
+              echo "=================================================="
+              echo "                 XNAT Host 安装"
+              echo "=================================================="
+              echo "当前服务器："
+              echo "  系统：       ${OS_LABEL}"
+              echo "  CPU：        ${CPU_CORES} Core"
+              echo "  内存：       总计 ${MEM_TOTAL_MIB} MiB / 当前可用 ${MEM_AVAILABLE_MIB} MiB"
+              python3 - "${ROOT_TOTAL_MIB}" "${ROOT_USED_MIB}" "${ROOT_AVAIL_MIB}" <<'PY_DISK'
+          import sys
+          total, used, avail = map(int, sys.argv[1:])
+          print(f"  硬盘：       总计 {total/1024:.2f} GiB / 已用 {used/1024:.2f} GiB / 当前可用 {avail/1024:.2f} GiB")
+          PY_DISK
+              detect_kvm && echo "  /dev/kvm：   ✓ 可用" || echo "  /dev/kvm：   ✗ 不可用"
+              echo
+              echo "请选择 Host 运行模式："
+              echo "  1) LXC"
+              echo "     最低配置：1C / 1GB / 8GiB 总硬盘"
+              echo "     当前最多可给小鸡：${LXC_POOL_GB} GiB"
+              echo "     状态：$(mode_status "${LXC_OK}" "${LXC_REASON}")"
+              echo "  2) KVM"
+              echo "     最低配置：1C / 1GB / 12GiB 总硬盘 + /dev/kvm"
+              echo "     当前最多可给小鸡：${KVM_POOL_GB} GiB"
+              echo "     状态：$(mode_status "${KVM_OK}" "${KVM_REASON}")"
+              echo "  3) LXC + KVM"
+              echo "     最低配置：1C / 1GB / 12GiB 总硬盘 + /dev/kvm"
+              echo "     当前最多可给小鸡：${HYBRID_POOL_GB} GiB"
+              echo "     状态：$(mode_status "${HYBRID_OK}" "${HYBRID_REASON}")"
+              read -r -p "请选择 [1-3] [1]: " choice
+              choice="${choice:-1}"
+              case "$choice" in 1) mode="lxc";; 2) mode="kvm";; 3) mode="hybrid";; *) die "无效选择：${choice}";; esac
+            fi
+
+            mode="${mode:-lxc}"
+            case "$mode" in
+              lxc)
+                [[ "${LXC_OK}" == "true" ]] || die "当前 Host 不满足 LXC 安装条件：${LXC_REASON}"
+                VIRTUALIZATION_MODES_JSON='["lxc"]'; VIRTUALIZATION_LABEL="LXC"; MAX_SAFE_GB="${LXC_POOL_GB}"; HOST_SPACE_BUDGET_MIB="${LXC_HOST_BUDGET_MIB}"; MIN_POOL_GB="${LXC_MIN_POOL_GB}"
+                ;;
+              kvm)
+                [[ "${KVM_OK}" == "true" ]] || die "当前 Host 不满足 KVM 安装条件：${KVM_REASON}"
+                VIRTUALIZATION_MODES_JSON='["kvm"]'; VIRTUALIZATION_LABEL="KVM"; MAX_SAFE_GB="${KVM_POOL_GB}"; HOST_SPACE_BUDGET_MIB="${KVM_HOST_BUDGET_MIB}"; MIN_POOL_GB="${KVM_MIN_POOL_GB}"
+                ;;
+              hybrid)
+                [[ "${HYBRID_OK}" == "true" ]] || die "当前 Host 不满足 LXC + KVM 安装条件：${HYBRID_REASON}"
+                VIRTUALIZATION_MODES_JSON='["lxc","kvm"]'; VIRTUALIZATION_LABEL="LXC + KVM"; MAX_SAFE_GB="${HYBRID_POOL_GB}"; HOST_SPACE_BUDGET_MIB="${HYBRID_HOST_BUDGET_MIB}"; MIN_POOL_GB="${HYBRID_MIN_POOL_GB}"
+                ;;
+            esac
+            VIRTUALIZATION_MODE="$mode"
+          }
+
+          trap cleanup_test EXIT'''
+          s=sub1(s,r'compute_mode_capacity\(\)\{.*?\ntrap cleanup_test EXIT',new_capacity,'replace capacity/mode block',re.S)
+
+          new_prompt=r'''select_virtualization_mode
+          RECOMMENDED_GB="${MAX_SAFE_GB}"
+          if [[ -t 0 ]]; then
+            echo
+            echo "=================================================="
+            echo "       XNAT Host 安装 · 环境确认"
+            echo "=================================================="
+            echo "  系统：          ${OS_LABEL}"
+            echo "  模式：          ${VIRTUALIZATION_LABEL}"
+            printf '  CPU：           %s 核\n' "${CPU_CORES}"
+            printf '  内存：          总计 %s MiB / 当前可用 %s MiB\n' "${MEM_TOTAL_MIB}" "${MEM_AVAILABLE_MIB}"
+            python3 - "${ROOT_TOTAL_MIB}" "${ROOT_USED_MIB}" "${ROOT_AVAIL_MIB}" <<'PY_RES'
+          import sys
+          total, used, avail = map(int, sys.argv[1:])
+          print(f"  总硬盘：        {total/1024:.2f} GiB")
+          print(f"  当前已用：      {used/1024:.2f} GiB")
+          print(f"  当前可用：      {avail/1024:.2f} GiB")
+          PY_RES
+            [[ "${VIRTUALIZATION_MODE}" == "lxc" ]] || echo "  /dev/kvm：      ✓ 可用"
+            echo "  最多可给小鸡：  ${MAX_SAFE_GB} GiB"
+            if (( MAX_SAFE_GB == MIN_POOL_GB )); then
+              echo "  [WARN] 当前 Host 仅达到最低可用区间，建议只运行少量轻量小鸡。"
+            fi
+          fi
+
+          if [[ -z "${NATPOOL_GB}" ]]; then
+            if [[ -t 0 ]]; then
+              echo
+              echo "========================================"
+              echo "       XNAT Host 安装 · 小鸡硬盘"
+              echo "========================================"
+              echo "XNAT 已自动为 Host 保留稳定运行空间，你只需要决定给小鸡多少硬盘。"
+              echo "  当前最多可以给小鸡：${MAX_SAFE_GB} GiB"
+              echo "  这部分是所有小鸡共享的总硬盘。"
+              echo "  例如：5 GiB 可以分成 5 台 × 1 GiB，或按其他组合使用。"
+              read -r -p "请输入给小鸡使用的总硬盘 [${RECOMMENDED_GB}]: " NATPOOL_GB
+              NATPOOL_GB="${NATPOOL_GB:-${RECOMMENDED_GB}}"
+            else
+              NATPOOL_GB="${RECOMMENDED_GB}"
+            fi
+          fi
+          [[ "${NATPOOL_GB}" =~ ^[0-9]+$ ]] || die "小鸡总硬盘必须是整数 GiB"
+          (( NATPOOL_GB >= MIN_POOL_GB )) || die "${VIRTUALIZATION_LABEL} 模式至少需要给小鸡 ${MIN_POOL_GB}GiB 总硬盘"
+          (( NATPOOL_GB <= MAX_SAFE_GB )) || die "你选择了 ${NATPOOL_GB}GiB，但当前最多只能给小鸡 ${MAX_SAFE_GB}GiB；XNAT 已自动保留 Host 稳定运行空间"
+
+          # Re-read / immediately before creating the loop-backed LVM pool.
+          detect_host_resources
+          CURRENT_HOST_HEADROOM_MIB=$(( HOST_SPACE_BUDGET_MIB > ROOT_USED_MIB ? HOST_SPACE_BUDGET_MIB - ROOT_USED_MIB : 1024 ))
+          (( CURRENT_HOST_HEADROOM_MIB < 1024 )) && CURRENT_HOST_HEADROOM_MIB=1024
+          CURRENT_SAFE_MIB=$(( ROOT_AVAIL_MIB > CURRENT_HOST_HEADROOM_MIB ? ROOT_AVAIL_MIB - CURRENT_HOST_HEADROOM_MIB : 0 ))
+          CURRENT_MAX_SAFE_GB=$(( CURRENT_SAFE_MIB / 1024 ))
+          (( NATPOOL_GB <= CURRENT_MAX_SAFE_GB )) ||
+            die "磁盘空间在安装过程中发生变化：当前最多只能给小鸡 ${CURRENT_MAX_SAFE_GB}GiB；请减小小鸡总硬盘或扩容 Host 系统盘"
+          PROJECTED_HOST_FREE_MIB=$(( ROOT_AVAIL_MIB - NATPOOL_GB * 1024 ))
+          (( PROJECTED_HOST_FREE_MIB >= CURRENT_HOST_HEADROOM_MIB )) ||
+            die "当前磁盘空间不足以保证 Host 稳定运行；请减小小鸡总硬盘或扩容 Host 系统盘"
+
+          info "2/7 创建 LVM Thin 与 NAT Bridge"'''
+          s=sub1(s,r'select_virtualization_mode\nRECOMMENDED_GB=.*?\ninfo "2/7 创建 LVM Thin 与 NAT Bridge"',new_prompt,'replace storage prompt/recheck',re.S)
+
+          s=s.replace('Storage: ${POOL_NAME} / LVM Thin / ${NATPOOL_GB}GiB','Guest Disk Total: ${NATPOOL_GB}GiB (shared by all VPS)')
+          s=s.replace('echo "Virtualization: ${VIRTUALIZATION_LABEL}"\n','echo "Virtualization: ${VIRTUALIZATION_LABEL}"\necho "小鸡总硬盘: ${NATPOOL_GB} GiB（所有小鸡共享）"\n',1)
+          for forbidden in ['当前预计可用于 natpool','natpool 推荐值','natpool 最低值','natpool 大小 [','系统/XNAT长期预留','Host 长期运行保留']:
+              if forbidden in s: raise SystemExit(f'old Host installer wording remains: {forbidden}')
+          wr(p,s)
+
+          # Operator updater/status: release/tag stays internal but is not shown as a second version.
+          p='scripts/xnat'; x=rd(p)
+          x=x.replace('  [[ "$role" == panel && "$release" != unknown ]] && printf \'Release    v%s\\n\' "$release"\n','')
+          x=x.replace("  printf '目标 XNAT Release v%s\\n' \"$release\"\n",'')
+
+          new_check=r'''show_update_check(){
+            local role current current_rel release target api
+            role="$(detect_role)"
+            current="$(current_version "$role")"
+            current_rel="$(current_release)"
+            release="$(resolve_latest_release)"
+            target="$(target_component_version "$release" "$role")"
+            [[ -n "$target" ]] || die "目标版本缺少组件版本信息"
+
+            ui_section "检查结果"
+            if [[ "$role" == host ]]; then
+              printf '组件             Host Agent\n'
+              printf '当前版本         v%s\n' "$current"
+              printf '最新版本         v%s\n' "$target"
+              api="$(release_meta_value "$release" agent_api_version)"
+              printf 'Agent API        v%s\n' "${api:-?}"
+            else
+              printf '组件             %s\n' "$(component_label "$role")"
+              printf '当前版本         v%s\n' "$current"
+              printf '最新版本         v%s\n' "$target"
+            fi
+            echo
+
+            if [[ "$current" == "$target" && "$current_rel" == "$release" ]]; then
+              ui_success "当前组件已是最新版本"
+            elif [[ "$current" == "$target" ]]; then
+              ui_notice "当前组件已是最新；有新的管理组件可同步"
+            elif [[ "$current" != unknown ]] && dpkg --compare-versions "$target" lt "$current"; then
+              ui_notice "当前组件版本高于最新正式版本"
+            else
+              ui_notice "发现组件更新：v${current} → v${target}"
+            fi
+          }
+
+          is_prerelease_of_target'''
+          x=sub1(x,r'show_update_check\(\)\{.*?\n\}\n\n\nis_prerelease_of_target',new_check,'replace update-check function',re.S)
+
+          # Main update screen and messages: retain internal release selection, hide it from user copy.
+          x=sub1(x,
+              r'  ui_section "XNAT 更新"\n  echo "组件：\$\(component_label "\$role"\)"\n  if \[\[ "\$role" == host \]\]; then.*?\n  fi\n\n  if \[\[ "\$current" == "\$target" && "\$current_rel" == "\$release" \]\]; then',
+              '  ui_section "XNAT 更新"\n  echo "组件：$(component_label "$role")"\n  echo "当前版本：v${current}"\n  echo "目标版本：v${target}"\n\n  if [[ "$current" == "$target" && "$current_rel" == "$release" ]]; then',
+              'replace update header',re.S)
+          replacements={
+            'ui_success "当前组件与 Release 均无需更新"':'ui_success "当前组件已是最新版本"',
+            'die "目标 XNAT Release 低于当前 Release。若确需降级，请设置 XNAT_ALLOW_DOWNGRADE=1。"':'die "目标管理版本低于当前已同步版本。若确需降级，请设置 XNAT_ALLOW_DOWNGRADE=1。"',
+            'ui_notice "Host Agent 版本保持 v${target}，仅同步更新包 v${release} 中的 Host 管理脚本"':'ui_notice "Host Agent 版本保持 v${target}，仅同步最新 Host 管理组件"',
+            'ui_notice "组件版本保持 v${target}，将同步 Release v${release} 的管理脚本与发布文件"':'ui_notice "Panel 版本保持 v${target}，仅同步最新管理组件"',
+            'echo "正在下载并验证 XNAT Release v${release}..."':'echo "正在下载并验证 XNAT 更新包..."',
+            'printf \'%b\' "${XNAT_YELLOW}${XNAT_BOLD}▶${XNAT_RESET} 确认同步 Host 管理脚本（更新包 v${release}）？[y/N]: "':'printf \'%b\' "${XNAT_YELLOW}${XNAT_BOLD}▶${XNAT_RESET} 确认同步 Host 管理组件？[y/N]: "',
+            'printf \'%b\' "${XNAT_YELLOW}${XNAT_BOLD}▶${XNAT_RESET} 确认同步 $(component_label "$role") 到 XNAT Release v${release}？[y/N]: "':'printf \'%b\' "${XNAT_YELLOW}${XNAT_BOLD}▶${XNAT_RESET} 确认同步 $(component_label "$role") 管理组件？[y/N]: "',
+            'ui_success "更新完成：Host Agent v${installed}（更新包 v${release}）"':'ui_success "更新完成：Host Agent v${installed}"',
+            'ui_success "更新完成：$(component_label "$role") v${installed} / XNAT Release v${release}"':'ui_success "更新完成：$(component_label "$role") v${installed}"',
+            'echo "组件：$(component_label "$role") v$(current_version "$role") / Release v$(current_release)"':'echo "组件：$(component_label "$role") v$(current_version "$role")"',
+            '    echo "XNAT Release: $(current_release)"\n':'',
+          }
+          for old,new in replacements.items():
+              x=x.replace(old,new)
+          # Remaining user-visible error/check wording only; internal function/variable names remain unchanged.
+          for old,new in [
+            ('无法解析 GitHub 最新正式 Release','无法解析 GitHub 最新正式版本'),
+            ('Release 未声明 supported_agent_api_versions','版本信息未声明 supported_agent_api_versions'),
+            ('不在 Release v${release} 支持范围','不在目标版本支持范围'),
+            ('Release 缺少 Agent API 版本','版本信息缺少 Agent API 版本'),
+            ('Release 源码与升级脚本完整性检查','升级源码与脚本完整性检查'),
+            ('Release 源码完整性检查失败','升级源码完整性检查失败'),
+            ('Release v${release} 缺少组件版本信息','目标版本缺少组件版本信息'),
+            ('Release 版本格式无效','版本格式无效'),
+            ('Release v${release} 的组件版本无效','目标组件版本无效'),
+          ]: x=x.replace(old,new)
+          wr(p,x)
+
+          # Regression script: update only contracts that intentionally changed.
+          p='scripts/check.sh'; c=rd(p)
+          c=c.replace("grep -q '组件版本相同，但当前 Release' scripts/xnat", "grep -q '有新的管理组件可同步' scripts/xnat")
+          c=c.replace('total_min=4608; reserve=2048; min_pool=1','total_min=8192; host_budget=4096; min_pool=1')
+          c=c.replace('total_min=6656; reserve=3072; min_pool=4','total_min=12288; host_budget=6144; min_pool=4')
+          c=c.replace("assert 'natpool 满载后 Host 系统预留不足' in s", "assert '当前磁盘空间不足以保证 Host 稳定运行' in s")
+          c=c.replace("assert '系统/XNAT长期预留' in s and 'Host 长期运行保留' in s", "assert '当前最多可给小鸡' in s and '请输入给小鸡使用的总硬盘' in s")
+          c=c.replace("print('v1.6.5 post-dependency natpool planning contract: ok')", "print('v1.0.0 simplified Host storage planning contract: ok')")
+          c += r'''
+
+          # v1.0.0 baseline + simplified Host UX.
+          python3 - <<'PYV100'
+          from pathlib import Path
+          import json
+          root=Path('.')
+          assert (root/'VERSION').read_text().strip() == '1.0.0'
+          assert (root/'panel/VERSION').read_text().strip() == '1.0.0'
+          assert (root/'agent/VERSION').read_text().strip() == '1.0.0'
+          meta=json.loads((root/'release.json').read_text())
+          assert meta['release_version']=='1.0.0'
+          assert meta['panel_version']=='1.0.0'
+          assert meta['agent_version']=='1.0.0'
+          assert str(meta['agent_api_version'])=='1'
+          assert str(meta['mobile_api_version'])=='1'
+          host=(root/'scripts/install-host.sh').read_text()
+          assert '最低配置：1C / 1GB / 8GiB 总硬盘' in host
+          assert host.count('最低配置：1C / 1GB / 12GiB 总硬盘 + /dev/kvm') == 2
+          assert 'host_budget=4096' in host and 'host_budget=6144' in host
+          assert 'HOST_SPACE_BUDGET_MIB' in host and 'CURRENT_HOST_HEADROOM_MIB' in host
+          assert '请输入给小鸡使用的总硬盘' in host
+          for old in ['当前预计可用于 natpool','natpool 推荐值','natpool 最低值','natpool 大小 [','系统/XNAT长期预留','Host 长期运行保留']:
+              assert old not in host, old
+          xnat=(root/'scripts/xnat').read_text()
+          assert "printf 'Release    v%s" not in xnat
+          assert '当前 XNAT Release' not in xnat
+          assert '最新 XNAT Release' not in xnat
+          assert 'Release 组件版本' not in xnat
+          assert '当前组件已是最新；有新的管理组件可同步' in xnat
+          print('v1.0.0 baseline contracts: ok')
+          PYV100
+          '''
+          wr(p,c)
+
+          # Public docs: clean baseline; no UI redesign.
+          r=rd('README.md')
+          r=sub1(r,r'\*\*当前正式版本：XNAT v1\.6\.5\*\*.*?> v1\.6\.5 修复 Host 安装阶段的磁盘规划：.*?\n\n---',textwrap.dedent('''**当前正式版本：v1.0.0**
+
+          | 组件 | 版本 |
+          | --- | --- |
+          | XNAT Panel | v1.0.0 |
+          | XNAT Host | v1.0.0 |
+          | Agent API | v1 |
+          | Mobile API | v1 |
+
+          > v1.0.0 是重新整理后的正式基线。Panel 与 Host 统一从 v1.0.0 开始；Host 安装器自动保留稳定运行空间，用户只需要选择虚拟化模式和给小鸡使用的总硬盘。现有 Panel 页面布局、视觉风格与交互逻辑保持不变。
+
+          ---'''),'README header',re.S)
+          r=sub1(r,r'\| 模式 \| 最低安装 \| 建议长期运行 \| 说明 \|.*?\| LXC \+ KVM \| 同 KVM \| 2C / 2GB / 12GiB\+ \| 同时开放两种实例类型 \|',textwrap.dedent('''| 模式 | 最低配置 | 说明 |
+          | --- | --- | --- |
+          | LXC | 1C / 1GB / 8GiB 总硬盘 | XNAT 自动为 Host 保留约 4GiB 总空间预算（包含系统/XNAT当前占用和后续余量） |
+          | KVM | 1C / 1GB / 12GiB 总硬盘 + `/dev/kvm` | XNAT 自动为 Host 保留约 6GiB 总空间预算；需要可用 `/dev/kvm` |
+          | LXC + KVM | 1C / 1GB / 12GiB 总硬盘 + `/dev/kvm` | 同时开放两种实例类型 |'''),'README Host table',re.S)
+          r=r.replace('3. 完成 Host 基础依赖 / Incus / Agent Runtime 安装后重新读取真实可用硬盘，再计算 natpool 安全上限。','3. 完成 Host 基础依赖 / Incus / Agent Runtime 后重新读取真实可用硬盘，并自动为 Host 保留稳定运行空间。')
+          r=r.replace('4. Incus、LVM Thin、Bridge、Host Agent、防火墙与健康检查。','4. 只询问给所有小鸡共享的总硬盘，然后完成 Incus、LVM Thin、Bridge、Host Agent、防火墙与健康检查。')
+          r=sub1(r,r'## 升级到 v1\.6\.5.*?(?=## 管理与诊断)',textwrap.dedent('''## v1.0.0 全新基线
+
+          v1.0.0 作为重新整理后的正式基线发布。旧开发阶段版本不考虑原地升级兼容；切换到本版时请使用全新系统重新安装 Panel / Host。
+
+          Host 安装器会先完成自身依赖，再根据真实剩余空间计算可给小鸡使用的总硬盘。LXC 为 Host 预留约 4GiB 总空间预算，KVM / 混合模式约 6GiB；这份预算包含系统/XNAT当前占用与后续运行余量，而不是额外要求保持 4/6GiB 空闲。
+
+          GitHub 发布包版本属于内部更新机制，普通管理界面只显示正在运行的 Panel / Host 组件版本。
+
+          ---
+
+          '''),'README reset section',re.S)
+          wr('README.md',r)
+
+          d=rd('docs/README.md')
+          d=re.sub(r'^# XNAT v[0-9.]+ 详细使用文档$','# XNAT v1.0.0 详细使用文档',d,count=1,flags=re.M)
+          d=d.replace('7. Host 安装器确认 natpool 大小','7. Host 安装器填写给小鸡使用的总硬盘')
+          d=d.replace('XNAT_VERSION=1.4.1','XNAT_VERSION=1.0.0').replace('Release `v1.4.1`','正式版本 `v1.0.0`')
+          new_doc=textwrap.dedent('''# 7. Host 安装第 3 步：小鸡总硬盘
+
+          XNAT 会在 Incus、LVM、Python 与 Host Runtime 安装完成后重新读取真实剩余空间，并自动给 Host 留出稳定运行空间。
+
+          普通安装只需要填写：
+
+          ```text
+          当前最多可以给小鸡：5 GiB
+          这部分是所有小鸡共享的总硬盘。
+          例如：5 GiB 可以分成 5 台 × 1 GiB，或按其他组合使用。
+
+          请输入给小鸡使用的总硬盘 [5]:
+          ```
+
+          用户不需要计算系统预留，也不需要理解底层 LVM Thin 的 `natpool`。底层存储池仍由 XNAT 自动创建和管理。
+
+          内部安全规则：LXC 最低 Host 配置为 1C / 1GB / 8GiB，Host 总空间预算约 4GiB；KVM / 混合最低为 1C / 1GB / 12GiB + `/dev/kvm`，Host 总空间预算约 6GiB。该预算包含系统/XNAT已经使用的空间和后续余量。
+
+          如果实际剩余空间不足，安装器会直接拒绝继续，不会为了凑小鸡硬盘而挤占 Host 的稳定运行空间。
+
+          ---
+
+          ''')
+          d=sub1(d,r'# 7\. Host 安装第 3 步：natpool.*?(?=# 7\. 为什么 Host 安装时不再设置 NAT 端口池)',new_doc,'docs Host storage section',re.S)
+          wr('docs/README.md',d)
+
+          wr('CHANGELOG.md',textwrap.dedent('''# Changelog
+
+          ## v1.0.0 - 2026-09-13
+
+          XNAT 正式基线重新整理。
+
+          - Panel v1.0.0，Host v1.0.0；Agent API / Mobile API 保持 v1。
+          - LXC Host 最低 1C / 1GB / 8GiB；KVM / 混合最低 1C / 1GB / 12GiB + `/dev/kvm`。
+          - LXC 为 Host 保留约 4GiB 总空间预算；KVM / 混合约 6GiB，预算包含系统/XNAT当前占用和后续余量。
+          - Host 安装器只让用户选择虚拟化模式和给小鸡使用的总硬盘，底层 natpool 与预留计算自动处理。
+          - Panel / Host 普通状态与更新界面不再展示内部 Release 版本。
+          - Panel 现有页面布局、视觉风格和交互逻辑保持不变。
+          - 旧开发阶段版本不提供到本版的原地升级兼容，请全新重装。
+
+          **由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**
+          '''))
+
+          # Build only the new public baseline assets; stale historical dist files are removed.
+          wr('scripts/build-release.sh',r'''#!/usr/bin/env bash
+          set -Eeuo pipefail
+          ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+          cd "$ROOT"
+          RELEASE_VERSION="$(tr -d '[:space:]' < VERSION)"
+          PANEL_VERSION="$(tr -d '[:space:]' < panel/VERSION)"
+          AGENT_VERSION="$(tr -d '[:space:]' < agent/VERSION)"
+          DIST="$ROOT/dist"
+          mkdir -p "$DIST"
+          find "$DIST" -maxdepth 1 -type f -delete
+          bash "$ROOT/scripts/check.sh"
+          (cd panel && zip -Dqr "$DIST/xnat-panel-v${PANEL_VERSION}.zip" . -x '.env' '.venv/*' 'data/*' '__pycache__/*' '*.pyc')
+          (cd agent && zip -Dqr "$DIST/xnat-host-agent-v${AGENT_VERSION}.zip" . -x '.env' '.venv/*' 'tls/*' '__pycache__/*' '*.pyc')
+          cp scripts/bootstrap-panel.sh "$DIST/xnat-bootstrap-panel-v${RELEASE_VERSION}.sh"
+          cp scripts/bootstrap-host.sh "$DIST/xnat-bootstrap-host-v${RELEASE_VERSION}.sh"
+          cp release.json "$DIST/release.json"
+          cat > "$DIST/RELEASE_NOTES.md" <<EOF_NOTES
+          # XNAT v${RELEASE_VERSION}
+
+          XNAT 正式基线重新整理。
+
+          - Panel：v${PANEL_VERSION}
+          - Host：v${AGENT_VERSION}
+          - Agent API：v1
+          - Mobile API：v1
+          - LXC Host 最低 1C / 1GB / 8GiB；KVM / 混合最低 1C / 1GB / 12GiB + /dev/kvm
+          - Host 安装器只需选择模式和给小鸡使用的总硬盘，系统稳定空间由 XNAT 自动保护
+          - 普通状态与更新界面不再展示内部 Release 版本
+          - Panel 现有页面布局、视觉风格和交互逻辑保持不变
+          - 旧开发阶段版本不提供原地升级兼容，请全新重装
+
+          **由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**
+          EOF_NOTES
+          (cd "$DIST" && sha256sum "xnat-panel-v${PANEL_VERSION}.zip" "xnat-host-agent-v${AGENT_VERSION}.zip" "xnat-bootstrap-panel-v${RELEASE_VERSION}.sh" "xnat-bootstrap-host-v${RELEASE_VERSION}.sh" release.json RELEASE_NOTES.md > SHA256SUMS.txt)
+          echo "Release assets created in: $DIST"
+          cat "$DIST/SHA256SUMS.txt"
+          ''')
+
+          print('v1.0.0 patch applied')
+          PY
+          python3 /tmp/reset_v100.py
+
+      - name: Full regression checks
+        run: |
+          bash scripts/check.sh
+          bash scripts/build-release.sh
+
+      - name: Verify scope and generated release
+        run: |
+          test "$(cat VERSION)" = "1.0.0"
+          test "$(cat panel/VERSION)" = "1.0.0"
+          test "$(cat agent/VERSION)" = "1.0.0"
+          python3 - <<'PY'
+          import json
+          d=json.load(open('release.json'))
+          assert d['release_version']=='1.0.0'
+          assert d['panel_version']=='1.0.0'
+          assert d['agent_version']=='1.0.0'
+          assert str(d['agent_api_version'])=='1'
+          assert str(d['mobile_api_version'])=='1'
+          PY
+          test -f dist/xnat-panel-v1.0.0.zip
+          test -f dist/xnat-host-agent-v1.0.0.zip
+          test -f dist/xnat-bootstrap-panel-v1.0.0.sh
+          test -f dist/xnat-bootstrap-host-v1.0.0.sh
+          ! git diff --name-only origin/main...HEAD | grep -Eq '^panel/app/static/(client\.js|style\.css)$'
+          ! git diff --name-only origin/main...HEAD | grep -Eq '^panel/app/templates/(admin|server_detail|servers|plans|account)\.html$'
+          bash -n scripts/install-host.sh scripts/xnat scripts/build-release.sh
+
+      - name: Commit prepared baseline
+        run: |
+          rm -f .github/workflows/prepare-v1.0.0.yml .github/workflows/prepare-v1.0.0-v2.yml
+          rmdir .github/workflows 2>/dev/null || true
+          rmdir .github 2>/dev/null || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "release: reset XNAT baseline to v1.0.0"
+          git push origin HEAD:release/v1.0.0-reset
