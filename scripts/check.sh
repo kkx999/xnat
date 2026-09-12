@@ -71,7 +71,7 @@ grep -q 'prompt_choice()' scripts/xnat
 grep -q 'pause_return()' scripts/xnat
 grep -q 'print_menu_header()' scripts/xnat
 grep -q '按 Ctrl+C 退出实时日志并返回菜单' scripts/xnat
-grep -q '组件版本相同，但当前 Release' scripts/xnat
+grep -q 'Host 管理脚本可同步' scripts/xnat
 grep -q 'xnat doctor' README.md || true
 
 # v1.0.x Host UX contract: NAT user port range is configured only after the
@@ -247,7 +247,8 @@ assert 'cap.get("remaining_disk_gb")' not in fn, 'physical/min storage must not 
 admin=Path('panel/app/templates/admin.html').read_text()
 assert '实际存储继续水位保护' in admin, 'physical storage watermark explanation missing'
 readme=Path('README.md').read_text()
-assert '当前正式版本：XNAT v1.6.3' in readme
+release=(Path('VERSION').read_text().strip())
+assert f'当前正式版本：XNAT v{release}' in readme
 assert '指定 v1.4.3 安装' not in readme, 'legacy upgrade manual returned to project landing page'
 print('v1.6.2 logical quota capacity contract: ok')
 PYV162
@@ -267,6 +268,50 @@ assert normalized_storage_quota_total_gb(3.99) == 4.0
 assert normalized_storage_quota_total_gb(2.01) == 2.01
 print('v1.6.3 LVM alignment normalization contract: ok')
 PYV163
+
+
+# v1.6.4 Host disk-pressure guard / safe cleanup / Host-centric version UX.
+grep -q 'ROOT_MIN_FREE_MB' agent/natvps_agent/main.py
+grep -q 'ROOT_RESUME_FREE_MB' agent/natvps_agent/main.py
+grep -q 'def safe_cleanup_host_space' agent/natvps_agent/main.py
+grep -q 'def ensure_host_root_space' agent/natvps_agent/main.py
+grep -q 'status_code=507' agent/natvps_agent/main.py
+grep -q 'ensure_host_root_space("创建 VPS")' agent/natvps_agent/main.py
+grep -q 'ensure_host_root_space("重装 VPS")' agent/natvps_agent/main.py
+grep -q 'ensure_host_root_space("创建端口映射")' agent/natvps_agent/main.py
+grep -q 'root_free_mb' agent/natvps_agent/main.py
+grep -q 'cmd_host_cleanup()' scripts/xnat
+grep -q '清理 Host 系统空间' scripts/xnat
+grep -q 'xnat cleanup' CHANGELOG.md
+grep -q '最低安装：1C / 1GB / 4.5GiB' scripts/install-host.sh
+grep -q '建议配置：1C / 1GB / 8GiB+' scripts/install-host.sh
+grep -q '建议配置：2C / 2GB / 12GiB+' scripts/install-host.sh
+grep -q 'Host Agent v${current} 已是最新版本' scripts/xnat
+grep -q 'Host 管理脚本可同步' scripts/xnat
+python3 - <<'PYV164'
+from pathlib import Path
+import json
+meta=json.loads(Path('release.json').read_text())
+assert Path('VERSION').read_text().strip() == '1.6.4'
+assert Path('panel/VERSION').read_text().strip() == '1.6.3'
+assert Path('agent/VERSION').read_text().strip() == '1.2.1'
+assert meta['release_version'] == '1.6.4'
+assert meta['panel_version'] == '1.6.3'
+assert meta['agent_version'] == '1.2.1'
+assert str(meta['agent_api_version']) == '1'
+agent=Path('agent/natvps_agent/main.py').read_text()
+cleanup=agent.split('def safe_cleanup_host_space',1)[1].split('def ensure_host_root_space',1)[0]
+for forbidden in ['/var/lib/incus', 'incus delete', 'storage delete', 'image delete']:
+    assert forbidden not in cleanup, f'unsafe auto-clean token present: {forbidden}'
+assert '["apt-get", "clean"]' in cleanup
+assert '["journalctl", "--vacuum-size=50M"]' in cleanup
+cli=Path('scripts/xnat').read_text()
+manual=cli.split('cmd_host_cleanup(){',1)[1].split('cmd_uninstall(){',1)[0]
+for forbidden in ['/var/lib/incus', 'incus delete', 'storage delete', 'image delete']:
+    assert forbidden not in manual, f'unsafe manual-clean token present: {forbidden}'
+assert 'apt-get clean' in manual and 'journalctl --vacuum-size=50M' in manual
+print('v1.6.4 Host safety + version UX contract: ok')
+PYV164
 
 # v1.3.2 Mobile API v1 contract for XNAT Android v1.0.0.
 test -f panel/app/mobile_api.py
@@ -456,7 +501,7 @@ root=Path('.')
 release=(root/'VERSION').read_text().strip()
 panel=(root/'panel/VERSION').read_text().strip()
 meta=json.loads((root/'release.json').read_text())
-assert release == panel, f'release/panel version mismatch: {release} / {panel}'
+assert meta['release_version'] == release, f'release metadata mismatch: {release} / {meta.get("release_version")}'
 assert panel == meta['panel_version'], f'unexpected Panel version: {panel}'
 assert meta['release_version'] == release and meta['panel_version'] == panel, 'release.json metadata mismatch'
 upgrade=(root/'scripts/upgrade-panel.sh').read_text()

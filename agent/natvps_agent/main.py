@@ -6,6 +6,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import socket
 import string
 import subprocess
@@ -18,7 +19,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse
 
-AGENT_VERSION = "1.2.0"
+AGENT_VERSION = "1.2.1"
 AGENT_API_VERSION = "1"
 AGENT_TOKEN = os.getenv("AGENT_TOKEN", "")
 STORAGE_POOL = os.getenv("INCUS_STORAGE_POOL", "natpool")
@@ -27,6 +28,8 @@ PUBLIC_IP = os.getenv("HOST_PUBLIC_IP", "")
 AGENT_PORT = int(os.getenv("AGENT_PORT", "29443"))
 NODE_CONFIG_PATH = Path(os.getenv("XNAT_NODE_CONFIG", "/etc/xnat/node.json"))
 TIMEOUT = int(os.getenv("INCUS_PROVISION_TIMEOUT", "180"))
+ROOT_MIN_FREE_MB = max(128, int(os.getenv("XNAT_ROOT_MIN_FREE_MB", "512")))
+ROOT_RESUME_FREE_MB = max(ROOT_MIN_FREE_MB, int(os.getenv("XNAT_ROOT_RESUME_FREE_MB", "768")))
 
 if not AGENT_TOKEN:
     raise RuntimeError("AGENT_TOKEN 未配置")
@@ -197,6 +200,56 @@ def run(args, *, input_text=None, timeout=None, check=True):
     if check and proc.returncode != 0:
         raise RuntimeError(_command_error(args, proc)[:2200])
     return proc
+
+
+def root_free_mb() -> int:
+    """Return free MiB on the Host root filesystem."""
+    return int(shutil.disk_usage("/").free // (1024 * 1024))
+
+
+def safe_cleanup_host_space() -> tuple[int, int]:
+    """Perform only narrowly allow-listed Host cleanup actions.
+
+    Never touches Incus storage pools, images, instance disks, VPS data, or
+    XNAT configuration. Failures are best-effort because this is a recovery
+    path for a nearly full filesystem.
+    """
+    before = root_free_mb()
+    commands = [
+        (["apt-get", "clean"], 90),
+        (["journalctl", "--vacuum-size=50M"], 45),
+    ]
+    for command, command_timeout in commands:
+        try:
+            subprocess.run(
+                command,
+                text=True,
+                capture_output=True,
+                timeout=command_timeout,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return before, root_free_mb()
+
+
+def ensure_host_root_space(action: str) -> int:
+    """Auto-clean once when root space is critically low, then fail closed."""
+    free_mb = root_free_mb()
+    if free_mb >= ROOT_MIN_FREE_MB:
+        return free_mb
+
+    before_mb, free_mb = safe_cleanup_host_space()
+    if free_mb < ROOT_RESUME_FREE_MB:
+        raise HTTPException(
+            status_code=507,
+            detail=(
+                f"Host 系统盘空间不足：{action}前仅剩 {before_mb} MiB；"
+                f"自动安全清理后剩余 {free_mb} MiB，至少需要 {ROOT_RESUME_FREE_MB} MiB。"
+                "请释放系统盘空间或扩容 Host。"
+            ),
+        )
+    return free_mb
 
 
 def require_instance(name: str):
@@ -421,6 +474,7 @@ def set_bandwidth(instance_id: str, mbps: int):
 
 
 def launch(name: str, image_alias: str, memory_mb: int, disk_gb: float, cpu: int, bandwidth_mbps: int, virtualization_type: str = "lxc"):
+    ensure_host_root_space("创建 VPS")
     mode = require_virtualization_allowed(virtualization_type)
     args = [
         "incus", "launch", image_alias, name, "--storage", STORAGE_POOL,
@@ -438,6 +492,7 @@ def launch(name: str, image_alias: str, memory_mb: int, disk_gb: float, cpu: int
 
 
 def add_proxy_device(name: str, device: str, protocol: str, public_port: int, private_port: int):
+    ensure_host_root_space("创建端口映射")
     args = [
         "incus", "config", "device", "add", name, device, "proxy",
         f"listen={protocol}:0.0.0.0:{public_port}",
@@ -833,6 +888,9 @@ def status():
         "memory_total_mb": int(vm.total / 1024 / 1024),
         "memory_used_mb": int((vm.total - vm.available) / 1024 / 1024),
         "memory_available_mb": int(vm.available / 1024 / 1024),
+        "root_free_mb": root_free_mb(),
+        "root_min_free_mb": ROOT_MIN_FREE_MB,
+        "root_resume_free_mb": ROOT_RESUME_FREE_MB,
         "storage_total_gb": round(total_gb, 2),
         "storage_used_gb": round(used_gb, 2),
         "storage_free_gb": round(max(0.0, total_gb - used_gb), 2),
@@ -926,6 +984,7 @@ def reinstall(instance_id: str, body: ReinstallBody):
     # This prevents a temporary KVM capability problem from destroying a VM
     # before we know that the replacement can be created.
     mode = require_virtualization_allowed(body.virtualization_type)
+    ensure_host_root_space("重装 VPS")
     if mode == "kvm" and (body.memory_mb < 512 or body.disk_gb < 4):
         raise HTTPException(400, "KVM 实例至少需要 512 MiB 内存和 4 GiB 系统盘")
     delete_instance(instance_id)

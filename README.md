@@ -4,17 +4,17 @@
 
 XNAT 采用 **Panel Server + Host Agent** 分离架构，面向自建 NAT VPS 场景统一管理宿主机、LXC/KVM 实例、套餐、用户、端口、流量、生命周期、通知与运维。
 
-**当前正式版本：XNAT v1.6.3**
+**当前正式版本：XNAT v1.6.4**
 
 | 组件 | 版本 |
 | --- | --- |
-| XNAT Release | v1.6.3 |
+| XNAT Release | v1.6.4 |
 | Panel | v1.6.3 |
-| Host Agent | v1.2.0 |
+| Host Agent | v1.2.1 |
 | Agent API | v1 |
 | Mobile API | v1 |
 
-> v1.6.3 为 Panel 修复版本：修正 Incus/LVM 对齐造成的 natpool 微小容量误差。接近套餐分配边界的名义容量按安全容差归一化用于逻辑配额和调度，真实物理占用仍按 Host Agent 原始上报值执行存储水位保护。
+> v1.6.4 为 Host 运维修复版本：Host Agent v1.2.1 增加系统盘低空间保护与白名单安全清理，Host 安装器明确区分最低安装配置与长期运行建议配置；Panel 保持 v1.6.3，Agent API / Mobile API 均保持 v1。
 
 ---
 
@@ -74,11 +74,11 @@ Host 安装器会先检测系统、CPU、总/可用内存、总/已用/可用硬
 
 ### Host 基线
 
-| 模式 | Host 基线 | 说明 |
-| --- | --- | --- |
-| LXC | 1C / 1GB / 4.5GiB 总硬盘 | 从当前可用空间预留约 1GiB 给系统/XNAT，再计算 natpool |
-| KVM | 1C / 1GB / 6.5GiB 总硬盘 | 需要可用 `/dev/kvm`，预留约 1.5GiB，natpool 至少 4GiB |
-| LXC + KVM | 同 KVM | 同时开放两种实例类型 |
+| 模式 | 最低安装配置 | 建议配置 | 说明 |
+| --- | --- | --- | --- |
+| LXC | 1C / 1GB / 4.5GiB 总硬盘 | 1C / 1GB / 8GiB+ | 最低值可安装但仅建议测试或少量轻量实例；系统盘需持续保留运行余量 |
+| KVM | 1C / 1GB / 6.5GiB 总硬盘 + `/dev/kvm` | 2C / 2GB / 12GiB+ | natpool 至少 4GiB |
+| LXC + KVM | 同 KVM | 2C / 2GB / 12GiB+ | 同时开放两种实例类型 |
 
 LXC 套餐最低可配置到 **1C / 64MB / 128MB**；KVM Guest 保留 **512MB / 4GB** 技术下限。
 
@@ -117,17 +117,19 @@ bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/boo
 
 ---
 
-## 升级到 v1.6.3
+## 升级到 v1.6.4
 
-现有 **v1.6.2 Panel**：
+现有 **Host Agent v1.2.0**：
 
 ```bash
-xnat update 1.6.3
+xnat update 1.6.4
 ```
 
-升级器会执行 Release 校验、SQLite `PRAGMA quick_check`、备份、原地更新、健康检查与失败回滚，并保留 `.env`、数据库、用户、余额、订单、VPS、Host、套餐、端口、支付、通知、工单等数据。
+升级器会保留 Agent Token、TLS、`/etc/xnat/node.json`、Incus、natpool、现有 VPS 与端口映射，并继续使用 Agent API v1。
 
-本次 **Host Agent 仍为 v1.2.0 / Agent API v1**，Host 不需要重装，也不要求升级 Agent 核心。
+Panel 业务组件保持 **v1.6.3**，无需为本次 Host 修复单独升级 Panel 业务代码；Android / Mobile API 也无需改动。
+
+Host 菜单新增“清理 Host 系统空间”，仅清理 APT 下载缓存、受限 journal 历史与 XNAT 临时健康检查文件；不会触碰 `/var/lib/incus/disks`、natpool、VPS 或用户数据。Agent 在创建/重装/端口映射前检测到系统盘严重不足时，会先自动执行同一白名单安全清理，仍不足则 fail closed 并返回明确错误。
 
 更早版本的升级历史与兼容说明请查看 [CHANGELOG.md](CHANGELOG.md) 和 [docs/README.md](docs/README.md)。
 

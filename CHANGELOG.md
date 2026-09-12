@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.6.4
+
+- Host Agent 升级至 v1.2.1；Panel 保持 v1.6.3，Agent API v1 与 Mobile API v1 均不变。
+- Host Agent 在创建 VPS、重装和新增端口映射前检查 Host 根分区可用空间；低于 512MiB 时自动执行一次白名单安全清理，清理后低于 768MiB 则以明确的 507 错误停止操作。
+- 自动清理严格限制为 APT 下载缓存与 systemd journal 历史，不触碰 Incus storage、镜像、实例磁盘、natpool、VPS、Agent Token/TLS 或用户数据。
+- `xnat` Host 菜单新增“清理 Host 系统空间”，显示清理前后可用空间；同时提供 `xnat cleanup` 命令。
+- Host 安装器将 4.5GiB / 6.5GiB 明确标为最低安装配置，并新增 LXC 8GiB+、KVM/混合 12GiB+ 的长期运行建议提示；不改变既有技术安装门槛与 natpool 容量算法。
+- Host 版本检查以 Host Agent 组件版本为主，不再把 repo-wide XNAT Release 当作 Host 主版本展示；仅在 Agent 版本相同但管理脚本有更新时提示“Host 管理脚本可同步”。
+- 保持 v1.2.0 → v1.2.1 原地升级：继续保留 `.env`、TLS、`/etc/xnat/node.json`、Incus、natpool、现有 VPS 与端口映射。
+
 ## v1.6.3
 
 - 修正 Incus/LVM Thin extent / metadata 对齐导致 natpool 实际上报略低于名义容量时，套餐预计数量少算一台的问题。

@@ -1,20 +1,20 @@
-# XNAT v1.6.3
+# XNAT v1.6.4
 
-本次版本修正 Panel 对 Incus/LVM natpool 微小对齐损耗的逻辑容量判断。
+本次版本为 Host 运维修复版本。
 
-- Panel：v1.6.3
-- Host Agent：v1.2.0
+- Panel：v1.6.3（业务组件保持不变）
+- Host Agent：v1.2.1
 - Agent API：v1
 - Mobile API：v1
-- 逻辑 natpool 容量在距离下一个 0.125GiB 分配边界不超过 32MiB 时安全归一化
-- 2GiB 名义 natpool 即使实际上报约 1.99GiB，1GiB 套餐在 100% 存储调度阈值下可正确预计并调度 2 台
-- 90% 等较低存储调度阈值仍按管理员设置生效，不会被归一化绕过
-- 原始物理 natpool 总量 / 使用量不修改，真实存储水位保护继续生效
-- v1.6.2 → v1.6.3 支持原地升级，业务数据保持不变
-- Host Agent 核心保持 v1.2.0 / Agent API v1
+- Host Agent 新增根分区低空间保护：低于安全阈值时先执行白名单安全清理，仍不足则明确阻止创建/重装/端口映射
+- Host 菜单新增“清理 Host 系统空间”，仅清理 APT 下载缓存、受限 journal 历史与 XNAT 临时健康检查文件
+- 不删除 Incus storage、镜像、实例磁盘、natpool、VPS、Agent Token/TLS 或用户数据
+- Host 安装提示区分最低配置与建议配置：LXC 建议 8GiB+，KVM / 混合建议 12GiB+
+- Host 版本检查以 Host Agent 版本为主，repo-wide Release 仅作为管理脚本发布来源
+- v1.2.0 → v1.2.1 支持原地升级，Agent API 保持 v1
 
 **由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**
 
-Panel 推荐升级命令：
+Host 推荐升级命令：
 
-    xnat update 1.6.3
+    xnat update 1.6.4
