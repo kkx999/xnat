@@ -247,10 +247,26 @@ assert 'cap.get("remaining_disk_gb")' not in fn, 'physical/min storage must not 
 admin=Path('panel/app/templates/admin.html').read_text()
 assert '实际存储继续水位保护' in admin, 'physical storage watermark explanation missing'
 readme=Path('README.md').read_text()
-assert '当前正式版本：XNAT v1.6.2' in readme
+assert '当前正式版本：XNAT v1.6.3' in readme
 assert '指定 v1.4.3 安装' not in readme, 'legacy upgrade manual returned to project landing page'
 print('v1.6.2 logical quota capacity contract: ok')
 PYV162
+
+# v1.6.3 narrow LVM alignment normalization must affect logical quota and
+# projected scheduling only; raw physical capacity/watermark stays untouched.
+grep -q 'def normalized_storage_quota_total_gb' panel/app/nodes.py
+grep -q 'quota_storage_total_gb' panel/app/nodes.py
+grep -q 'reported_storage_total_gb' panel/app/nodes.py
+grep -q '1.6.2) UPGRADE_PATH="verified-v1.6.2"' scripts/upgrade-panel.sh
+python3 - <<'PYV163'
+from panel.app.nodes import normalized_storage_quota_total_gb
+assert normalized_storage_quota_total_gb(1.99) == 2.0
+assert normalized_storage_quota_total_gb(1.97) == 2.0
+assert normalized_storage_quota_total_gb(1.96) == 1.96
+assert normalized_storage_quota_total_gb(3.99) == 4.0
+assert normalized_storage_quota_total_gb(2.01) == 2.01
+print('v1.6.3 LVM alignment normalization contract: ok')
+PYV163
 
 # v1.3.2 Mobile API v1 contract for XNAT Android v1.0.0.
 test -f panel/app/mobile_api.py

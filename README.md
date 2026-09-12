@@ -4,17 +4,17 @@
 
 XNAT 采用 **Panel Server + Host Agent** 分离架构，面向自建 NAT VPS 场景统一管理宿主机、LXC/KVM 实例、套餐、用户、端口、流量、生命周期、通知与运维。
 
-**当前正式版本：XNAT v1.6.2**
+**当前正式版本：XNAT v1.6.3**
 
 | 组件 | 版本 |
 | --- | --- |
-| XNAT Release | v1.6.2 |
-| Panel | v1.6.2 |
+| XNAT Release | v1.6.3 |
+| Panel | v1.6.3 |
 | Host Agent | v1.2.0 |
 | Agent API | v1 |
 | Mobile API | v1 |
 
-> v1.6.2 为 Panel 修复版本：修正 Host “按套餐预计可开”磁盘口径。VPS 磁盘数量按逻辑配额计算，Incus 镜像缓存 / LVM Thin metadata 等真实占用继续由 natpool 存储水位保护，不再被误当成已分配给小鸡的套餐磁盘。
+> v1.6.3 为 Panel 修复版本：修正 Incus/LVM 对齐造成的 natpool 微小容量误差。接近套餐分配边界的名义容量按安全容差归一化用于逻辑配额和调度，真实物理占用仍按 Host Agent 原始上报值执行存储水位保护。
 
 ---
 
@@ -117,12 +117,12 @@ bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/boo
 
 ---
 
-## 升级到 v1.6.2
+## 升级到 v1.6.3
 
-现有 **v1.6.1 Panel**：
+现有 **v1.6.2 Panel**：
 
 ```bash
-xnat update 1.6.2
+xnat update 1.6.3
 ```
 
 升级器会执行 Release 校验、SQLite `PRAGMA quick_check`、备份、原地更新、健康检查与失败回滚，并保留 `.env`、数据库、用户、余额、订单、VPS、Host、套餐、端口、支付、通知、工单等数据。
