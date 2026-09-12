@@ -7,12 +7,17 @@ on:
     paths:
       - .github/workflows/prepare-v1.0.1.yml
 
+concurrency:
+  group: prepare-xnat-v1.0.1
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
 jobs:
   prepare:
     runs-on: ubuntu-22.04
+    timeout-minutes: 20
     steps:
       - name: Checkout release branch
         uses: actions/checkout@v4
