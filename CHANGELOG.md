@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.6.1
+
+- Host 管理卡片新增始终可见的“按套餐预计可开”容量，不需要展开任何折叠菜单。
+- 每个在售且对当前 Host 生效的套餐直接显示 LXC/KVM、CPU/内存/磁盘规格、预计可开台数与当前瓶颈。
+- 预计数量使用 Panel 已有的保守可分配内存/存储，并继续受 Host 最大 VPS、NAT 端口余量、维护/离线/虚拟化兼容与 CPU 调度水位保护。
+- 未修改 Host Agent；Host Agent 保持 v1.2.0、Agent API v1、Mobile API v1。
+- Panel 升级至 v1.6.1，支持 v1.6.0 → v1.6.1 原地升级。
+
 ## v1.6.0
 
 - Panel / Host 支持 Debian 12/13 与 Ubuntu 22.04/24.04/26.04 LTS，不再写死 Debian 12。

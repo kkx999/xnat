@@ -48,7 +48,7 @@ def host_request(host: HostNode, method: str, path: str, *, payload=None, timeou
         "X-NAT-Timestamp": ts,
         "X-NAT-Signature": _signature(token, ts, method, path, body),
         "Content-Type": "application/json",
-        "User-Agent": "XNAT-Panel/1.5.0",
+        "User-Agent": "XNAT-Panel/1.6.1",
     }
     try:
         with httpx.Client(verify=bool(host.verify_tls), timeout=timeout) as client:
@@ -367,6 +367,85 @@ def host_schedule_state(db, host: HostNode, plan: Plan | None = None, *, refresh
         "allowed": True, "code": "ready", "label": "允许分配", "reason": "当前可接收新实例",
         "percentages": percentages, "active_vps": count, "capacity": capacity,
     }
+
+
+def host_plan_capacity_estimates(db, host: HostNode, plans) -> list[dict]:
+    """Estimate how many additional VPS instances this Host can accept per active plan.
+
+    This is a Panel-only display helper. It uses the same Host scheduling state
+    and conservative remaining memory/storage values as real placement, then
+    also caps by max_vps and remaining NAT ports (one SSH port is required per
+    newly provisioned instance). CPU stays a live watermark just like the
+    scheduler; without changing Agent API v1 we intentionally do not invent a
+    physical-core count.
+    """
+    rows = [plan for plan in (plans or []) if bool(getattr(plan, "is_active", False))]
+    if not rows:
+        return []
+
+    plan_ids = [int(plan.id) for plan in rows]
+    bindings: dict[int, set[int]] = {plan_id: set() for plan_id in plan_ids}
+    links = db.execute(
+        select(PlanHost.plan_id, PlanHost.host_id).where(
+            PlanHost.plan_id.in_(plan_ids),
+            PlanHost.enabled == True,
+        )
+    ).all()
+    for plan_id, host_id in links:
+        bindings.setdefault(int(plan_id), set()).add(int(host_id))
+
+    active_count = host_active_server_count(db, host.id)
+    max_vps_remaining = max(0, int(host.max_vps) - active_count) if int(host.max_vps or 0) > 0 else None
+    port_stats = host_port_pool_stats(db, host)
+    port_remaining = int(port_stats.get("remaining") or 0) if port_stats.get("configured") else 0
+
+    estimates: list[dict] = []
+    for plan in rows:
+        bound_hosts = bindings.get(int(plan.id), set())
+        # Existing XNAT semantics: a plan with no explicit Host links is global.
+        if bound_hosts and int(host.id) not in bound_hosts:
+            continue
+
+        mode = str(plan.virtualization_type or "lxc").strip().lower()
+        spec = f"{int(plan.cpu or 0)}C / {int(plan.memory_mb or 0)}MB / {float(plan.disk_gb or 0):g}GB"
+        state = host_schedule_state(db, host, plan)
+        item = {
+            "plan_id": int(plan.id),
+            "plan_name": str(plan.name),
+            "mode": mode,
+            "spec": spec,
+            "count": 0,
+            "limiter": "-",
+            "reason": str(state.get("reason") or "当前不可调度"),
+        }
+        if not state.get("allowed"):
+            estimates.append(item)
+            continue
+
+        cap = state.get("capacity") or {}
+        if not int(host.memory_total_mb or 0) or not float(host.storage_total_gb or 0):
+            item["reason"] = "节点资源数据尚未完整上报"
+            estimates.append(item)
+            continue
+
+        memory_mb = max(1, int(plan.memory_mb or 0))
+        disk_gb = max(0.001, float(plan.disk_gb or 0))
+        limits = {
+            "内存": max(0, int(float(cap.get("remaining_memory_mb") or 0) // memory_mb)),
+            "存储": max(0, int(float(cap.get("remaining_disk_gb") or 0) // disk_gb)),
+            "NAT端口": max(0, port_remaining),
+        }
+        if max_vps_remaining is not None:
+            limits["VPS上限"] = max_vps_remaining
+
+        count = min(limits.values()) if limits else 0
+        limiting = [name for name, value in limits.items() if value == count]
+        item["count"] = max(0, int(count))
+        item["limiter"] = " / ".join(limiting) if limiting else "-"
+        item["reason"] = "" if count > 0 else f"{item['limiter']}余量不足"
+        estimates.append(item)
+
+    return estimates
 
 
 def select_host_for_plan(db, plan: Plan) -> HostNode:

@@ -10040,3 +10040,37 @@ html[data-client-theme="light"] body.client-body .telegram-service-state{border-
   body.client-body .telegram-setup-actions{width:100%;justify-content:flex-start;flex-wrap:wrap}
   body.client-body .telegram-service-state{align-self:flex-start}
 }
+
+
+/* XNAT v1.6.1: Host per-plan capacity is intentionally always visible. */
+body.admin-body .node-plan-capacity-visible{
+  margin:0 0 8px;padding:9px 10px;border:1px solid #2d4058;border-radius:8px;background:#101923;
+}
+body.admin-body .node-plan-capacity-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:7px}
+body.admin-body .node-plan-capacity-head>div{display:flex;align-items:baseline;gap:8px;min-width:0}
+body.admin-body .node-plan-capacity-head strong{color:#dfe8f3;font-size:11px}
+body.admin-body .node-plan-capacity-head span,body.admin-body .node-plan-capacity-head>small{color:#7f8da1;font-size:8.5px;line-height:1.3}
+body.admin-body .node-plan-capacity-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+body.admin-body .node-plan-capacity-item{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:46px;padding:7px 9px;border:1px solid #294a40;border-radius:7px;background:#0f211d}
+body.admin-body .node-plan-capacity-item>div:first-child{min-width:0}
+body.admin-body .node-plan-capacity-item strong,body.admin-body .node-plan-capacity-item small{display:block}
+body.admin-body .node-plan-capacity-item strong{overflow:hidden;color:#dfe7ef;font-size:10.5px;text-overflow:ellipsis;white-space:nowrap}
+body.admin-body .node-plan-capacity-item small{margin-top:2px;color:#8291a5;font-size:8.5px;line-height:1.25}
+body.admin-body .node-plan-capacity-count{flex:0 0 auto;text-align:right}
+body.admin-body .node-plan-capacity-count b{display:block;color:#84dfb7;font-size:13px;white-space:nowrap}
+body.admin-body .node-plan-capacity-item.blocked{border-color:#4b3439;background:#20171a}
+body.admin-body .node-plan-capacity-item.blocked .node-plan-capacity-count b{color:#d99aa4}
+body.admin-body .node-plan-capacity-empty{grid-column:1/-1;padding:8px;color:#8490a2;font-size:9px;text-align:center}
+body.admin-body .node-estimate-metric small{display:block;margin-top:2px;overflow:hidden;color:#8290a6;font-size:8px;text-overflow:ellipsis;white-space:nowrap}
+html[data-admin-theme="light"] body.admin-body .node-plan-capacity-visible{background:#f2f6fa;border-color:#c4d3e1}
+html[data-admin-theme="light"] body.admin-body .node-plan-capacity-head strong{color:#20374e}
+html[data-admin-theme="light"] body.admin-body .node-plan-capacity-head span,
+html[data-admin-theme="light"] body.admin-body .node-plan-capacity-head>small{color:#657b91}
+html[data-admin-theme="light"] body.admin-body .node-plan-capacity-item{background:#edf8f3;border-color:#bddbce}
+html[data-admin-theme="light"] body.admin-body .node-plan-capacity-item strong{color:#22384d}
+html[data-admin-theme="light"] body.admin-body .node-plan-capacity-item small{color:#667b90}
+html[data-admin-theme="light"] body.admin-body .node-plan-capacity-item.blocked{background:#fbf1f2;border-color:#e2c7cb}
+@media(max-width:760px){
+  body.admin-body .node-plan-capacity-head{align-items:flex-start;flex-direction:column;gap:3px}
+  body.admin-body .node-plan-capacity-grid{grid-template-columns:1fr}
+}

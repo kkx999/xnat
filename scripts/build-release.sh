@@ -38,24 +38,22 @@ AGENT_API_VERSION="$(python3 -c 'import json; print(json.load(open("release.json
 cat > "$DIST/RELEASE_NOTES.md" <<EOF_NOTES
 # XNAT v${RELEASE_VERSION}
 
-本次版本修复母机系统兼容和 Host 安装容量判断，让低配 LXC Host 按真实资源计算，而不是把母机总盘门槛误当成安装后的剩余空间。
+本次版本增强 Panel 的 Host 容量可视化：按当前真实可分配资源，直接显示每个套餐预计还能开多少台小鸡。
 
 - Panel：v${PANEL_VERSION}
 - Host Agent：v${AGENT_VERSION}
 - Agent API：v${AGENT_API_VERSION}
 - Mobile API：v1
-- Panel / Host 支持 Debian 12/13、Ubuntu 22.04/24.04/26.04 LTS
-- Host 菜单显示 CPU、总/可用内存、总/已用/可用硬盘、KVM 与各模式预计 natpool
-- LXC：1C / 1GB / 4.5GiB 总盘基线，约 1GiB 系统/XNAT 预留后动态计算 natpool
-- KVM / 混合：1C / 1GB / 6.5GiB 总盘、/dev/kvm、至少 4GiB natpool
-- 默认 Host 模式改为 LXC；不满足模式会在选择前显示原因
-- Zabbly Incus 源按发行版 codename 自动配置并优先使用 Zabbly 包
-- v1.5.0 → v${PANEL_VERSION} 支持原地升级，业务数据保持不变
+- Host 卡片“预计可开”常驻显示，不放入折叠菜单
+- 每个在售/有效套餐显示虚拟化类型、规格、预计台数和当前瓶颈
+- 计算继续使用保守的逻辑/物理内存与存储余量，并受最大 VPS、NAT 端口、调度状态和虚拟化兼容约束
+- CPU 继续按实时调度水位保护，不伪造 Host Agent v1 未上报的物理核心总数
+- v1.6.0 → v${PANEL_VERSION} 支持原地升级，业务数据保持不变
 - Host Agent 核心保持 v${AGENT_VERSION} / Agent API v${AGENT_API_VERSION}
 
 **由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**
 
-Panel / Host 推荐升级命令：
+Panel 推荐升级命令：
 
     xnat update ${RELEASE_VERSION}
 EOF_NOTES

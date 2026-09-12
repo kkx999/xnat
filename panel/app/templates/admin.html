@@ -1050,6 +1050,7 @@
       {% for h in hosts %}
         {% set hs = host_summary(h) if host_summary is defined else {} %}
         {% set sched = host_schedule_states.get(h.id, {}) %}
+        {% set estimates = host_plan_estimates.get(h.id, []) %}
         <article class="node-admin-card {% if h.maintenance_mode %}maintenance{% endif %}">
           <div class="node-admin-head">
             <div>
@@ -1066,6 +1067,21 @@
             <div><span>存储</span><strong>{{ '%.1f'|format(h.storage_used_gb or 0) }} / {{ '%.1f'|format(h.storage_total_gb or 0) }} GB</strong></div>
             <div><span>VPS</span><strong>{{ h.active_vps }}{% if h.max_vps %} / {{ h.max_vps }}{% endif %}</strong></div>
             <div><span>虚拟化</span><strong>{% if "lxc" in (hs.get("virtualization_modes") or []) and "kvm" in (hs.get("virtualization_modes") or []) %}LXC + KVM{% elif "kvm" in (hs.get("virtualization_modes") or []) %}KVM{% else %}LXC{% endif %}</strong><small>{% if "kvm" in (hs.get("virtualization_modes") or []) %}KVM {{ "可用" if hs.get("kvm_available") else "当前不可用" }}{% else %}LXC Host{% endif %}</small></div>
+            <div class="node-estimate-metric"><span>预计可开</span>{% if estimates %}{% set best = estimates|max(attribute='count') %}<strong>≈ {{ best.count }} 台</strong><small>{{ best.plan_name }} · 当前资源</small>{% else %}<strong>0 台</strong><small>暂无在售可调度套餐</small>{% endif %}</div>
+          </div>
+
+          <div class="node-plan-capacity-visible">
+            <div class="node-plan-capacity-head"><div><strong>按套餐预计可开</strong><span>当前实时余量，直接显示</span></div><small>内存 / 存储 / VPS上限 / NAT端口取最小值；CPU按调度水位实时判定</small></div>
+            <div class="node-plan-capacity-grid">
+              {% for item in estimates %}
+              <div class="node-plan-capacity-item {% if item.count <= 0 %}blocked{% endif %}">
+                <div><strong>{{ item.plan_name }}</strong><small>{{ item.mode|upper }} · {{ item.spec }}</small></div>
+                <div class="node-plan-capacity-count"><b>≈ {{ item.count }} 台</b><small>{% if item.count > 0 %}瓶颈：{{ item.limiter }}{% else %}{{ item.reason }}{% endif %}</small></div>
+              </div>
+              {% else %}
+              <div class="node-plan-capacity-empty">暂无在售且可作用于此节点的套餐</div>
+              {% endfor %}
+            </div>
           </div>
 
           {% set cap = sched.get('capacity', {}) %}

@@ -4,8 +4,8 @@
 
 XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、多宿主机节点、套餐、用户、流量、通知及日常运维。
 
-当前版本：**v1.6.0**<br>
-最新正式版本：**v1.6.0**
+当前版本：**v1.6.1**<br>
+最新正式版本：**v1.6.1**
 
 
 ## 更新日志
@@ -14,7 +14,7 @@ XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、
 
 > 📋 **[查看完整更新日志（CHANGELOG.md）](CHANGELOG.md)**
 
-当前正式源码关系：**XNAT Release v1.6.0 / Panel v1.6.0 / Mobile API v1 / Host Agent v1.2.0 / Agent API v1**。
+当前正式源码关系：**XNAT Release v1.6.1 / Panel v1.6.1 / Mobile API v1 / Host Agent v1.2.0 / Agent API v1**。
 
 ---
 
@@ -27,7 +27,7 @@ XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、
 - TCP / UDP NAT 端口
 - 流量统计、独立流量周期、超额限速与付费自助流量重置
 - 节点维护 / Drain 与资源水位调度保护
-- 宿主机剩余可分配资源展示与紧凑节点管理
+- 宿主机剩余可分配资源展示、按套餐预计可开数量与紧凑节点管理
 - 到期提醒、宽限期、自动停机与可选延迟删除
 - Host 离线、natpool、任务和备份异常通知
 - 套餐、库存、用户与订单

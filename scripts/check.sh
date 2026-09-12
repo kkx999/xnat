@@ -215,6 +215,24 @@ grep -q '0.125' panel/app/templates/admin.html
 grep -q 'physical_remaining_disk_gb' panel/app/nodes.py
 ! grep -RIn '要求 Debian 12 bookworm\|当前正式版要求 Debian 12 Bookworm' scripts >/tmp/xnat-v160-debian12-only.txt
 
+
+# v1.6.1 visible per-plan Host capacity contract.
+grep -q 'def host_plan_capacity_estimates' panel/app/nodes.py
+grep -q 'host_plan_estimates' panel/app/main.py
+grep -q '按套餐预计可开' panel/app/templates/admin.html
+grep -q 'node-plan-capacity-visible' panel/app/templates/admin.html
+grep -q 'node-plan-capacity-visible' panel/app/static/style.css
+grep -q '1.6.0) UPGRADE_PATH="verified-v1.6.0"' scripts/upgrade-panel.sh
+python3 - <<'PYV161'
+from pathlib import Path
+admin=Path('panel/app/templates/admin.html').read_text()
+segment=admin.split('按套餐预计可开',1)[1].split('{% set cap',1)[0]
+assert '<details' not in segment, 'capacity estimate must remain visible, not folded'
+assert '≈ {{ item.count }} 台' in admin, 'per-plan count missing'
+assert '瓶颈：{{ item.limiter }}' in admin, 'visible limiter missing'
+print('v1.6.1 visible Host plan capacity contract: ok')
+PYV161
+
 # v1.3.2 Mobile API v1 contract for XNAT Android v1.0.0.
 test -f panel/app/mobile_api.py
 grep -q 'from \.mobile_api import router as mobile_api_router' panel/app/main.py
@@ -403,17 +421,17 @@ root=Path('.')
 release=(root/'VERSION').read_text().strip()
 panel=(root/'panel/VERSION').read_text().strip()
 meta=json.loads((root/'release.json').read_text())
-assert release == '1.6.0', f'unexpected release version: {release}'
-assert panel == '1.6.0', f'unexpected Panel version: {panel}'
+assert release == '1.6.1', f'unexpected release version: {release}'
+assert panel == '1.6.1', f'unexpected Panel version: {panel}'
 assert meta['release_version'] == release and meta['panel_version'] == panel, 'release.json metadata mismatch'
 upgrade=(root/'scripts/upgrade-panel.sh').read_text()
 assert '1.4.2) UPGRADE_PATH="verified-v1.4.2"' in upgrade, 'v1.4.2 -> v1.4.3 direct upgrade path missing'
 assert '1.4.1) UPGRADE_PATH="verified-v1.4.1"' in upgrade, 'v1.4.1 -> v1.4.3 direct upgrade path missing'
 assert '1.4.2-dev1) UPGRADE_PATH="verified-v1.4.2-dev1"' in upgrade, 'v1.4.2-dev1 -> v1.4.3 compatible upgrade path missing'
 main=(root/'panel/app/main.py').read_text()
-assert '"version": "1.6.0"' in main, 'health version mismatch'
+assert '"version": "1.6.1"' in main, 'health version mismatch'
 base=(root/'panel/app/templates/base.html').read_text()
-assert 'XNAT v1.6.0 Multi-Node' in base, 'footer version mismatch'
+assert 'XNAT v1.6.1 Multi-Node' in base, 'footer version mismatch'
 mobile=(root/'panel/app/mobile_api.py').read_text()
 actions=(root/'panel/app/service_actions.py').read_text()
 docs=(root/'docs/MOBILE_API.md').read_text()
@@ -436,12 +454,12 @@ for route in [
     assert route in mobile, f'phase-1 route missing: {route}'
 assert 'def reset_server_traffic' in actions and 'def enqueue_server_delete' in actions, 'shared service actions missing'
 assert 'reset_server_traffic(' in main and 'enqueue_server_delete(' in main, 'Web Panel must reuse shared service actions'
-assert 'Mobile API v1' in docs and 'v1.6.0' in docs, 'Mobile API docs version mismatch'
+assert 'Mobile API v1' in docs and 'v1.6.1' in docs, 'Mobile API docs version mismatch'
 for token in ['plan.server_region or "-"', 'plan.network_line or "-"']:
     assert token in home and token in plans, f'home/plans field parity missing: {token}'
 assert home.index('plan.server_region or "-"') < home.index('plan.network_line or "-"') < home.index('plan.port_count'), 'home plan 3x3 field order mismatch'
 readme=(root/'README.md').read_text()
-assert '最新正式版本：**v1.6.0**' in readme, 'formal release version must be documented'
+assert '最新正式版本：**v1.6.1**' in readme, 'formal release version must be documented'
 assert 'is_prerelease_of_target' in (root/'scripts/xnat').read_text(), 'formalization-aware CLI guard missing'
 print('v1.4.3 home-plan parity guards: ok')
 PYDEV142

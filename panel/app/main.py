@@ -57,7 +57,7 @@ from .providers.incus import IncusProvider
 from .providers.remote import RemoteHostProvider
 from .providers.mock import MockProvider
 from .nodes import (
-    HostAPIError, allocate_host_port, host_request, host_summary, host_port_pool_stats, host_schedule_state,
+    HostAPIError, allocate_host_port, host_request, host_summary, host_port_pool_stats, host_schedule_state, host_plan_capacity_estimates,
     refresh_all_hosts, refresh_host, select_host_for_plan,
 )
 from .geo import (
@@ -2416,7 +2416,7 @@ def admin_page(
         plans=[]; system_images=[]; coupons=[]; users=[]; servers=[]; orders=[]
         recharge_orders=[]; tickets=[]; jobs=[]; audit_logs=[]; balance_ledger=[]; hosts=[]; notification_rows=[]; announcement_admin_rows=[]
         dashboard_recent_orders=[]; dashboard_recent_servers=[]; dashboard_stock=[]
-        inventories={}; user_stats={}; site_settings={}; backup_rows=[]; backup_preview=None; backup_total_bytes=0; plan_host_map={}; host_port_stats={}; host_schedule_states={}
+        inventories={}; user_stats={}; site_settings={}; backup_rows=[]; backup_preview=None; backup_total_bytes=0; plan_host_map={}; host_port_stats={}; host_schedule_states={}; host_plan_estimates={}
         ticket_threads={}
         repair_order=None; repair_preview=None; repair_error=None; repair_tx=""
         total_rows=0; total_pages=1
@@ -2544,6 +2544,7 @@ def admin_page(
             hosts = db.scalars(select(HostNode).order_by(HostNode.region, HostNode.name)).all()
             host_port_stats = {row.id: host_port_pool_stats(db, row) for row in hosts}
             host_schedule_states = {row.id: host_schedule_state(db, row) for row in hosts}
+            host_plan_estimates = {row.id: host_plan_capacity_estimates(db, row, plans) for row in hosts}
             links = db.scalars(select(PlanHost).where(PlanHost.enabled == True)).all()
             for link in links:
                 plan_host_map.setdefault(link.host_id, set()).add(link.plan_id)
@@ -2614,7 +2615,7 @@ def admin_page(
             section=section,q=q,page=page,per_page=per_page,total_rows=total_rows,total_pages=total_pages,
             stats=stats,node=node,business=business,plans=plans,system_images=system_images,coupons=coupons,users=users,servers=servers,orders=orders,
             recharge_orders=recharge_orders,tickets=tickets,ticket_threads=ticket_threads,jobs=jobs,audit_logs=audit_logs,balance_ledger=balance_ledger,backup_rows=backup_rows,backup_preview=backup_preview,backup_total_bytes=backup_total_bytes,hosts=hosts,notification_rows=notification_rows,announcement_admin_rows=announcement_admin_rows,
-            inventories=inventories,user_stats=user_stats,site_settings=site_settings,payment_cfg=payment_cfg,env_status=env_status,deployment=deployment,plan_host_map=plan_host_map,host_port_stats=host_port_stats,host_schedule_states=host_schedule_states,
+            inventories=inventories,user_stats=user_stats,site_settings=site_settings,payment_cfg=payment_cfg,env_status=env_status,deployment=deployment,plan_host_map=plan_host_map,host_port_stats=host_port_stats,host_schedule_states=host_schedule_states,host_plan_estimates=host_plan_estimates,
             lifecycle_cfg=lifecycle_config(db),
             repair_order=repair_order,repair_preview=repair_preview,repair_error=repair_error,repair_tx=repair_tx,
             dashboard_recent_orders=dashboard_recent_orders,dashboard_recent_servers=dashboard_recent_servers,dashboard_stock=dashboard_stock,
@@ -4656,7 +4657,7 @@ def admin_backup_download(request:Request,backup_name:str):
 def health():
     return {
         "status": "ok",
-        "version": "1.6.0",
+        "version": "1.6.1",
         "provider": PROVIDER_NAME,
         "timezone": APP_TIMEZONE,
     }
