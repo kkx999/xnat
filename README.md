@@ -14,7 +14,7 @@ XNAT 采用 **Panel Server + Host Agent** 分离架构，面向自建 NAT VPS �
 | Agent API | v1 |
 | Mobile API | v1 |
 
-> v1.6.5 修复 Host 安装阶段的磁盘规划：先安装 Incus/LVM/Python 等基础依赖并清理 APT 缓存，再按真实剩余空间计算 natpool；LXC 强制为 Host 长期保留约 2GiB，KVM/混合保留约 3GiB。Panel v1.6.3、Host Agent v1.2.1、Agent API v1 与 Mobile API v1 均保持兼容。
+> v1.6.5 修复 Host 安装阶段的磁盘规划：先安装 Incus/LVM/Python 与 Host Agent Runtime 并清理 APT 缓存，再按真实剩余空间计算 natpool；LXC 强制为 Host 长期保留约 2GiB，KVM/混合保留约 3GiB。Panel v1.6.3、Host Agent v1.2.1、Agent API v1 与 Mobile API v1 均保持兼容。
 
 ---
 
@@ -76,8 +76,8 @@ Host 安装器会先检测系统、CPU、总/可用内存、总/已用/可用硬
 
 | 模式 | 最低安装 | 建议长期运行 | 说明 |
 | --- | --- | --- | --- |
-| LXC | 1C / 1GB / 4.5GiB 总硬盘 | 1C / 1GB / 8GiB+ | 先完成 Host 基础依赖安装，再按真实剩余空间计算 natpool；natpool 满载后仍为 Host 保留约 2GiB |
-| KVM | 1C / 1GB / 6.5GiB 总硬盘 | 2C / 2GB / 12GiB+ | 需要可用 `/dev/kvm`；依赖安装完成后再计算，natpool 满载后仍为 Host 保留约 3GiB，natpool 至少 4GiB |
+| LXC | 1C / 1GB / 4.5GiB 总硬盘 | 1C / 1GB / 8GiB+ | 先完成 Host 基础依赖与 Agent Runtime 安装，再按真实剩余空间计算 natpool；natpool 满载后仍为 Host 保留约 2GiB |
+| KVM | 1C / 1GB / 6.5GiB 总硬盘 | 2C / 2GB / 12GiB+ | 需要可用 `/dev/kvm`；依赖与 Agent Runtime 安装完成后再计算，natpool 满载后仍为 Host 保留约 3GiB，natpool 至少 4GiB |
 | LXC + KVM | 同 KVM | 2C / 2GB / 12GiB+ | 同时开放两种实例类型 |
 
 LXC 套餐最低可配置到 **1C / 64MB / 128MB**；KVM Guest 保留 **512MB / 4GB** 技术下限。
@@ -110,7 +110,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/boo
 
 1. Panel Server 真实公网 IPv4，用于限制 Host Agent 管理入口。
 2. LXC / KVM / LXC + KVM 模式检测与选择。
-3. 完成 Host 基础依赖 / Incus 安装后重新读取真实可用硬盘，再计算 natpool 安全上限。
+3. 完成 Host 基础依赖 / Incus / Agent Runtime 安装后重新读取真实可用硬盘，再计算 natpool 安全上限。
 4. Incus、LVM Thin、Bridge、Host Agent、防火墙与健康检查。
 
 **NAT 用户端口池不在 Host 安装阶段填写。** Host 连接 Panel 后，在后台节点卡片配置端口范围并同步到 Agent。
@@ -127,7 +127,7 @@ xnat update 1.6.5
 
 v1.6.5 不修改 Panel 业务组件，也不修改 Host Agent 运行时 API：Panel 继续为 v1.6.3，Host Agent 继续为 v1.2.1，Agent API / Mobile API 继续为 v1。现有 VPS、Agent Token、TLS、Incus、natpool、端口和 `/etc/xnat/node.json` 均保持不变。
 
-本版修复的是 **全新 Host 安装器的 natpool 容量规划**：重型依赖安装完成后才读取根分区真实剩余空间；LXC 以约 2GiB、KVM/混合以约 3GiB 作为长期 Host 预留，并在创建 LVM Thin 前再次校验，避免把“安装前空闲空间”误算给 natpool。
+本版修复的是 **全新 Host 安装器的 natpool 容量规划**：Incus 与 Host Agent Runtime 安装完成后才读取根分区真实剩余空间；LXC 以约 2GiB、KVM/混合以约 3GiB 作为长期 Host 预留，并在创建 LVM Thin 前再次校验，避免把“安装前空闲空间”误算给 natpool。
 
 > 已经创建好的 natpool 不会被升级器自动缩容。自动缩小现有 LVM Thin 风险很高，因此旧 Host 如果已经因为 natpool 过大而接近满盘，应扩容 Host 系统盘，或迁移/重装 Host 后按 v1.6.5 新算法重新分配；不要删除 `/var/lib/incus/disks`。
 

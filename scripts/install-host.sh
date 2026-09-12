@@ -247,12 +247,29 @@ EOF_PIN
 apt-get update
 apt-get install -y incus
 systemctl enable --now incus
-apt-get clean
-rm -f /tmp/xnat-zabbly.asc
 sleep 2
 
-# This resource read happens after the large package installation and cache
-# cleanup, so MAX_SAFE_GB is based on the space a real installed Host has.
+# Install the Host Agent runtime before sizing natpool as well. The Python
+# virtualenv and dependencies live on /, outside natpool, so they must be part
+# of the real installed-Host baseline rather than consuming the reserve later.
+install -d -m 0755 /opt/xnat
+rm -rf "${DEST_DIR}"
+mkdir -p "${DEST_DIR}"
+cp -a "${SRC_DIR}/." "${DEST_DIR}/"
+cd "${DEST_DIR}"
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+deactivate
+cd "${REPO_ROOT}"
+
+apt-get clean
+rm -f /tmp/xnat-zabbly.asc
+
+# This resource read happens after Incus and the Agent runtime are installed
+# and the APT download cache is cleaned. MAX_SAFE_GB therefore protects the
+# requested long-running Host reserve after the actual software footprint.
 select_virtualization_mode
 RECOMMENDED_GB="${MAX_SAFE_GB}"
 if [[ -t 0 ]]; then
@@ -415,18 +432,7 @@ else
   info "4/7 KVM 验证已跳过（当前模式：LXC）"
 fi
 
-info "5/7 安装 XNAT Host Agent"
-install -d -m 0755 /opt/xnat
-rm -rf "${DEST_DIR}"
-mkdir -p "${DEST_DIR}"
-cp -a "${SRC_DIR}/." "${DEST_DIR}/"
-
-cd "${DEST_DIR}"
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-
+info "5/7 配置 XNAT Host Agent"
 PUBLIC_IP="$(curl -4fsS --max-time 10 https://api.ipify.org || true)"
 [[ -n "${PUBLIC_IP}" ]] || die "无法获取公网 IPv4"
 

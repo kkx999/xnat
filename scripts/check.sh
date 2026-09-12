@@ -279,9 +279,12 @@ assert s.count(plan) == 1, 'capacity-planning call missing/duplicated'
 plan_pos=s.index(plan)
 assert s.index('info "1/7 安装 Host 基础依赖 / Incus"') < plan_pos
 assert s.index('apt-get install -y incus') < plan_pos
+assert s.index('python -m pip install -r requirements.txt') < plan_pos
 assert s.index('apt-get clean') < plan_pos
 assert s.count('apt-get install -y incus') == 1, 'Incus dependency install duplicated'
+assert s.count('python -m pip install -r requirements.txt') == 1, 'Agent runtime install duplicated'
 assert 'info "1/7 安装系统 / Incus 依赖"' not in s, 'old post-planning dependency block returned'
+assert 'info "5/7 配置 XNAT Host Agent"' in s
 assert 'total_min=4608; reserve=2048; min_pool=1' in s
 assert 'total_min=6656; reserve=3072; min_pool=4' in s
 assert 'CURRENT_MAX_SAFE_GB' in s and 'PROJECTED_HOST_FREE_MIB' in s
