@@ -19,10 +19,14 @@ jobs:
           from pathlib import Path
           p=Path('scripts/release-v161-patch.py')
           s=p.read_text()
-          old="replace_once('docs/MOBILE_API.md', 'Panel v1.6.0', 'Panel v1.6.1')"
-          new="replace_once('docs/MOBILE_API.md', 'XNAT Panel `v1.6.0`', 'XNAT Panel `v1.6.1`')"
-          assert old in s
-          p.write_text(s.replace(old,new,1))
+          replacements={
+            "replace_once('docs/MOBILE_API.md', 'Panel v1.6.0', 'Panel v1.6.1')":"replace_once('docs/MOBILE_API.md', 'XNAT Panel `v1.6.0`', 'XNAT Panel `v1.6.1`')",
+            "end = build.index('EOF_NOTES\\n', start) + len('EOF_NOTES\\n')":"end = build.index('\\nEOF_NOTES\\n', start) + len('\\nEOF_NOTES\\n')",
+          }
+          for old,new in replacements.items():
+              assert old in s, old
+              s=s.replace(old,new,1)
+          p.write_text(s)
           PYFIX
           python3 -m py_compile scripts/release-v161-patch.py
           python3 scripts/release-v161-patch.py
