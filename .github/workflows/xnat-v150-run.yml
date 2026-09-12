@@ -18,7 +18,27 @@ jobs:
         shell: bash
         run: |
           python3 -m py_compile scripts/release-v150-patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/release-v150-patch.py')
+          text=p.read_text()
+          start=text.index("replace_once(\n    p,\n    '''incus launch images:debian/12")
+          end=text.index("\n\n# ---------------------------------------------------------------------------\n# Upgrade compatibility", start)
+          p.write_text(text[:start] + text[end:])
+          PY
           python3 scripts/release-v150-patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/install-host.sh')
+          text=p.read_text()
+          text=text.replace('incus launch images:debian/12 "${TEST_NAME}"', 'incus launch images:alpine/3.24 "${TEST_NAME}"', 1)
+          text=text.replace('--config limits.memory=128MiB', '--config limits.memory=64MiB', 1)
+          text=text.replace('--device root,size=2GiB', '--device root,size=512MiB', 1)
+          text=text.replace('(( BYTES >= 1500*1024*1024 && BYTES <= 2300*1024*1024 )) ||', '(( BYTES >= 384*1024*1024 && BYTES <= 640*1024*1024 )) ||', 1)
+          text=text.replace('die "2GiB 磁盘配额验证失败"', 'die "512MiB LXC 磁盘配额验证失败"', 1)
+          text=text.replace('incus exec "${TEST_NAME}" -- getent hosts deb.debian.org >/dev/null ||\n  die "测试容器无法联网"', 'incus exec "${TEST_NAME}" -- sh -lc "apk update >/dev/null" ||\n  die "Alpine LXC 测试容器无法联网"', 1)
+          p.write_text(text)
+          PY
       - name: Syntax and contract checks
         shell: bash
         run: |
@@ -28,6 +48,7 @@ jobs:
           bash -n scripts/upgrade-host-agent.sh
           grep -q 'MIN_FREE_MIB=4608' scripts/install-host.sh
           grep -q 'MIN_FREE_MIB=6656' scripts/install-host.sh
+          grep -q 'images:alpine/3.24' scripts/install-host.sh
           grep -q 'images:alpine/3.24' panel/app/main.py
           grep -q 'apk add --no-cache openssh' agent/natvps_agent/main.py
           grep -q '0.125' panel/app/templates/admin.html
