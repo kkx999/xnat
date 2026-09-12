@@ -6,10 +6,12 @@ import json
 import os
 import re
 import secrets
+import shutil
 import socket
 import string
 import subprocess
 import shlex
+import threading
 import time
 from pathlib import Path
 
@@ -18,7 +20,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse
 
-AGENT_VERSION = "1.2.0"
+AGENT_VERSION = "1.2.1"
 AGENT_API_VERSION = "1"
 AGENT_TOKEN = os.getenv("AGENT_TOKEN", "")
 STORAGE_POOL = os.getenv("INCUS_STORAGE_POOL", "natpool")
@@ -27,6 +29,9 @@ PUBLIC_IP = os.getenv("HOST_PUBLIC_IP", "")
 AGENT_PORT = int(os.getenv("AGENT_PORT", "29443"))
 NODE_CONFIG_PATH = Path(os.getenv("XNAT_NODE_CONFIG", "/etc/xnat/node.json"))
 TIMEOUT = int(os.getenv("INCUS_PROVISION_TIMEOUT", "180"))
+HOST_ROOT_MIN_FREE_MB = max(128, int(os.getenv("HOST_ROOT_MIN_FREE_MB", "512")))
+HOST_JOURNAL_MAX_MB = max(10, int(os.getenv("HOST_JOURNAL_MAX_MB", "50")))
+_HOST_CLEANUP_LOCK = threading.Lock()
 
 if not AGENT_TOKEN:
     raise RuntimeError("AGENT_TOKEN 未配置")
@@ -197,6 +202,89 @@ def run(args, *, input_text=None, timeout=None, check=True):
     if check and proc.returncode != 0:
         raise RuntimeError(_command_error(args, proc)[:2200])
     return proc
+
+
+def host_root_space_mb() -> dict:
+    usage = shutil.disk_usage("/")
+    mib = 1024 * 1024
+    return {
+        "total_mb": int(usage.total / mib),
+        "used_mb": int(usage.used / mib),
+        "free_mb": int(usage.free / mib),
+    }
+
+
+def safe_host_cleanup() -> dict:
+    """Free only disposable Host OS caches. Never touch Incus storage/VPS data."""
+    with _HOST_CLEANUP_LOCK:
+        before = host_root_space_mb()["free_mb"]
+        actions = []
+
+        if shutil.which("apt-get"):
+            proc = run(["apt-get", "clean"], check=False, timeout=120)
+            actions.append({"name": "apt-cache", "ok": proc.returncode == 0})
+
+        if shutil.which("journalctl"):
+            proc = run(["journalctl", f"--vacuum-size={HOST_JOURNAL_MAX_MB}M"], check=False, timeout=120)
+            actions.append({"name": "journal", "ok": proc.returncode == 0})
+
+        after = host_root_space_mb()["free_mb"]
+        print(
+            f"[XNAT] Host 安全清理完成：系统盘可用 {before} MiB -> {after} MiB",
+            flush=True,
+        )
+        return {
+            "before_free_mb": before,
+            "after_free_mb": after,
+            "freed_mb": max(0, after - before),
+            "actions": actions,
+        }
+
+
+def ensure_host_root_space(context: str = "操作") -> dict:
+    space = host_root_space_mb()
+    if space["free_mb"] >= HOST_ROOT_MIN_FREE_MB:
+        return space
+
+    print(
+        f"[XNAT] {context}前检测到 Host 系统盘仅剩 {space['free_mb']} MiB，开始安全自动清理",
+        flush=True,
+    )
+    cleanup = safe_host_cleanup()
+    space = host_root_space_mb()
+    if space["free_mb"] < HOST_ROOT_MIN_FREE_MB:
+        raise HTTPException(
+            status_code=507,
+            detail=(
+                f"Host 系统盘可用空间不足：自动安全清理后仅剩 {space['free_mb']} MiB，"
+                f"至少需要 {HOST_ROOT_MIN_FREE_MB} MiB；请扩容 Host 系统盘或运行 xnat 的『清理 Host 系统空间』"
+            ),
+        )
+    return {**space, "cleanup": cleanup}
+
+
+class HostRootSpaceError(RuntimeError):
+    """Host root filesystem cannot safely accept more Incus runtime writes."""
+
+
+
+def _is_no_space_text(text: str) -> bool:
+    lowered = str(text or "").lower()
+    return "no space left on device" in lowered or "enospc" in lowered
+
+
+def _is_no_space_error(exc: Exception) -> bool:
+    return _is_no_space_text(str(exc))
+
+
+def _proxy_log_tail(name: str, device: str) -> str:
+    if not INSTANCE_RE.fullmatch(name or "") or not DEVICE_RE.fullmatch(device or ""):
+        return ""
+    try:
+        path = Path("/var/log/incus") / name / f"proxy.{device}.log"
+        return path.read_text(encoding="utf-8", errors="replace")[-4000:]
+    except Exception:
+        return ""
 
 
 def require_instance(name: str):
@@ -449,7 +537,41 @@ def add_proxy_device(name: str, device: str, protocol: str, public_port: int, pr
     else:
         # Preserve the existing container proxy behavior.
         args.append(f"connect={protocol}:127.0.0.1:{private_port}")
-    run(args, timeout=35)
+    try:
+        run(args, timeout=35)
+    except RuntimeError as exc:
+        error_text = str(exc)
+        no_space = _is_no_space_error(exc)
+        if not no_space and ("Failed to start device" in error_text or "Please look in" in error_text):
+            no_space = _is_no_space_text(_proxy_log_tail(name, device))
+        if not no_space:
+            raise
+
+        cleanup = safe_host_cleanup()
+        space = host_root_space_mb()
+        if space["free_mb"] < HOST_ROOT_MIN_FREE_MB:
+            raise HostRootSpaceError(
+                f"Host 系统盘可用空间不足：自动安全清理后仅剩 {space['free_mb']} MiB，"
+                f"至少需要 {HOST_ROOT_MIN_FREE_MB} MiB（本次释放 {cleanup['freed_mb']} MiB）"
+            ) from exc
+
+        # A failed proxy start may leave a device definition behind. Remove
+        # only this just-added proxy device before the single retry.
+        run(["incus", "config", "device", "remove", name, device], check=False, timeout=35)
+        try:
+            run(args, timeout=35)
+        except RuntimeError as retry_exc:
+            retry_text = str(retry_exc)
+            retry_no_space = _is_no_space_error(retry_exc)
+            if not retry_no_space and ("Failed to start device" in retry_text or "Please look in" in retry_text):
+                retry_no_space = _is_no_space_text(_proxy_log_tail(name, device))
+            if retry_no_space:
+                retry_space = host_root_space_mb()
+                raise HostRootSpaceError(
+                    f"Host 系统盘空间不足导致 Incus 端口映射启动失败；安全清理后仍无法恢复，"
+                    f"当前可用 {retry_space['free_mb']} MiB，请扩容 Host 系统盘"
+                ) from retry_exc
+            raise
 
 
 def add_ssh_proxy(name: str, ssh_port: int):
@@ -807,6 +929,7 @@ def health():
 @app.get("/v1/status")
 def status():
     vm = psutil.virtual_memory()
+    root_space = host_root_space_mb()
     port_start, port_end = nat_port_pool()
     total_gb, used_gb, storage_source = storage_stats()
     instances = run(["incus", "list", "--format", "json"], check=False, timeout=20)
@@ -833,6 +956,11 @@ def status():
         "memory_total_mb": int(vm.total / 1024 / 1024),
         "memory_used_mb": int((vm.total - vm.available) / 1024 / 1024),
         "memory_available_mb": int(vm.available / 1024 / 1024),
+        "host_root_total_mb": root_space["total_mb"],
+        "host_root_used_mb": root_space["used_mb"],
+        "host_root_free_mb": root_space["free_mb"],
+        "host_root_min_free_mb": HOST_ROOT_MIN_FREE_MB,
+        "host_root_low": root_space["free_mb"] < HOST_ROOT_MIN_FREE_MB,
         "storage_total_gb": round(total_gb, 2),
         "storage_used_gb": round(used_gb, 2),
         "storage_free_gb": round(max(0.0, total_gb - used_gb), 2),
@@ -876,6 +1004,7 @@ def configure_nat_port_pool(body: NatPortPoolBody):
 def provision(body: ProvisionBody):
     require_instance(body.instance_name)
     require_nat_port_allowed(body.ssh_port)
+    ensure_host_root_space("创建 VPS")
     if instance_exists(body.instance_name):
         raise HTTPException(409, "实例已经存在")
     password = random_password()
@@ -886,6 +1015,9 @@ def provision(body: ProvisionBody):
         prepare_ssh(body.instance_name, password)
         add_ssh_proxy(body.instance_name, body.ssh_port)
         return {"instance_id": body.instance_name, "private_ip": private_ip, "ssh_port": body.ssh_port, "status": "running", "root_password": password, "virtualization_type": mode}
+    except HostRootSpaceError as exc:
+        delete_instance(body.instance_name)
+        raise HTTPException(507, str(exc)[:1800])
     except HTTPException:
         raise
     except Exception as exc:
@@ -922,6 +1054,7 @@ def reset_password(instance_id: str):
 def reinstall(instance_id: str, body: ReinstallBody):
     require_instance(instance_id)
     require_nat_port_allowed(body.ssh_port)
+    ensure_host_root_space("重装 VPS")
     # Validate the requested mode before deleting the current instance.
     # This prevents a temporary KVM capability problem from destroying a VM
     # before we know that the replacement can be created.
@@ -936,6 +1069,9 @@ def reinstall(instance_id: str, body: ReinstallBody):
         prepare_ssh(instance_id, password)
         add_ssh_proxy(instance_id, body.ssh_port)
         return {"instance_id": instance_id, "private_ip": private_ip, "ssh_port": body.ssh_port, "status": "running", "root_password": password, "virtualization_type": mode}
+    except HostRootSpaceError as exc:
+        delete_instance(instance_id)
+        raise HTTPException(507, str(exc)[:1800])
     except HTTPException:
         raise
     except Exception as exc:
@@ -954,11 +1090,15 @@ def delete(instance_id: str):
 def add_port(instance_id: str, body: PortBody):
     require_instance(instance_id)
     require_nat_port_allowed(body.public_port)
+    ensure_host_root_space("添加 NAT 端口")
     protocol = body.protocol.lower()
     if protocol not in {"tcp", "udp"}:
         raise HTTPException(400, "仅支持 TCP / UDP")
     device = f"nat-{protocol}-{body.public_port}"
-    add_proxy_device(instance_id, device, protocol, body.public_port, body.private_port)
+    try:
+        add_proxy_device(instance_id, device, protocol, body.public_port, body.private_port)
+    except HostRootSpaceError as exc:
+        raise HTTPException(507, str(exc)[:1800])
     return {"device_name": device}
 
 
