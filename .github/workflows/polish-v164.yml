@@ -1,0 +1,155 @@
+name: Polish XNAT v1.6.4
+
+on:
+  push:
+    branches:
+      - release/v1.6.4
+
+permissions:
+  contents: write
+
+jobs:
+  polish:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Harden Host low-space recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p=Path(path); text=p.read_text(encoding='utf-8')
+              count=text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one occurrence, got {count}: {old[:120]!r}')
+              p.write_text(text.replace(old,new,1), encoding='utf-8')
+
+          replace_once(
+              'agent/natvps_agent/main.py',
+              '''def _is_no_space_error(exc: Exception) -> bool:\n    text = str(exc).lower()\n    return "no space left on device" in text or "enospc" in text\n\n\ndef require_instance(name: str):\n''',
+              '''class HostRootSpaceError(RuntimeError):\n    """Host root filesystem cannot safely accept more Incus runtime writes."""\n\n\n\ndef _is_no_space_text(text: str) -> bool:\n    lowered = str(text or "").lower()\n    return "no space left on device" in lowered or "enospc" in lowered\n\n\ndef _is_no_space_error(exc: Exception) -> bool:\n    return _is_no_space_text(str(exc))\n\n\ndef _proxy_log_tail(name: str, device: str) -> str:\n    if not INSTANCE_RE.fullmatch(name or "") or not DEVICE_RE.fullmatch(device or ""):\n        return ""\n    try:\n        path = Path("/var/log/incus") / name / f"proxy.{device}.log"\n        return path.read_text(encoding="utf-8", errors="replace")[-4000:]\n    except Exception:\n        return ""\n\n\ndef require_instance(name: str):\n''',
+          )
+
+          replace_once(
+              'agent/natvps_agent/main.py',
+              '''    try:\n        run(args, timeout=35)\n    except RuntimeError as exc:\n        if not _is_no_space_error(exc):\n            raise\n        safe_host_cleanup()\n        space = host_root_space_mb()\n        if space["free_mb"] < HOST_ROOT_MIN_FREE_MB:\n            raise HTTPException(\n                status_code=507,\n                detail=(\n                    f"Host 系统盘可用空间不足：自动安全清理后仅剩 {space['free_mb']} MiB，"\n                    f"至少需要 {HOST_ROOT_MIN_FREE_MB} MiB"\n                ),\n            ) from exc\n        run(args, timeout=35)\n''',
+              '''    try:\n        run(args, timeout=35)\n    except RuntimeError as exc:\n        error_text = str(exc)\n        no_space = _is_no_space_error(exc)\n        if not no_space and ("Failed to start device" in error_text or "Please look in" in error_text):\n            no_space = _is_no_space_text(_proxy_log_tail(name, device))\n        if not no_space:\n            raise\n\n        cleanup = safe_host_cleanup()\n        space = host_root_space_mb()\n        if space["free_mb"] < HOST_ROOT_MIN_FREE_MB:\n            raise HostRootSpaceError(\n                f"Host 系统盘可用空间不足：自动安全清理后仅剩 {space['free_mb']} MiB，"\n                f"至少需要 {HOST_ROOT_MIN_FREE_MB} MiB（本次释放 {cleanup['freed_mb']} MiB）"\n            ) from exc\n\n        # A failed proxy start may leave a device definition behind. Remove\n        # only this just-added proxy device before the single retry.\n        run(["incus", "config", "device", "remove", name, device], check=False, timeout=35)\n        try:\n            run(args, timeout=35)\n        except RuntimeError as retry_exc:\n            retry_text = str(retry_exc)\n            retry_no_space = _is_no_space_error(retry_exc)\n            if not retry_no_space and ("Failed to start device" in retry_text or "Please look in" in retry_text):\n                retry_no_space = _is_no_space_text(_proxy_log_tail(name, device))\n            if retry_no_space:\n                retry_space = host_root_space_mb()\n                raise HostRootSpaceError(\n                    f"Host 系统盘空间不足导致 Incus 端口映射启动失败；安全清理后仍无法恢复，"\n                    f"当前可用 {retry_space['free_mb']} MiB，请扩容 Host 系统盘"\n                ) from retry_exc\n            raise\n''',
+          )
+
+          replace_once(
+              'agent/natvps_agent/main.py',
+              '''        add_ssh_proxy(body.instance_name, body.ssh_port)\n        return {"instance_id": body.instance_name, "private_ip": private_ip, "ssh_port": body.ssh_port, "status": "running", "root_password": password, "virtualization_type": mode}\n    except HTTPException:\n        raise\n    except Exception as exc:\n''',
+              '''        add_ssh_proxy(body.instance_name, body.ssh_port)\n        return {"instance_id": body.instance_name, "private_ip": private_ip, "ssh_port": body.ssh_port, "status": "running", "root_password": password, "virtualization_type": mode}\n    except HostRootSpaceError as exc:\n        delete_instance(body.instance_name)\n        raise HTTPException(507, str(exc)[:1800])\n    except HTTPException:\n        raise\n    except Exception as exc:\n''',
+          )
+
+          replace_once(
+              'agent/natvps_agent/main.py',
+              '''        add_ssh_proxy(instance_id, body.ssh_port)\n        return {"instance_id": instance_id, "private_ip": private_ip, "ssh_port": body.ssh_port, "status": "running", "root_password": password, "virtualization_type": mode}\n    except HTTPException:\n        raise\n    except Exception as exc:\n''',
+              '''        add_ssh_proxy(instance_id, body.ssh_port)\n        return {"instance_id": instance_id, "private_ip": private_ip, "ssh_port": body.ssh_port, "status": "running", "root_password": password, "virtualization_type": mode}\n    except HostRootSpaceError as exc:\n        delete_instance(instance_id)\n        raise HTTPException(507, str(exc)[:1800])\n    except HTTPException:\n        raise\n    except Exception as exc:\n''',
+          )
+
+          replace_once(
+              'agent/natvps_agent/main.py',
+              '''    device = f"nat-{protocol}-{body.public_port}"\n    add_proxy_device(instance_id, device, protocol, body.public_port, body.private_port)\n    return {"device_name": device}\n''',
+              '''    device = f"nat-{protocol}-{body.public_port}"\n    try:\n        add_proxy_device(instance_id, device, protocol, body.public_port, body.private_port)\n    except HostRootSpaceError as exc:\n        raise HTTPException(507, str(exc)[:1800])\n    return {"device_name": device}\n''',
+          )
+
+          # Host menu: proactively surface the same 512MiB safety threshold.
+          replace_once(
+              'scripts/xnat',
+              '''print_menu_header(){\n  local role="$1" service="" version release\n''',
+              '''print_menu_header(){\n  local role="$1" service="" version release root_free\n''',
+          )
+          replace_once(
+              'scripts/xnat',
+              '''  if [[ "$role" == host ]]; then\n    printf 'Agent API  v%s\\n' "$(current_agent_api_version)"\n  fi\n  printf '状态       '\n''',
+              '''  if [[ "$role" == host ]]; then\n    printf 'Agent API  v%s\\n' "$(current_agent_api_version)"\n    root_free="$(fs_available_mb /)"\n    if [[ "$root_free" =~ ^[0-9]+$ ]] && (( root_free < 512 )); then\n      printf '%b\\n' "${XNAT_YELLOW}! 系统盘可用仅 ${root_free} MB，建议运行『清理 Host 系统空间』${XNAT_RESET}"\n    fi\n  fi\n  printf '状态       '\n''',
+          )
+
+          # Keep Host-facing update copy about Host Agent / update packages, not a Panel-like release version.
+          replace_once(
+              'scripts/xnat',
+              '''  if [[ "$current" == "$target" ]]; then\n    if [[ "$current_rel" != unknown ]] && valid_version "$current_rel" && dpkg --compare-versions "$release" lt "$current_rel" && [[ "${XNAT_ALLOW_DOWNGRADE:-0}" != 1 ]]; then\n      die "目标 XNAT Release 低于当前 Release。若确需降级，请设置 XNAT_ALLOW_DOWNGRADE=1。"\n    fi\n    ui_notice "组件版本保持 v${target}，将同步 Release v${release} 的管理脚本与发布文件"\n  fi\n''',
+              '''  if [[ "$current" == "$target" ]]; then\n    if [[ "$current_rel" != unknown ]] && valid_version "$current_rel" && dpkg --compare-versions "$release" lt "$current_rel" && [[ "${XNAT_ALLOW_DOWNGRADE:-0}" != 1 ]]; then\n      if [[ "$role" == host ]]; then\n        die "目标 Host 更新包低于当前已同步的更新包。若确需降级，请设置 XNAT_ALLOW_DOWNGRADE=1。"\n      else\n        die "目标 XNAT Release 低于当前 Release。若确需降级，请设置 XNAT_ALLOW_DOWNGRADE=1。"\n      fi\n    fi\n    if [[ "$role" == host ]]; then\n      ui_notice "Host Agent 版本保持 v${target}，仅同步更新包 v${release} 中的 Host 管理脚本"\n    else\n      ui_notice "组件版本保持 v${target}，将同步 Release v${release} 的管理脚本与发布文件"\n    fi\n  fi\n''',
+          )
+          replace_once(
+              'scripts/xnat',
+              '''      if [[ "$current" == "$target" ]]; then\n        printf '%b' "${XNAT_YELLOW}${XNAT_BOLD}▶${XNAT_RESET} 确认同步 $(component_label "$role") 到 XNAT Release v${release}？[y/N]: "\n      else\n''',
+              '''      if [[ "$current" == "$target" ]]; then\n        if [[ "$role" == host ]]; then\n          printf '%b' "${XNAT_YELLOW}${XNAT_BOLD}▶${XNAT_RESET} 确认同步 Host 管理脚本（更新包 v${release}）？[y/N]: "\n        else\n          printf '%b' "${XNAT_YELLOW}${XNAT_BOLD}▶${XNAT_RESET} 确认同步 $(component_label "$role") 到 XNAT Release v${release}？[y/N]: "\n        fi\n      else\n''',
+          )
+          replace_once(
+              'scripts/xnat',
+              '''  echo\n  ui_success "更新完成：$(component_label "$role") v${installed} / XNAT Release v${release}"\n}\n''',
+              '''  echo\n  if [[ "$role" == host ]]; then\n    ui_success "更新完成：Host Agent v${installed}（更新包 v${release}）"\n  else\n    ui_success "更新完成：$(component_label "$role") v${installed} / XNAT Release v${release}"\n  fi\n}\n''',
+          )
+
+          replace_once(
+              'scripts/install-host.sh',
+              '''if (( ROOT_TOTAL_MIB < total_min )); then ok="false"; reason="${reason:+${reason}；}总硬盘低于 $((total_min/1024)).$(((total_min%1024)*10/1024))GiB 基线"; fi\n''',
+              '''if (( ROOT_TOTAL_MIB < total_min )); then ok="false"; reason="${reason:+${reason}；}总硬盘低于 $((total_min/1024)).$(((total_min%1024)*10/1024))GiB 最低安装要求"; fi\n''',
+          )
+          PY
+
+      - name: Install validation dependencies
+        run: python3 -m pip install --disable-pip-version-check -q -r panel/requirements.txt -r agent/requirements.txt
+
+      - name: Validate hardened release
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile agent/natvps_agent/main.py agent/natvps_agent/__init__.py
+          bash -n scripts/install-host.sh scripts/upgrade-host-agent.sh scripts/xnat scripts/xnat-firewall scripts/check.sh
+          bash scripts/check.sh
+          AGENT_TOKEN=test python3 - <<'PY'
+          import agent.natvps_agent.main as m
+          from fastapi import HTTPException
+
+          original_space=m.host_root_space_mb
+          original_cleanup=m.safe_host_cleanup
+          try:
+              values=iter([{"total_mb":5000,"used_mb":4900,"free_mb":100}, {"total_mb":5000,"used_mb":4300,"free_mb":700}])
+              m.host_root_space_mb=lambda: next(values)
+              m.safe_host_cleanup=lambda: {"before_free_mb":100,"after_free_mb":700,"freed_mb":600,"actions":[]}
+              result=m.ensure_host_root_space("测试")
+              assert result["free_mb"] == 700
+
+              m.host_root_space_mb=lambda: {"total_mb":5000,"used_mb":4900,"free_mb":100}
+              m.safe_host_cleanup=lambda: {"before_free_mb":100,"after_free_mb":100,"freed_mb":0,"actions":[]}
+              try:
+                  m.ensure_host_root_space("测试")
+              except HTTPException as exc:
+                  assert exc.status_code == 507
+                  assert "系统盘可用空间不足" in exc.detail
+              else:
+                  raise AssertionError('low-space guard did not fail closed')
+          finally:
+              m.host_root_space_mb=original_space
+              m.safe_host_cleanup=original_cleanup
+          assert m._is_no_space_text('No space left on device')
+          assert m._is_no_space_text('ENOSPC')
+          assert not m._is_no_space_text('address already in use')
+          print('Host root-space guard tests: ok')
+          PY
+          grep -q 'proxy\."' agent/natvps_agent/main.py || true
+          grep -q '_proxy_log_tail(name, device)' agent/natvps_agent/main.py
+          grep -q 'except HostRootSpaceError as exc' agent/natvps_agent/main.py
+          grep -q '系统盘可用仅' scripts/xnat
+          ! grep -q 'rm -rf /var/lib/incus/disks' scripts/xnat agent/natvps_agent/main.py
+
+      - name: Commit polish and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/polish-v164.yml
+          git config user.name "XNAT Release Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(host): harden ENOSPC recovery"
+          git push origin HEAD:release/v1.6.4
