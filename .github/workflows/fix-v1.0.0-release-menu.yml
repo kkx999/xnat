@@ -20,12 +20,14 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
           p=Path('scripts/xnat')
           s=p.read_text(encoding='utf-8')
-          old='    [[ "$role" == panel && "$(current_release)" != unknown ]] && printf \'当前 XNAT Release：v%s\\n\' "$(current_release)"\n'
-          if old not in s:
-              raise SystemExit('update menu release label not found')
-          p.write_text(s.replace(old,'',1), encoding='utf-8')
+          pat=r'^\s*\[\[ "\$role" == panel && "\$\(current_release\)" != unknown \]\] && printf \'当前 XNAT Release：v%s\n\' "\$\(current_release\)"\n'
+          out,n=re.subn(pat,'',s,count=1,flags=re.M)
+          if n != 1:
+              raise SystemExit(f'update menu release label matches: {n}')
+          p.write_text(out, encoding='utf-8')
           PY
           rm -f .github/workflows/fix-v1.0.0-release-menu.yml
           git config user.name "github-actions[bot]"
