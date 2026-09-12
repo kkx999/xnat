@@ -254,7 +254,7 @@
               <label>套餐名称<input name="name" value="{{ p.name }}" required></label>
               <label>CPU<input type="number" name="cpu" min="1" value="{{ p.cpu }}" required></label>
               <label>内存 MB<input type="number" name="memory_mb" min="{{ 512 if (p.virtualization_type or 'lxc') == 'kvm' else 64 }}" value="{{ p.memory_mb }}" required data-virt-memory></label>
-              <label>磁盘 GB<input type="number" name="disk_gb" min="{{ 4 if (p.virtualization_type or 'lxc') == 'kvm' else 1 }}" value="{{ p.disk_gb }}" required data-virt-disk></label>
+              <label>磁盘 GB<input type="number" name="disk_gb" min="{{ 4 if (p.virtualization_type or 'lxc') == 'kvm' else 0.125 }}" step="0.125" value="{{ p.disk_gb }}" required data-virt-disk></label>
               <label>带宽 Mbps<input type="number" name="bandwidth_mbps" min="0" value="{{ p.bandwidth_mbps }}" required></label>
               <label>流量 GB<input type="number" name="traffic_gb" min="0" value="{{ p.traffic_gb }}" required></label>
               <label>NAT 端口<input type="number" name="port_count" min="0" value="{{ p.port_count }}" required></label>
@@ -290,7 +290,7 @@
           <label>套餐名称<input name="name" placeholder="例如 Hong Kong Nano" required></label>
           <label>CPU<input type="number" name="cpu" min="1" value="1" required></label>
           <label>内存 MB<input type="number" name="memory_mb" min="64" value="128" required data-virt-memory></label>
-          <label>磁盘 GB<input type="number" name="disk_gb" min="1" value="2" required data-virt-disk></label>
+          <label>磁盘 GB<input type="number" name="disk_gb" min="0.125" step="0.125" value="1" required data-virt-disk></label>
           <label>带宽 Mbps<input type="number" name="bandwidth_mbps" min="0" value="100" required></label>
           <label>流量 GB<input type="number" name="traffic_gb" min="0" value="200" required></label>
           <label>NAT 端口<input type="number" name="port_count" min="0" value="5" required></label>
@@ -549,7 +549,7 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <label>vCPU<input type="number" name="cpu" min="1" max="128" value="{{ s.cpu or 1 }}" required></label>
                 <label>内存 MB<input type="number" name="memory_mb" min="{{ 512 if (s.virtualization_type or 'lxc') == 'kvm' else 64 }}" max="1048576" step="64" value="{{ s.memory_mb or 128 }}" required></label>
-                <label>磁盘 GB<input type="number" name="disk_gb" min="{{ s.disk_gb or 1 }}" max="65536" value="{{ s.disk_gb or 1 }}" required oninput="this.setCustomValidity('')" oninvalid="this.setCustomValidity('磁盘仅支持扩容，当前容量为 {{ s.disk_gb or 1 }} GB。请输入大于或等于 {{ s.disk_gb or 1 }} GB 的容量。')"></label>
+                <label>磁盘 GB<input type="number" name="disk_gb" min="{{ s.disk_gb or 0.125 }}" step="0.125" max="65536" value="{{ s.disk_gb or 0.125 }}" required oninput="this.setCustomValidity('')" oninvalid="this.setCustomValidity('磁盘仅支持扩容，当前容量为 {{ s.disk_gb or 1 }} GB。请输入大于或等于 {{ s.disk_gb or 1 }} GB 的容量。')"></label>
                 <small>CPU / 内存可调整；磁盘只允许扩容。{% if (s.virtualization_type or 'lxc') == 'kvm' %} KVM 最低 512MB / 4GB。{% endif %}</small>
                 <button type="submit">保存资源配置</button>
               </form>
@@ -1083,14 +1083,14 @@
                 <small>已分配 {{ cap.get('allocated_cpu', 0) }} vCPU</small>
               </div>
               <div>
-                <span>剩余内存</span>
+                <span>可分配内存</span>
                 <strong>{% if cap.get('remaining_memory_mb', 0) >= 1024 %}{{ '%.2f'|format(cap.get('remaining_memory_mb', 0) / 1024) }} GB{% else %}{{ cap.get('remaining_memory_mb', 0) }} MB{% endif %}</strong>
-                <small>已分配 {{ cap.get('allocated_memory_mb', 0) }} MB</small>
+                <small>逻辑已分配 {{ cap.get('allocated_memory_mb', 0) }} MB · 实际余量 {{ cap.get('physical_remaining_memory_mb', 0) }} MB</small>
               </div>
               <div>
-                <span>剩余存储</span>
+                <span>可分配存储</span>
                 <strong>{{ '%.1f'|format(cap.get('remaining_disk_gb', 0)) }} GB</strong>
-                <small>已分配 {{ '%.1f'|format(cap.get('allocated_disk_gb', 0)) }} GB</small>
+                <small>逻辑已分配 {{ '%.3f'|format(cap.get('allocated_disk_gb', 0)) }} GB · natpool 实际余量 {{ '%.3f'|format(cap.get('physical_remaining_disk_gb', 0)) }} GB</small>
               </div>
             </div>
             {% else %}

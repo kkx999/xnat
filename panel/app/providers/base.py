@@ -22,14 +22,14 @@ class ProviderState:
     bandwidth_mbps: int | None = None
     cpu: int | None = None
     memory_mb: int | None = None
-    disk_gb: int | None = None
+    disk_gb: float | None = None
     virtualization_type: str | None = None
 
 class Provider(ABC):
     @abstractmethod
     def provision(
         self, server_id: int, instance_name: str, image_alias: str,
-        memory_mb: int, disk_gb: int, cpu: int,
+        memory_mb: int, disk_gb: float, cpu: int,
         bandwidth_mbps: int, ssh_port: int, virtualization_type: str = "lxc"
     ) -> ProvisionResult:
         raise NotImplementedError
@@ -45,7 +45,7 @@ class Provider(ABC):
     @abstractmethod
     def reinstall(
         self, instance_id: str, image_alias: str,
-        memory_mb: int, disk_gb: int, cpu: int,
+        memory_mb: int, disk_gb: float, cpu: int,
         bandwidth_mbps: int, ssh_port: int, virtualization_type: str = "lxc"
     ) -> ProvisionResult:
         raise NotImplementedError
@@ -67,7 +67,7 @@ class Provider(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def resize_resources(self, instance_id: str, cpu: int, memory_mb: int, disk_gb: int) -> dict:
+    def resize_resources(self, instance_id: str, cpu: int, memory_mb: int, disk_gb: float) -> dict:
         raise NotImplementedError
 
     @abstractmethod

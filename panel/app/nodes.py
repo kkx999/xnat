@@ -48,7 +48,7 @@ def host_request(host: HostNode, method: str, path: str, *, payload=None, timeou
         "X-NAT-Timestamp": ts,
         "X-NAT-Signature": _signature(token, ts, method, path, body),
         "Content-Type": "application/json",
-        "User-Agent": "XNAT-Panel/1.4.1",
+        "User-Agent": "XNAT-Panel/1.5.0",
     }
     try:
         with httpx.Client(verify=bool(host.verify_tls), timeout=timeout) as client:
@@ -322,15 +322,23 @@ def host_schedule_state(db, host: HostNode, plan: Plan | None = None, *, refresh
     cpu_limit_percent = thresholds["cpu"] or 100
     memory_allocatable_mb = int((host.memory_total_mb or 0) * memory_limit_percent / 100)
     storage_allocatable_gb = float((host.storage_total_gb or 0) * storage_limit_percent / 100)
+    logical_memory_remaining = max(0, memory_allocatable_mb - allocated_memory)
+    logical_storage_remaining = max(0.0, storage_allocatable_gb - allocated_disk)
+    physical_memory_remaining = max(0, memory_allocatable_mb - int(host.memory_used_mb or 0))
+    physical_storage_remaining = max(0.0, storage_allocatable_gb - float(host.storage_used_gb or 0))
     capacity = {
         "allocated_cpu": allocated_cpu,
         "cpu_headroom_percent": round(max(0.0, cpu_limit_percent - float(host.cpu_percent or 0)), 1),
         "cpu_limit_percent": cpu_limit_percent,
         "allocated_memory_mb": allocated_memory,
-        "remaining_memory_mb": max(0, memory_allocatable_mb - allocated_memory),
+        "remaining_memory_mb": min(logical_memory_remaining, physical_memory_remaining),
+        "logical_remaining_memory_mb": logical_memory_remaining,
+        "physical_remaining_memory_mb": physical_memory_remaining,
         "memory_limit_percent": memory_limit_percent,
-        "allocated_disk_gb": round(allocated_disk, 1),
-        "remaining_disk_gb": round(max(0.0, storage_allocatable_gb - allocated_disk), 1),
+        "allocated_disk_gb": round(allocated_disk, 3),
+        "remaining_disk_gb": round(min(logical_storage_remaining, physical_storage_remaining), 3),
+        "logical_remaining_disk_gb": round(logical_storage_remaining, 3),
+        "physical_remaining_disk_gb": round(physical_storage_remaining, 3),
         "storage_limit_percent": storage_limit_percent,
     }
 
@@ -350,7 +358,7 @@ def host_schedule_state(db, host: HostNode, plan: Plan | None = None, *, refresh
             if projected_memory > limit:
                 return {"allowed": False, "code": "capacity_memory", "label": "内存不足", "reason": f"开通后分配内存将达到 {projected_memory:.1f}%（上限 {limit}%）", "capacity": capacity}
         if host.storage_total_gb:
-            projected_disk = (allocated_disk + int(plan.disk_gb or 0)) * 100 / host.storage_total_gb
+            projected_disk = (allocated_disk + float(plan.disk_gb or 0)) * 100 / host.storage_total_gb
             limit = thresholds["storage"] or 100
             if projected_disk > limit:
                 return {"allowed": False, "code": "capacity_storage", "label": "存储不足", "reason": f"开通后逻辑磁盘分配将达到 {projected_disk:.1f}%（上限 {limit}%）", "capacity": capacity}

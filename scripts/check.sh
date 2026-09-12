@@ -194,6 +194,18 @@ grep -q 'timeout=600 if str(virtualization_type).lower() == "kvm" else 260' pane
 grep -Fq 'str(detail)[:1200]' panel/app/nodes.py
 
 
+# v1.5.0 low-resource Host / Alpine compatibility contracts.
+grep -q 'MIN_FREE_MIB=4608' scripts/install-host.sh
+grep -q 'MIN_FREE_MIB=6656' scripts/install-host.sh
+grep -q 'images:alpine/3.24' scripts/install-host.sh
+grep -q 'def guest_os_family' agent/natvps_agent/main.py
+grep -q 'apk add --no-cache openssh' agent/natvps_agent/main.py
+grep -q 'disk_size_value' agent/natvps_agent/main.py
+grep -q 'family not in {"apt", "alpine"}' panel/app/main.py
+grep -q '0.125' panel/app/templates/admin.html
+grep -q 'physical_remaining_disk_gb' panel/app/nodes.py
+grep -q '1.4.3) UPGRADE_PATH="verified-v1.4.3"' scripts/upgrade-panel.sh
+
 # v1.3.2 Mobile API v1 contract for XNAT Android v1.0.0.
 test -f panel/app/mobile_api.py
 grep -q 'from \.mobile_api import router as mobile_api_router' panel/app/main.py

@@ -18,7 +18,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse
 
-AGENT_VERSION = "1.1.1"
+AGENT_VERSION = "1.2.0"
 AGENT_API_VERSION = "1"
 AGENT_TOKEN = os.getenv("AGENT_TOKEN", "")
 STORAGE_POOL = os.getenv("INCUS_STORAGE_POOL", "natpool")
@@ -252,6 +252,14 @@ def random_password(length=20):
     return "".join(secrets.choice(chars) for _ in range(length))
 
 
+def disk_size_value(disk_gb: float) -> str:
+    """Convert the panel's GiB value to an exact Incus MiB size."""
+    mib = int(round(float(disk_gb) * 1024))
+    if mib < 128:
+        raise RuntimeError("LXC 实例系统盘至少需要 128 MiB")
+    return f"{mib}MiB"
+
+
 def instance_virtualization_type(name: str) -> str:
     proc = run(["incus", "query", f"/1.0/instances/{name}"], check=False, timeout=20)
     if proc.returncode != 0:
@@ -309,17 +317,52 @@ def wait_ipv4(name: str, virtualization_type: str = "lxc"):
     raise RuntimeError(f"{mode.upper()} 实例未能在 {wait_seconds} 秒内获取 IPv4{detail}")
 
 
+def guest_os_family(name: str) -> str:
+    proc = run([
+        "incus", "exec", name, "--", "sh", "-lc",
+        "command -v apk >/dev/null 2>&1 && echo alpine || (command -v apt-get >/dev/null 2>&1 && echo apt || true)",
+    ], check=False, timeout=20)
+    family = (proc.stdout or "").strip().lower()
+    return family if family in {"alpine", "apt"} else "unknown"
+
+
+def restart_ssh_service(name: str):
+    family = guest_os_family(name)
+    command = (
+        "rc-service sshd restart || rc-service sshd start"
+        if family == "alpine"
+        else "systemctl restart ssh || systemctl restart sshd"
+    )
+    proc = run(["incus", "exec", name, "--", "sh", "-lc", command], check=False, timeout=35)
+    if proc.returncode != 0:
+        raise RuntimeError(_command_error(["restart ssh"], proc)[:1200])
+
+
 def prepare_ssh(name: str, password: str):
-    # Debian/Ubuntu images can ship their own sshd_config.d snippets. OpenSSH
-    # uses the first value it sees for many keywords, so merely dropping a
-    # late *.conf file can leave PasswordAuthentication disabled. Put the XNAT
-    # include first, then verify the effective sshd configuration before the
-    # instance is exposed through a public NAT port.
     try:
         run(["incus", "exec", name, "--", "chpasswd"], input_text=f"root:{password}\n", timeout=30)
     except Exception as exc:
         raise RuntimeError(f"KVM/LXC SSH 初始化失败 [设置 root 密码]: {exc}") from exc
-    script = r"""
+
+    family = guest_os_family(name)
+    if family == "alpine":
+        script = r"""
+set -eu
+apk add --no-cache openssh ca-certificates
+mkdir -p /run/sshd
+ssh-keygen -A
+sed -i '/^[#[:space:]]*PermitRootLogin[[:space:]]/d;/^[#[:space:]]*PasswordAuthentication[[:space:]]/d' /etc/ssh/sshd_config
+printf '\nPermitRootLogin yes\nPasswordAuthentication yes\n' >> /etc/ssh/sshd_config
+sshd -t
+sshd -T | grep -x 'permitrootlogin yes' >/dev/null
+sshd -T | grep -x 'passwordauthentication yes' >/dev/null
+rc-update add sshd default >/dev/null 2>&1 || true
+rc-service sshd restart >/dev/null 2>&1 || rc-service sshd start >/dev/null 2>&1
+ss -lnt | grep ':22 ' >/dev/null
+"""
+        command = ["incus", "exec", name, "--", "sh", "-lc", script]
+    elif family == "apt":
+        script = r"""
 set -Eeuo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
@@ -345,8 +388,11 @@ systemctl enable --now ssh
 systemctl restart ssh
 ss -lnt '( sport = :22 )' | grep 'LISTEN' >/dev/null
 """
+        command = ["incus", "exec", name, "--", "bash", "-lc", script]
+    else:
+        raise RuntimeError("当前系统镜像缺少受支持的包管理器；已支持 Debian / Ubuntu / Alpine")
     try:
-        run(["incus", "exec", name, "--", "bash", "-lc", script], timeout=300)
+        run(command, timeout=300)
     except Exception as exc:
         raise RuntimeError(f"KVM/LXC SSH 初始化失败 [安装/配置 sshd]: {exc}") from exc
 
@@ -374,12 +420,12 @@ def set_bandwidth(instance_id: str, mbps: int):
     set_eth0_value(instance_id, "limits.max", f"{mbps}Mbit")
 
 
-def launch(name: str, image_alias: str, memory_mb: int, disk_gb: int, cpu: int, bandwidth_mbps: int, virtualization_type: str = "lxc"):
+def launch(name: str, image_alias: str, memory_mb: int, disk_gb: float, cpu: int, bandwidth_mbps: int, virtualization_type: str = "lxc"):
     mode = require_virtualization_allowed(virtualization_type)
     args = [
         "incus", "launch", image_alias, name, "--storage", STORAGE_POOL,
         "--config", f"limits.cpu={cpu}", "--config", f"limits.memory={memory_mb}MiB",
-        "--device", f"root,size={disk_gb}GiB",
+        "--device", f"root,size={disk_size_value(disk_gb)}",
     ]
     if mode == "kvm":
         if memory_mb < 512:
@@ -634,12 +680,12 @@ def instance_resource_snapshot(instance_id: str):
     return {
         "cpu": cpu,
         "memory_mb": int(round(memory_bytes / (1024 ** 2))) if memory_bytes else 0,
-        "disk_gb": int(round(disk_bytes / (1024 ** 3))) if disk_bytes else 0,
+        "disk_gb": round(disk_bytes / (1024 ** 3), 3) if disk_bytes else 0.0,
     }
 
 
-def _set_root_disk_size(instance_id: str, disk_gb: int):
-    value = f"{disk_gb}GiB"
+def _set_root_disk_size(instance_id: str, disk_gb: float):
+    value = disk_size_value(disk_gb)
 
     proc = run(
         ["incus", "config", "device", "set", instance_id, "root", f"size={value}"],
@@ -659,7 +705,7 @@ def _set_root_disk_size(instance_id: str, disk_gb: int):
         raise RuntimeError(msg[:1000])
 
 
-def resize_instance_resources(instance_id: str, cpu: int, memory_mb: int, disk_gb: int):
+def resize_instance_resources(instance_id: str, cpu: int, memory_mb: int, disk_gb: float):
     """Adjust an already provisioned container.
 
     CPU and memory may be increased or decreased.
@@ -707,7 +753,7 @@ class ProvisionBody(BaseModel):
     instance_name: str
     image_alias: str
     memory_mb: int = Field(ge=64, le=1048576)
-    disk_gb: int = Field(ge=1, le=65536)
+    disk_gb: float = Field(ge=0.125, le=65536)
     cpu: int = Field(ge=1, le=128)
     bandwidth_mbps: int = Field(ge=0, le=10000)
     ssh_port: int = Field(ge=1024, le=65535)
@@ -718,7 +764,7 @@ class ProvisionBody(BaseModel):
 class ResourceResizeBody(BaseModel):
     cpu: int = Field(ge=1, le=128)
     memory_mb: int = Field(ge=64, le=1048576)
-    disk_gb: int = Field(ge=1, le=65536)
+    disk_gb: float = Field(ge=0.125, le=65536)
 
 class PowerBody(BaseModel):
     action: str
@@ -727,7 +773,7 @@ class PowerBody(BaseModel):
 class ReinstallBody(BaseModel):
     image_alias: str
     memory_mb: int
-    disk_gb: int
+    disk_gb: float
     cpu: int
     bandwidth_mbps: int
     ssh_port: int
@@ -786,8 +832,10 @@ def status():
         "cpu_percent": round(psutil.cpu_percent(interval=0.15), 1),
         "memory_total_mb": int(vm.total / 1024 / 1024),
         "memory_used_mb": int((vm.total - vm.available) / 1024 / 1024),
+        "memory_available_mb": int(vm.available / 1024 / 1024),
         "storage_total_gb": round(total_gb, 2),
         "storage_used_gb": round(used_gb, 2),
+        "storage_free_gb": round(max(0.0, total_gb - used_gb), 2),
         "storage_stats_source": storage_source,
         "active_vps": active,
         "virtualization_modes": configured_virtualization_modes(),
@@ -866,7 +914,7 @@ def reset_password(instance_id: str):
     wait_guest_agent(instance_id, mode)
     password = random_password()
     run(["incus", "exec", instance_id, "--", "chpasswd"], input_text=f"root:{password}\n", timeout=30)
-    run(["incus", "exec", instance_id, "--", "systemctl", "restart", "ssh"], timeout=30)
+    restart_ssh_service(instance_id)
     return {"root_password": password}
 
 
