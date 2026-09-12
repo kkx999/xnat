@@ -7,28 +7,18 @@ permissions:
   contents: write
 jobs:
   apply:
+    if: ${{ !contains(github.event.head_commit.message, '[xnat-v150-applied]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: release/v1.5.0
           fetch-depth: 0
-      - name: Extract and run staged patch
+      - name: Apply direct patch
         shell: bash
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          src=Path('.github/workflows/xnat-v150-maintenance.yml').read_text().splitlines()
-          start=next(i for i,x in enumerate(src) if "python3 <<'PY'" in x)+1
-          end=next(i for i in range(start,len(src)) if src[i].strip()=='PY')
-          lines=[]
-          for line in src[start:end]:
-              lines.append(line[10:] if line.startswith('          ') else line)
-          patch='\n'.join(lines)+'\n'
-          patch=patch.replace("if [ -f /etc/os-release ]; then . /etc/os-release; printf '%s' \\\"${ID:-}\\\"; fi", "if [ -f /etc/alpine-release ]; then echo alpine; elif command -v apt-get >/dev/null 2>&1; then echo debian; fi")
-          Path('/tmp/xnat-v150-patch.py').write_text(patch)
-          PY
-          python3 /tmp/xnat-v150-patch.py
+          python3 -m py_compile scripts/release-v150-patch.py
+          python3 scripts/release-v150-patch.py
       - name: Syntax and contract checks
         shell: bash
         run: |
@@ -42,11 +32,15 @@ jobs:
           grep -q 'apk add --no-cache openssh' agent/natvps_agent/main.py
           grep -q '0.125' panel/app/templates/admin.html
           grep -q 'physical_remaining_disk_gb' panel/app/nodes.py
-      - name: Commit result
+          ! grep -RIn 'system_image.family != "apt"' panel/app
+          ! grep -RIn 'SystemImage.family == "apt"' panel/app
+          ! grep -RIn 'disk_gb: int' panel/app/providers agent/natvps_agent
+      - name: Commit checked result
         shell: bash
         run: |
           rm -rf .github/workflows
           rmdir .github 2>/dev/null || true
+          rm -f scripts/release-v150-patch.py
           git config user.name 'XNAT Release Bot'
           git config user.email 'actions@users.noreply.github.com'
           git add -A
