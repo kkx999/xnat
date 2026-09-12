@@ -1,0 +1,85 @@
+name: Publish XNAT v1.0.0
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/publish-v1.0.0.yml
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    env:
+      RELEASE_TARGET: d9b36808e7c086bf09ea48e5112b1b46ea01466b
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Verify formal release target
+        run: |
+          set -Eeuo pipefail
+          git cat-file -e "${RELEASE_TARGET}^{commit}"
+          test "$(git show "${RELEASE_TARGET}:VERSION" | tr -d '[:space:]')" = "1.0.0"
+          test "$(git show "${RELEASE_TARGET}:panel/VERSION" | tr -d '[:space:]')" = "1.0.0"
+          test "$(git show "${RELEASE_TARGET}:agent/VERSION" | tr -d '[:space:]')" = "1.0.0"
+          python3 - <<'PY'
+          import json, subprocess, os
+          target=os.environ['RELEASE_TARGET']
+          raw=subprocess.check_output(['git','show',f'{target}:release.json'], text=True)
+          meta=json.loads(raw)
+          assert meta['release_version']=='1.0.0'
+          assert meta['panel_version']=='1.0.0'
+          assert meta['agent_version']=='1.0.0'
+          assert str(meta['agent_api_version'])=='1'
+          assert str(meta['mobile_api_version'])=='1'
+          print('release metadata: ok')
+          PY
+          for f in \
+            dist/xnat-panel-v1.0.0.zip \
+            dist/xnat-host-agent-v1.0.0.zip \
+            dist/xnat-bootstrap-panel-v1.0.0.sh \
+            dist/xnat-bootstrap-host-v1.0.0.sh \
+            dist/release.json \
+            dist/SHA256SUMS.txt \
+            dist/RELEASE_NOTES.md; do
+            git cat-file -e "${RELEASE_TARGET}:${f}"
+          done
+
+      - name: Publish formal release
+        run: |
+          set -Eeuo pipefail
+          if gh release view v1.0.0 >/dev/null 2>&1; then
+            echo "v1.0.0 release already exists" >&2
+            exit 1
+          fi
+          gh release create v1.0.0 \
+            --target "${RELEASE_TARGET}" \
+            --title "XNAT v1.0.0" \
+            --notes-file dist/RELEASE_NOTES.md \
+            dist/xnat-panel-v1.0.0.zip \
+            dist/xnat-host-agent-v1.0.0.zip \
+            dist/xnat-bootstrap-panel-v1.0.0.sh \
+            dist/xnat-bootstrap-host-v1.0.0.sh \
+            dist/release.json \
+            dist/SHA256SUMS.txt \
+            dist/RELEASE_NOTES.md
+
+      - name: Remove one-shot publisher
+        run: |
+          set -Eeuo pipefail
+          rm -f .github/workflows/publish-v1.0.0.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "ci: remove v1.0.0 publisher"
+            git push origin HEAD:main
+          fi
