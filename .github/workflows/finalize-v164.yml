@@ -45,6 +45,11 @@ jobs:
           p.write_text(s.replace(old,new,1), encoding='utf-8')
           PY
 
+      - name: Install validation dependencies
+        shell: bash
+        run: |
+          python3 -m pip install --disable-pip-version-check -q -r panel/requirements.txt -r agent/requirements.txt
+
       - name: Validate complete release
         shell: bash
         run: |
