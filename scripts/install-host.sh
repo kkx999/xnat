@@ -49,9 +49,9 @@ compute_mode_capacity(){
   local mode="$1" prefix total_min reserve min_pool warn_total requires_kvm="false"
   local pool_mib pool_gb ok="true" reason=""
   case "$mode" in
-    lxc) prefix="LXC"; total_min=4608; reserve=1024; min_pool=1; warn_total=5120 ;;
-    kvm) prefix="KVM"; total_min=6656; reserve=1536; min_pool=4; warn_total=8192; requires_kvm="true" ;;
-    hybrid) prefix="HYBRID"; total_min=6656; reserve=1536; min_pool=4; warn_total=8192; requires_kvm="true" ;;
+    lxc) prefix="LXC"; total_min=4608; reserve=1024; min_pool=1; warn_total=8192 ;;
+    kvm) prefix="KVM"; total_min=6656; reserve=1536; min_pool=4; warn_total=12288; requires_kvm="true" ;;
+    hybrid) prefix="HYBRID"; total_min=6656; reserve=1536; min_pool=4; warn_total=12288; requires_kvm="true" ;;
     *) die "未知虚拟化模式：${mode}" ;;
   esac
   pool_mib=$(( ROOT_AVAIL_MIB > reserve ? ROOT_AVAIL_MIB - reserve : 0 ))
@@ -105,15 +105,18 @@ PY_DISK
     echo
     echo "请选择 Host 运行模式："
     echo "  1) LXC"
-    echo "     母鸡基线：1C / 1GB / 4.5GiB 总硬盘"
+    echo "     最低安装：1C / 1GB / 4.5GiB 总硬盘"
+    echo "     建议配置：1C / 1GB / 8GiB+ 总硬盘"
     echo "     当前预计可用于 natpool：${LXC_POOL_GB} GiB（已预留约 1GiB 给系统/XNAT）"
     echo "     状态：$(mode_status "${LXC_OK}" "${LXC_REASON}")"
     echo "  2) KVM"
-    echo "     母鸡基线：1C / 1GB / 6.5GiB 总硬盘 + /dev/kvm"
+    echo "     最低安装：1C / 1GB / 6.5GiB 总硬盘 + /dev/kvm"
+    echo "     建议配置：2C / 2GB / 12GiB+ 总硬盘"
     echo "     当前预计可用于 natpool：${KVM_POOL_GB} GiB（已预留约 1.5GiB 给系统/XNAT）"
     echo "     状态：$(mode_status "${KVM_OK}" "${KVM_REASON}")"
     echo "  3) LXC + KVM"
-    echo "     母鸡基线：1C / 1GB / 6.5GiB 总硬盘 + /dev/kvm"
+    echo "     最低安装：1C / 1GB / 6.5GiB 总硬盘 + /dev/kvm"
+    echo "     建议配置：2C / 2GB / 12GiB+ 总硬盘"
     echo "     当前预计可用于 natpool：${HYBRID_POOL_GB} GiB（已预留约 1.5GiB 给系统/XNAT）"
     echo "     状态：$(mode_status "${HYBRID_OK}" "${HYBRID_REASON}")"
     read -r -p "请选择 [1-3] [1]: " choice
@@ -215,11 +218,18 @@ total, used, avail, reserve = map(int, sys.argv[1:])
 print(f"  总硬盘：        {total/1024:.2f} GiB")
 print(f"  当前已用：      {used/1024:.2f} GiB")
 print(f"  当前可用：      {avail/1024:.2f} GiB")
-print(f"  系统/XNAT预留：约 {reserve/1024:.2f} GiB")
+print(f"  系统/XNAT安装预留：约 {reserve/1024:.2f} GiB（不等同于长期安全余量）")
 PY_RES
   [[ "${VIRTUALIZATION_MODE}" == "lxc" ]] || echo "  /dev/kvm：      ✓ 可用"
   echo "  natpool 可分配：${MAX_SAFE_GB} GiB"
-  if (( ROOT_TOTAL_MIB < WARN_TOTAL_MIB || MAX_SAFE_GB == MIN_POOL_GB )); then echo "  [WARN] 当前属于低容量区间，建议只创建少量轻量实例。"; fi
+  if (( ROOT_TOTAL_MIB < WARN_TOTAL_MIB || MAX_SAFE_GB == MIN_POOL_GB )); then
+    echo "  [WARN] 当前 Host 仅达到最低安装区间，建议只用于测试或少量轻量实例。"
+    if [[ "${VIRTUALIZATION_MODE}" == "lxc" ]]; then
+      echo "  [WARN] 长期运行建议使用 8GiB+ 系统盘，并持续保留 Host 系统盘可用空间。"
+    else
+      echo "  [WARN] 长期运行建议使用 12GiB+ 系统盘，并持续保留 Host 系统盘可用空间。"
+    fi
+  fi
 fi
 if [[ -z "${NATPOOL_GB}" ]]; then
   if [[ -t 0 ]]; then
@@ -232,7 +242,7 @@ if [[ -z "${NATPOOL_GB}" ]]; then
 import sys
 avail, reserve = map(int, sys.argv[1:])
 print(f"  当前可用硬盘：       {avail/1024:.2f} GiB")
-print(f"  系统/XNAT安全预留：  约 {reserve/1024:.2f} GiB")
+print(f"  系统/XNAT安装预留：  约 {reserve/1024:.2f} GiB（长期运行仍需额外余量）")
 PY_POOL
     echo "  natpool 推荐值：      ${RECOMMENDED_GB} GiB"
     echo "  natpool 最低值：      ${MIN_POOL_GB} GiB"

@@ -6,10 +6,12 @@ import json
 import os
 import re
 import secrets
+import shutil
 import socket
 import string
 import subprocess
 import shlex
+import threading
 import time
 from pathlib import Path
 
@@ -18,7 +20,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse
 
-AGENT_VERSION = "1.2.0"
+AGENT_VERSION = "1.2.1"
 AGENT_API_VERSION = "1"
 AGENT_TOKEN = os.getenv("AGENT_TOKEN", "")
 STORAGE_POOL = os.getenv("INCUS_STORAGE_POOL", "natpool")
@@ -27,6 +29,9 @@ PUBLIC_IP = os.getenv("HOST_PUBLIC_IP", "")
 AGENT_PORT = int(os.getenv("AGENT_PORT", "29443"))
 NODE_CONFIG_PATH = Path(os.getenv("XNAT_NODE_CONFIG", "/etc/xnat/node.json"))
 TIMEOUT = int(os.getenv("INCUS_PROVISION_TIMEOUT", "180"))
+HOST_ROOT_MIN_FREE_MB = max(128, int(os.getenv("HOST_ROOT_MIN_FREE_MB", "512")))
+HOST_JOURNAL_MAX_MB = max(10, int(os.getenv("HOST_JOURNAL_MAX_MB", "50")))
+_HOST_CLEANUP_LOCK = threading.Lock()
 
 if not AGENT_TOKEN:
     raise RuntimeError("AGENT_TOKEN 未配置")
@@ -197,6 +202,70 @@ def run(args, *, input_text=None, timeout=None, check=True):
     if check and proc.returncode != 0:
         raise RuntimeError(_command_error(args, proc)[:2200])
     return proc
+
+
+def host_root_space_mb() -> dict:
+    usage = shutil.disk_usage("/")
+    mib = 1024 * 1024
+    return {
+        "total_mb": int(usage.total / mib),
+        "used_mb": int(usage.used / mib),
+        "free_mb": int(usage.free / mib),
+    }
+
+
+def safe_host_cleanup() -> dict:
+    """Free only disposable Host OS caches. Never touch Incus storage/VPS data."""
+    with _HOST_CLEANUP_LOCK:
+        before = host_root_space_mb()["free_mb"]
+        actions = []
+
+        if shutil.which("apt-get"):
+            proc = run(["apt-get", "clean"], check=False, timeout=120)
+            actions.append({"name": "apt-cache", "ok": proc.returncode == 0})
+
+        if shutil.which("journalctl"):
+            proc = run(["journalctl", f"--vacuum-size={HOST_JOURNAL_MAX_MB}M"], check=False, timeout=120)
+            actions.append({"name": "journal", "ok": proc.returncode == 0})
+
+        after = host_root_space_mb()["free_mb"]
+        print(
+            f"[XNAT] Host 安全清理完成：系统盘可用 {before} MiB -> {after} MiB",
+            flush=True,
+        )
+        return {
+            "before_free_mb": before,
+            "after_free_mb": after,
+            "freed_mb": max(0, after - before),
+            "actions": actions,
+        }
+
+
+def ensure_host_root_space(context: str = "操作") -> dict:
+    space = host_root_space_mb()
+    if space["free_mb"] >= HOST_ROOT_MIN_FREE_MB:
+        return space
+
+    print(
+        f"[XNAT] {context}前检测到 Host 系统盘仅剩 {space['free_mb']} MiB，开始安全自动清理",
+        flush=True,
+    )
+    cleanup = safe_host_cleanup()
+    space = host_root_space_mb()
+    if space["free_mb"] < HOST_ROOT_MIN_FREE_MB:
+        raise HTTPException(
+            status_code=507,
+            detail=(
+                f"Host 系统盘可用空间不足：自动安全清理后仅剩 {space['free_mb']} MiB，"
+                f"至少需要 {HOST_ROOT_MIN_FREE_MB} MiB；请扩容 Host 系统盘或运行 xnat 的『清理 Host 系统空间』"
+            ),
+        )
+    return {**space, "cleanup": cleanup}
+
+
+def _is_no_space_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "no space left on device" in text or "enospc" in text
 
 
 def require_instance(name: str):
@@ -449,7 +518,22 @@ def add_proxy_device(name: str, device: str, protocol: str, public_port: int, pr
     else:
         # Preserve the existing container proxy behavior.
         args.append(f"connect={protocol}:127.0.0.1:{private_port}")
-    run(args, timeout=35)
+    try:
+        run(args, timeout=35)
+    except RuntimeError as exc:
+        if not _is_no_space_error(exc):
+            raise
+        safe_host_cleanup()
+        space = host_root_space_mb()
+        if space["free_mb"] < HOST_ROOT_MIN_FREE_MB:
+            raise HTTPException(
+                status_code=507,
+                detail=(
+                    f"Host 系统盘可用空间不足：自动安全清理后仅剩 {space['free_mb']} MiB，"
+                    f"至少需要 {HOST_ROOT_MIN_FREE_MB} MiB"
+                ),
+            ) from exc
+        run(args, timeout=35)
 
 
 def add_ssh_proxy(name: str, ssh_port: int):
@@ -807,6 +891,7 @@ def health():
 @app.get("/v1/status")
 def status():
     vm = psutil.virtual_memory()
+    root_space = host_root_space_mb()
     port_start, port_end = nat_port_pool()
     total_gb, used_gb, storage_source = storage_stats()
     instances = run(["incus", "list", "--format", "json"], check=False, timeout=20)
@@ -833,6 +918,11 @@ def status():
         "memory_total_mb": int(vm.total / 1024 / 1024),
         "memory_used_mb": int((vm.total - vm.available) / 1024 / 1024),
         "memory_available_mb": int(vm.available / 1024 / 1024),
+        "host_root_total_mb": root_space["total_mb"],
+        "host_root_used_mb": root_space["used_mb"],
+        "host_root_free_mb": root_space["free_mb"],
+        "host_root_min_free_mb": HOST_ROOT_MIN_FREE_MB,
+        "host_root_low": root_space["free_mb"] < HOST_ROOT_MIN_FREE_MB,
         "storage_total_gb": round(total_gb, 2),
         "storage_used_gb": round(used_gb, 2),
         "storage_free_gb": round(max(0.0, total_gb - used_gb), 2),
@@ -876,6 +966,7 @@ def configure_nat_port_pool(body: NatPortPoolBody):
 def provision(body: ProvisionBody):
     require_instance(body.instance_name)
     require_nat_port_allowed(body.ssh_port)
+    ensure_host_root_space("创建 VPS")
     if instance_exists(body.instance_name):
         raise HTTPException(409, "实例已经存在")
     password = random_password()
@@ -922,6 +1013,7 @@ def reset_password(instance_id: str):
 def reinstall(instance_id: str, body: ReinstallBody):
     require_instance(instance_id)
     require_nat_port_allowed(body.ssh_port)
+    ensure_host_root_space("重装 VPS")
     # Validate the requested mode before deleting the current instance.
     # This prevents a temporary KVM capability problem from destroying a VM
     # before we know that the replacement can be created.
@@ -954,6 +1046,7 @@ def delete(instance_id: str):
 def add_port(instance_id: str, body: PortBody):
     require_instance(instance_id)
     require_nat_port_allowed(body.public_port)
+    ensure_host_root_space("添加 NAT 端口")
     protocol = body.protocol.lower()
     if protocol not in {"tcp", "udp"}:
         raise HTTPException(400, "仅支持 TCP / UDP")

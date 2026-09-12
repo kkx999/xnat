@@ -247,7 +247,7 @@ assert 'cap.get("remaining_disk_gb")' not in fn, 'physical/min storage must not 
 admin=Path('panel/app/templates/admin.html').read_text()
 assert '实际存储继续水位保护' in admin, 'physical storage watermark explanation missing'
 readme=Path('README.md').read_text()
-assert '当前正式版本：XNAT v1.6.3' in readme
+assert '当前正式版本：XNAT v1.6.4' in readme
 assert '指定 v1.4.3 安装' not in readme, 'legacy upgrade manual returned to project landing page'
 print('v1.6.2 logical quota capacity contract: ok')
 PYV162
@@ -456,7 +456,7 @@ root=Path('.')
 release=(root/'VERSION').read_text().strip()
 panel=(root/'panel/VERSION').read_text().strip()
 meta=json.loads((root/'release.json').read_text())
-assert release == panel, f'release/panel version mismatch: {release} / {panel}'
+assert release == meta['release_version'], f'release metadata mismatch: {release} / {meta.get("release_version")}'
 assert panel == meta['panel_version'], f'unexpected Panel version: {panel}'
 assert meta['release_version'] == release and meta['panel_version'] == panel, 'release.json metadata mismatch'
 upgrade=(root/'scripts/upgrade-panel.sh').read_text()

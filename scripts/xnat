@@ -929,7 +929,7 @@ print_menu_header(){
   ui_rule
   printf '组件       %s\n' "$(component_label "$role")"
   printf '版本       v%s\n' "$version"
-  [[ "$release" != unknown ]] && printf 'Release    v%s\n' "$release"
+  [[ "$role" == panel && "$release" != unknown ]] && printf 'Release    v%s\n' "$release"
   if [[ "$role" == host ]]; then
     printf 'Agent API  v%s\n' "$(current_agent_api_version)"
   fi
@@ -1036,6 +1036,48 @@ cmd_logs(){
     panel) journalctl -u "$PANEL_SERVICE" -f ;;
     host) journalctl -u "$AGENT_SERVICE" -f ;;
   esac
+}
+
+cmd_host_cleanup(){
+  need_root
+  [[ "$(detect_role)" == host ]] || die "系统空间清理仅适用于 Host Agent"
+  local before after freed answer
+  before="$(fs_available_mb /)"; before="${before:-0}"
+
+  echo "XNAT Host 安全清理"
+  echo "系统盘当前可用：${before} MB"
+  echo
+  echo "仅清理："
+  echo "  - APT 软件包下载缓存"
+  echo "  - systemd journal 历史日志（保留约 50MB）"
+  echo
+  echo "不会删除：VPS、natpool、Incus 实例磁盘、镜像、Agent 配置或用户数据。"
+
+  if [[ "${XNAT_CLEANUP_ASSUME_YES:-0}" != 1 && -t 0 ]]; then
+    read -r -p "确认执行安全清理？[y/N]: " answer
+    [[ "$answer" =~ ^[Yy]$ ]] || { echo "已取消。"; return 0; }
+  elif [[ "${XNAT_CLEANUP_ASSUME_YES:-0}" != 1 && ! -t 0 ]]; then
+    die "非交互清理请设置 XNAT_CLEANUP_ASSUME_YES=1"
+  fi
+
+  if have apt-get; then
+    apt-get clean || warn "APT 缓存清理失败，已继续"
+  fi
+  if have journalctl; then
+    journalctl --vacuum-size=50M || warn "journal 清理失败，已继续"
+  fi
+
+  after="$(fs_available_mb /)"; after="${after:-0}"
+  if [[ "$before" =~ ^[0-9]+$ && "$after" =~ ^[0-9]+$ && "$after" -ge "$before" ]]; then
+    freed=$((after-before))
+  else
+    freed=0
+  fi
+  echo
+  ui_success "Host 系统空间清理完成"
+  echo "清理前可用：${before} MB"
+  echo "清理后可用：${after} MB"
+  echo "本次释放：  ${freed} MB"
 }
 
 cmd_backup(){
@@ -1241,15 +1283,44 @@ show_update_check(){
   [[ -n "$target" ]] || die "Release v${release} 缺少组件版本信息"
 
   ui_section "检查结果"
-  printf '组件             %s\n' "$(component_label "$role")"
-  printf '当前组件版本     v%s\n' "$current"
-  [[ "$current_rel" != unknown ]] && printf '当前 XNAT Release v%s\n' "$current_rel"
-  printf '最新 XNAT Release v%s\n' "$release"
-  printf 'Release 组件版本 v%s\n' "$target"
   if [[ "$role" == host ]]; then
+    printf '组件             Host Agent
+'
+    printf '当前 Host Agent  v%s
+' "$current"
+    printf '最新 Host Agent  v%s
+' "$target"
     api="$(release_meta_value "$release" agent_api_version)"
-    printf 'Agent API        v%s\n' "${api:-?}"
+    printf 'Agent API        v%s
+' "${api:-?}"
+    echo
+
+    if [[ "$current" == "$target" && "$current_rel" == "$release" ]]; then
+      ui_success "Host Agent 已是最新版本"
+    elif [[ "$current" == "$target" ]]; then
+      if [[ "$current_rel" == unknown ]]; then
+        ui_notice "Host Agent 已是最新；有新的 Host 管理脚本可同步（更新包 XNAT v${release}）"
+      else
+        ui_notice "Host Agent 已是最新；Host 管理脚本可从更新包 v${current_rel} 同步到 v${release}"
+      fi
+    elif [[ "$current" != unknown ]] && dpkg --compare-versions "$target" lt "$current"; then
+      ui_notice "当前 Host Agent 版本高于最新正式更新包中的版本"
+    else
+      ui_notice "发现 Host Agent 更新：v${current} → v${target}"
+    fi
+    return 0
   fi
+
+  printf '组件             %s
+' "$(component_label "$role")"
+  printf '当前组件版本     v%s
+' "$current"
+  [[ "$current_rel" != unknown ]] && printf '当前 XNAT Release v%s
+' "$current_rel"
+  printf '最新 XNAT Release v%s
+' "$release"
+  printf 'Release 组件版本 v%s
+' "$target"
   echo
 
   if [[ "$current" == "$target" && "$current_rel" == "$release" ]]; then
@@ -1298,10 +1369,16 @@ cmd_update(){
 
   ui_section "XNAT 更新"
   echo "组件：$(component_label "$role")"
-  echo "当前组件：v${current}"
-  [[ "$current_rel" != unknown ]] && echo "当前 Release：v${current_rel}"
-  echo "目标 Release：v${release}"
-  echo "目标组件：v${target}"
+  if [[ "$role" == host ]]; then
+    echo "当前 Host Agent：v${current}"
+    echo "目标 Host Agent：v${target}"
+    echo "更新包：XNAT v${release}"
+  else
+    echo "当前组件：v${current}"
+    [[ "$current_rel" != unknown ]] && echo "当前 Release：v${current_rel}"
+    echo "目标 Release：v${release}"
+    echo "目标组件：v${target}"
+  fi
 
   if [[ "$current" == "$target" && "$current_rel" == "$release" ]]; then
     ui_success "当前组件与 Release 均无需更新"
@@ -1386,8 +1463,12 @@ cmd_doctor(){
   local instances nat_summary nat_range nat_total used modes kvm panel_cidr
   role="$(detect_role)"
   echo "XNAT 系统诊断"
-  echo "组件：$(component_label "$role") v$(current_version "$role") / Release v$(current_release)"
-  [[ "$role" == host ]] && echo "Agent API：v$(current_agent_api_version)"
+  if [[ "$role" == host ]]; then
+    echo "组件：Host Agent v$(current_version host)"
+    echo "Agent API：v$(current_agent_api_version)"
+  else
+    echo "组件：$(component_label "$role") v$(current_version "$role") / Release v$(current_release)"
+  fi
   echo
 
   local os_label=""
@@ -1897,12 +1978,20 @@ interactive_update(){
   while true; do
     current="$(current_version "$role")"
     ui_section "检查 / 更新 $(component_label "$role")"
-    printf '当前组件版本：v%s\n' "$current"
-    [[ "$(current_release)" != unknown ]] && printf '当前 XNAT Release：v%s\n' "$(current_release)"
+    printf '当前组件版本：v%s
+' "$current"
+    [[ "$role" == panel && "$(current_release)" != unknown ]] && printf '当前 XNAT Release：v%s
+' "$(current_release)"
     echo
-    echo "  1  检查最新正式 Release"
-    echo "  2  更新当前组件"
-    echo "  3  指定 XNAT Release 更新"
+    if [[ "$role" == host ]]; then
+      echo "  1  检查最新 Host Agent"
+      echo "  2  更新 Host Agent"
+      echo "  3  指定更新包版本"
+    else
+      echo "  1  检查最新正式 Release"
+      echo "  2  更新当前组件"
+      echo "  3  指定 XNAT Release 更新"
+    fi
     echo "  0  返回"
     echo
     prompt_choice "0-3" n || return 0
@@ -1910,7 +1999,11 @@ interactive_update(){
       1) show_update_check; pause_return ;;
       2) cmd_update || true; pause_return ;;
       3)
-        read -r -p "目标 XNAT Release（例如 1.4.1）: " v
+        if [[ "$role" == host ]]; then
+          read -r -p "目标更新包版本（例如 1.6.4）: " v
+        else
+          read -r -p "目标 XNAT Release（例如 1.6.4）: " v
+        fi
         cmd_update "$v" || true
         pause_return
         ;;
@@ -1987,18 +2080,19 @@ interactive_host_menu(){
   while true; do
     print_menu_header host
     echo
-    echo "  1  查看运行状态"
-    echo "  2  重启 Host Agent"
-    echo "  3  查看实时日志"
-    echo "  4  查看 XNAT 防火墙"
-    echo "  5  修改允许的 Panel IP"
-    echo "  6  轮换 Agent Token"
-    echo "  7  检查 / 更新 Host Agent"
-    echo "  8  系统诊断"
-    echo "  9  卸载 Host Agent"
-    echo "  0  退出"
+    echo "  1   查看运行状态"
+    echo "  2   重启 Host Agent"
+    echo "  3   查看实时日志"
+    echo "  4   查看 XNAT 防火墙"
+    echo "  5   修改允许的 Panel IP"
+    echo "  6   轮换 Agent Token"
+    echo "  7   检查 / 更新 Host Agent"
+    echo "  8   系统诊断"
+    echo "  9   清理 Host 系统空间"
+    echo "  10  卸载 Host Agent"
+    echo "  0   退出"
     echo
-    prompt_choice "0-9" n || exit 0
+    prompt_choice "0-10" n || exit 0
     case "$n" in
       1) ui_section "Host Agent 运行状态"; cmd_host_status; pause_return ;;
       2) ui_section "重启 Host Agent"; cmd_restart; ui_success "Host Agent 重启完成"; pause_return ;;
@@ -2013,7 +2107,8 @@ interactive_host_menu(){
       6) ui_section "轮换 Agent Token"; cmd_token_rotate; pause_return ;;
       7) interactive_update ;;
       8) interactive_diagnostics ;;
-      9) ui_section "卸载 Host Agent"; cmd_uninstall; exit 0 ;;
+      9) ui_section "清理 Host 系统空间"; cmd_host_cleanup; pause_return ;;
+      10) ui_section "卸载 Host Agent"; cmd_uninstall; exit 0 ;;
       0) exit 0 ;;
       *) ui_error "无效选择：${n}"; pause_return ;;
     esac
@@ -2052,6 +2147,7 @@ case "${1:-}" in
     ;;
   restore) shift; cmd_restore "$@" ;;
   update) shift; cmd_update "$@" ;;
+  cleanup) shift; cmd_host_cleanup "$@" ;;
   uninstall) shift; cmd_uninstall "$@" ;;
   token)
     [[ "$(detect_role)" == host ]] || die "token 命令仅适用于 Host Agent"
@@ -2087,5 +2183,5 @@ case "${1:-}" in
       *) die "用法：xnat cloudflare [refresh|protect]" ;;
     esac
     ;;
-  *) die "用法：xnat [version|status|restart|logs|doctor|backup|restore|update|token|panel-ip|firewall|domain|cloudflare|uninstall]；诊断报告：xnat doctor report" ;;
+  *) die "用法：xnat [version|status|restart|logs|doctor|backup|restore|update|cleanup|token|panel-ip|firewall|domain|cloudflare|uninstall]；诊断报告：xnat doctor report" ;;
 esac

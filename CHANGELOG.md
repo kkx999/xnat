@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.6.4
+
+- Host Agent 升级至 v1.2.1；Agent API v1、Panel v1.6.3、Mobile API v1 保持不变。
+- 新增 Host 根分区保护：创建、重装 VPS 与新增 NAT 端口前检查系统盘，低于 512MiB 时自动执行白名单安全清理；仍不足则返回 HTTP 507 和明确中文错误，避免继续写满系统盘。
+- Incus proxy 遇到 `No space left on device` 时仅自动清理 APT 下载缓存与历史 journal，并只重试一次；绝不自动删除 natpool、`/var/lib/incus/disks`、VPS、Incus 镜像或用户数据。
+- `xnat` Host 菜单新增“清理 Host 系统空间”，显示清理前后可用空间；支持 `xnat cleanup` 非交互/命令行入口。
+- Host 安装提示将 4.5GiB / 6.5GiB 明确标为最低安装门槛，并新增 LXC 8GiB+、KVM/混合 12GiB+ 的长期运行建议；现有容量算法与最低安装兼容性不变。
+- Host 版本检查界面以 Host Agent 版本为主，不再把仓库总 Release 号显示成 Host 主版本；管理脚本同步场景改为明确的“更新包/Host 管理脚本”提示。
+- 正式支持 Host Agent v1.2.0 → v1.2.1 原地升级，并保留 Agent Token、TLS、Incus、natpool、现有 VPS、端口与节点配置。
+
 ## v1.6.3
 
 - 修正 Incus/LVM Thin extent / metadata 对齐导致 natpool 实际上报略低于名义容量时，套餐预计数量少算一台的问题。
