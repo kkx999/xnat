@@ -63,7 +63,7 @@ class RemoteHostProvider(Provider):
         data = host_request(host, "POST", f"/v1/instances/{instance_id}/reset-password", payload={}, timeout=45)
         return str(data["root_password"])
 
-    def reinstall(self, instance_id: str, image_alias: str, memory_mb: int, disk_gb: int, cpu: int, bandwidth_mbps: int, ssh_port: int, virtualization_type: str = "lxc") -> ProvisionResult:
+    def reinstall(self, instance_id: str, image_alias: str, memory_mb: int, disk_gb: float, cpu: int, bandwidth_mbps: int, ssh_port: int, virtualization_type: str = "lxc") -> ProvisionResult:
         host = self._host_for_instance(instance_id)
         data = host_request(host, "POST", f"/v1/instances/{instance_id}/reinstall", payload={
             "image_alias": image_alias,
@@ -99,7 +99,7 @@ class RemoteHostProvider(Provider):
         except Exception:
             return NetworkStats()
 
-    def resize_resources(self, instance_id: str, cpu: int, memory_mb: int, disk_gb: int) -> dict:
+    def resize_resources(self, instance_id: str, cpu: int, memory_mb: int, disk_gb: float) -> dict:
         host = self._host_for_instance(instance_id)
         return host_request(
             host,

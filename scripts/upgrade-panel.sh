@@ -37,6 +37,7 @@ CURRENT_VERSION="$(grep -E '^__version__[[:space:]]*=' "${TARGET_DIR}/app/__init
 CURRENT_VERSION="${CURRENT_VERSION:-unknown}"
 
 case "$CURRENT_VERSION" in
+  1.4.3) UPGRADE_PATH="verified-v1.4.3" ;;
   1.4.2-dev1) UPGRADE_PATH="verified-v1.4.2-dev1" ;;
   1.4.2) UPGRADE_PATH="verified-v1.4.2" ;;
   1.4.1) UPGRADE_PATH="verified-v1.4.1" ;;

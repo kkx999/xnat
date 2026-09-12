@@ -80,6 +80,13 @@ class IncusProvider(Provider):
         alphabet = string.ascii_letters + string.digits + "!@#_-"
         return "".join(secrets.choice(alphabet) for _ in range(length))
 
+    @staticmethod
+    def _disk_size_value(disk_gb: float) -> str:
+        mib = int(round(float(disk_gb) * 1024))
+        if mib < 128:
+            raise ProviderError("LXC 实例系统盘至少需要 128 MiB")
+        return f"{mib}MiB"
+
     def _wait_guest_agent(self, name: str, virtualization_type: str = "lxc") -> None:
         mode = (virtualization_type or "lxc").strip().lower()
         if mode != "kvm":
@@ -123,16 +130,49 @@ class IncusProvider(Provider):
         raise ProviderError(f"{mode.upper()} 实例未能在 {wait_seconds} 秒内获取 IPv4{detail}")
 
 
+    def _guest_os_family(self, name: str) -> str:
+        proc = self._run([
+            "incus", "exec", name, "--", "sh", "-lc",
+            "command -v apk >/dev/null 2>&1 && echo alpine || (command -v apt-get >/dev/null 2>&1 && echo apt || true)",
+        ], check=False, timeout=20)
+        family = (proc.stdout or "").strip().lower()
+        return family if family in {"alpine", "apt"} else "unknown"
+
+    def _restart_ssh_service(self, name: str):
+        family = self._guest_os_family(name)
+        command = (
+            "rc-service sshd restart || rc-service sshd start"
+            if family == "alpine"
+            else "systemctl restart ssh || systemctl restart sshd"
+        )
+        proc = self._run(["incus", "exec", name, "--", "sh", "-lc", command], check=False, timeout=35)
+        if proc.returncode != 0:
+            raise ProviderError(self._command_error(["restart ssh"], proc)[:1200])
+
     def _prepare_ssh(self, name: str, password: str):
-        # Keep local-provider behavior identical to Host Agent provisioning.
         try:
-            self._run(
-                ["incus", "exec", name, "--", "chpasswd"],
-                input_text=f"root:{password}\n", timeout=30
-            )
+            self._run(["incus", "exec", name, "--", "chpasswd"], input_text=f"root:{password}\n", timeout=30)
         except Exception as exc:
             raise ProviderError(f"KVM/LXC SSH 初始化失败 [设置 root 密码]: {exc}") from exc
-        script = r"""
+        family = self._guest_os_family(name)
+        if family == "alpine":
+            script = r"""
+set -eu
+apk add --no-cache openssh ca-certificates
+mkdir -p /run/sshd
+ssh-keygen -A
+sed -i '/^[#[:space:]]*PermitRootLogin[[:space:]]/d;/^[#[:space:]]*PasswordAuthentication[[:space:]]/d' /etc/ssh/sshd_config
+printf '\nPermitRootLogin yes\nPasswordAuthentication yes\n' >> /etc/ssh/sshd_config
+sshd -t
+sshd -T | grep -x 'permitrootlogin yes' >/dev/null
+sshd -T | grep -x 'passwordauthentication yes' >/dev/null
+rc-update add sshd default >/dev/null 2>&1 || true
+rc-service sshd restart >/dev/null 2>&1 || rc-service sshd start >/dev/null 2>&1
+ss -lnt | grep ':22 ' >/dev/null
+"""
+            command = ["incus", "exec", name, "--", "sh", "-lc", script]
+        elif family == "apt":
+            script = r"""
 set -Eeuo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
@@ -158,11 +198,14 @@ systemctl enable --now ssh
 systemctl restart ssh
 ss -lnt '( sport = :22 )' | grep 'LISTEN' >/dev/null
 """
-        self._run(["incus", "exec", name, "--", "bash", "-lc", script], timeout=300)
+            command = ["incus", "exec", name, "--", "bash", "-lc", script]
+        else:
+            raise ProviderError("当前系统镜像缺少受支持的包管理器；已支持 Debian / Ubuntu / Alpine")
+        self._run(command, timeout=300)
 
     def _launch(
         self, name: str, image_alias: str,
-        memory_mb: int, disk_gb: int, cpu: int, bandwidth_mbps: int,
+        memory_mb: int, disk_gb: float, cpu: int, bandwidth_mbps: int,
         virtualization_type: str = "lxc",
     ):
         mode = (virtualization_type or "lxc").strip().lower()
@@ -173,7 +216,7 @@ ss -lnt '( sport = :22 )' | grep 'LISTEN' >/dev/null
             "--storage", self.storage_pool,
             "--config", f"limits.cpu={cpu}",
             "--config", f"limits.memory={memory_mb}MiB",
-            "--device", f"root,size={disk_gb}GiB",
+            "--device", f"root,size={self._disk_size_value(disk_gb)}",
         ]
         if mode == "kvm":
             if not (os.path.exists("/dev/kvm") and os.access("/dev/kvm", os.R_OK | os.W_OK)):
@@ -202,7 +245,7 @@ ss -lnt '( sport = :22 )' | grep 'LISTEN' >/dev/null
 
     def provision(
         self, server_id: int, instance_name: str, image_alias: str,
-        memory_mb: int, disk_gb: int, cpu: int,
+        memory_mb: int, disk_gb: float, cpu: int,
         bandwidth_mbps: int, ssh_port: int, virtualization_type: str = "lxc"
     ) -> ProvisionResult:
         password = self._random_password()
@@ -238,12 +281,12 @@ ss -lnt '( sport = :22 )' | grep 'LISTEN' >/dev/null
             ["incus", "exec", instance_id, "--", "chpasswd"],
             input_text=f"root:{password}\n", timeout=30
         )
-        self._run(["incus", "exec", instance_id, "--", "systemctl", "restart", "ssh"], timeout=30)
+        self._restart_ssh_service(instance_id)
         return password
 
     def reinstall(
         self, instance_id: str, image_alias: str,
-        memory_mb: int, disk_gb: int, cpu: int,
+        memory_mb: int, disk_gb: float, cpu: int,
         bandwidth_mbps: int, ssh_port: int, virtualization_type: str = "lxc"
     ) -> ProvisionResult:
         self._delete_instance(instance_id)
@@ -334,11 +377,11 @@ ss -lnt '( sport = :22 )' | grep 'LISTEN' >/dev/null
 
             mem_mb = to_unit(mem, {"mib":1, "mb":1000**2/1024**2, "gib":1024, "gb":1000**3/1024**2})
             disk_gb = to_unit(disk, {"gib":1, "gb":1000**3/1024**3, "tib":1024, "tb":1000**4/1024**3})
-            return {"cpu": int(raw_cpu) if raw_cpu.isdigit() else 0, "memory_mb": int(round(mem_mb)), "disk_gb": int(round(disk_gb))}
+            return {"cpu": int(raw_cpu) if raw_cpu.isdigit() else 0, "memory_mb": int(round(mem_mb)), "disk_gb": round(disk_gb, 3)}
         except Exception as exc:
             raise ProviderError(f"解析实例资源失败: {exc}")
 
-    def resize_resources(self, instance_id: str, cpu: int, memory_mb: int, disk_gb: int) -> dict:
+    def resize_resources(self, instance_id: str, cpu: int, memory_mb: int, disk_gb: float) -> dict:
         mode = self._instance_virtualization_type(instance_id)
         if mode == "kvm" and (memory_mb < 512 or disk_gb < 4):
             raise ProviderError("KVM 实例至少需要 512 MiB 内存和 4 GiB 系统盘")
@@ -350,9 +393,9 @@ ss -lnt '( sport = :22 )' | grep 'LISTEN' >/dev/null
         self._run(["incus", "config", "set", instance_id, f"limits.memory={memory_mb}MiB"], timeout=35)
 
         if before["disk_gb"] == 0 or disk_gb > before["disk_gb"]:
-            proc = self._run(["incus", "config", "device", "set", instance_id, "root", f"size={disk_gb}GiB"], check=False, timeout=60)
+            proc = self._run(["incus", "config", "device", "set", instance_id, "root", f"size={self._disk_size_value(disk_gb)}"], check=False, timeout=60)
             if proc.returncode != 0:
-                proc = self._run(["incus", "config", "device", "override", instance_id, "root", f"size={disk_gb}GiB"], check=False, timeout=60)
+                proc = self._run(["incus", "config", "device", "override", instance_id, "root", f"size={self._disk_size_value(disk_gb)}"], check=False, timeout=60)
                 if proc.returncode != 0:
                     raise ProviderError((proc.stderr or proc.stdout or "根磁盘扩容失败").strip())
 
@@ -411,7 +454,7 @@ ss -lnt '( sport = :22 )' | grep 'LISTEN' >/dev/null
                 True, status, bw,
                 int(raw_cpu) if raw_cpu.isdigit() else None,
                 int(round(memory_bytes / (1024 ** 2))) if memory_bytes else None,
-                int(round(disk_bytes / (1024 ** 3))) if disk_bytes else None,
+                round(disk_bytes / (1024 ** 3), 3) if disk_bytes else None,
                 virtualization_type,
             )
         except Exception:

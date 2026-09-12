@@ -9,7 +9,7 @@ class MockProvider(Provider):
 
     def provision(
         self, server_id: int, instance_name: str, image_alias: str,
-        memory_mb: int, disk_gb: int, cpu: int,
+        memory_mb: int, disk_gb: float, cpu: int,
         bandwidth_mbps: int, ssh_port: int, virtualization_type: str = "lxc"
     ) -> ProvisionResult:
         host_octet = 100 + (server_id % 140)
@@ -29,7 +29,7 @@ class MockProvider(Provider):
 
     def reinstall(
         self, instance_id: str, image_alias: str,
-        memory_mb: int, disk_gb: int, cpu: int,
+        memory_mb: int, disk_gb: float, cpu: int,
         bandwidth_mbps: int, ssh_port: int, virtualization_type: str = "lxc"
     ) -> ProvisionResult:
         return ProvisionResult(
@@ -52,7 +52,7 @@ class MockProvider(Provider):
     def network_stats(self, instance_id: str) -> NetworkStats:
         return NetworkStats(0, 0, True)
 
-    def resize_resources(self, instance_id: str, cpu: int, memory_mb: int, disk_gb: int) -> dict:
+    def resize_resources(self, instance_id: str, cpu: int, memory_mb: int, disk_gb: float) -> dict:
         return {"cpu": cpu, "memory_mb": memory_mb, "disk_gb": disk_gb}
 
     def set_bandwidth(self, instance_id: str, bandwidth_mbps: int) -> None:

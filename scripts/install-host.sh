@@ -61,8 +61,12 @@ select_virtualization_mode(){
       echo
       echo "请选择此 Host 允许创建的实例类型："
       echo "  1. LXC"
+      echo "     最低母鸡：1C / 1GB / 4.5GB 可用硬盘"
+      echo "     适合 Alpine / Debian / Ubuntu 轻量 NAT VPS"
       echo "  2. KVM"
-      echo "  3. LXC + KVM（推荐，可同时销售两类套餐）"
+      echo "     最低母鸡：1C / 1GB / 6.5GB 可用硬盘，且 /dev/kvm 可用"
+      echo "  3. LXC + KVM"
+      echo "     最低母鸡：1C / 1GB / 6.5GB 可用硬盘，且 /dev/kvm 可用"
       read -r -p "请选择 [1-3] [3]: " choice
       choice="${choice:-3}"
       case "$choice" in
@@ -146,35 +150,73 @@ PY
 
 select_virtualization_mode
 
-TOTAL_GB="$(df -BG --output=size / | tail -n1 | tr -dc '0-9')"
-FREE_GB="$(df -BG --output=avail / | tail -n1 | tr -dc '0-9')"
-[[ "${TOTAL_GB}" =~ ^[0-9]+$ && "${FREE_GB}" =~ ^[0-9]+$ ]] || die "无法读取磁盘空间"
+CPU_CORES="$(nproc 2>/dev/null || echo 1)"
+MEM_TOTAL_MIB="$(awk '/^MemTotal:/{print int($2/1024)}' /proc/meminfo)"
+TOTAL_MIB="$(df -B1 --output=size / | tail -n1 | awk '{print int($1/1024/1024)}')"
+FREE_MIB="$(df -B1 --output=avail / | tail -n1 | awk '{print int($1/1024/1024)}')"
+[[ "${CPU_CORES}" =~ ^[0-9]+$ && "${MEM_TOTAL_MIB}" =~ ^[0-9]+$ && "${FREE_MIB}" =~ ^[0-9]+$ ]] || die "无法读取 Host 资源"
 
-# 推荐保留空间：至少 8GiB；较大磁盘则保留约总容量 15%。
-RESERVE_GB=$(( (TOTAL_GB * 15 + 99) / 100 ))
-(( RESERVE_GB < 8 )) && RESERVE_GB=8
-RECOMMENDED_GB=$((FREE_GB - RESERVE_GB))
-(( RECOMMENDED_GB > FREE_GB - 8 )) && RECOMMENDED_GB=$((FREE_GB - 8))
-(( RECOMMENDED_GB >= 8 )) || die "可用磁盘太少：需要至少约 16GiB 可用空间"
+# Linux on a 1 GiB VPS normally exposes slightly less than 1024 MiB as MemTotal.
+MIN_RAM_MIB=900
+SYSTEM_RESERVE_MIB=2560
+case "${VIRTUALIZATION_MODE}" in
+  lxc)
+    MIN_FREE_MIB=4608
+    WARN_FREE_MIB=5120
+    MIN_POOL_GB=2
+    HOST_MIN_DISK="4.5 GiB"
+    ;;
+  kvm|hybrid)
+    MIN_FREE_MIB=6656
+    WARN_FREE_MIB=8192
+    MIN_POOL_GB=4
+    HOST_MIN_DISK="6.5 GiB"
+    ;;
+esac
+
+(( CPU_CORES >= 1 )) || die "CPU 不足：${VIRTUALIZATION_LABEL} Host 最低需要 1 核"
+(( MEM_TOTAL_MIB >= MIN_RAM_MIB )) || die "内存不足：${VIRTUALIZATION_LABEL} Host 最低需要 1GB 内存（系统当前可见 ${MEM_TOTAL_MIB} MiB）"
+(( FREE_MIB >= MIN_FREE_MIB )) || die "可用硬盘不足：${VIRTUALIZATION_LABEL} Host 最低需要 ${HOST_MIN_DISK} 可用硬盘"
+
+MAX_SAFE_GB=$(( (FREE_MIB - SYSTEM_RESERVE_MIB) / 1024 ))
+(( MAX_SAFE_GB >= MIN_POOL_GB )) || die "磁盘无法安全创建 natpool：至少需为系统/XNAT 保留约 2.5GiB"
+RECOMMENDED_GB="${MAX_SAFE_GB}"
+
+if [[ -t 0 ]]; then
+  echo
+  echo "========================================"
+  echo "       XNAT Host 安装 · 环境确认"
+  echo "========================================"
+  printf '  模式：        %s\n' "${VIRTUALIZATION_LABEL}"
+  printf '  CPU：         %s 核      ✓ 最低 1 核\n' "${CPU_CORES}"
+  printf '  内存：        %s MiB    ✓ 最低 1 GB\n' "${MEM_TOTAL_MIB}"
+  python3 - "${FREE_MIB}" "${MIN_FREE_MIB}" <<'PY_RES'
+import sys
+free=int(sys.argv[1]); minimum=int(sys.argv[2])
+print(f"  可用硬盘：    {free/1024:.2f} GiB ✓ 最低 {minimum/1024:.1f} GiB")
+PY_RES
+  if [[ "${VIRTUALIZATION_MODE}" == "kvm" || "${VIRTUALIZATION_MODE}" == "hybrid" ]]; then
+    echo "  /dev/kvm：    ✓ 可用"
+  fi
+  echo "  系统安全预留：约 2.5 GiB"
+  echo "  推荐 natpool：${RECOMMENDED_GB} GiB"
+  if (( FREE_MIB < WARN_FREE_MIB )); then
+    echo
+    echo "  [WARN] 当前属于最低容量区间，仅建议少量轻量实例。"
+  fi
+fi
 
 if [[ -z "${NATPOOL_GB}" ]]; then
   if [[ -t 0 ]]; then
     echo
     echo "========================================"
-    echo "       XNAT Host 安装 · 3/3"
+    echo "       XNAT Host 安装 · 存储分配"
     echo "========================================"
-    echo
-    echo "natpool 是 LVM Thin 存储池，专门用于存放用户 NAT VPS 的系统盘。"
-    echo
-    echo "当前根分区总容量：约 ${TOTAL_GB} GB"
-    echo "当前可用空间：    约 ${FREE_GB} GB"
-    echo "建议给系统保留：  至少 ${RESERVE_GB} GB"
-    echo "推荐 natpool：     ${RECOMMENDED_GB} GiB"
-    echo
-    echo "例如输入 24，表示计划给所有用户 VPS 磁盘划出约 24 GiB 的 Thin Pool。"
-    echo "后续 VPS 的 2GB / 4GB / 8GB 等磁盘套餐都从这个池中分配。"
-    echo
-    read -r -p "请输入 natpool 大小 [${RECOMMENDED_GB}]: " NATPOOL_GB
+    echo "默认已自动计算 natpool，普通安装直接回车即可。"
+    echo "  系统/XNAT 安全预留：约 2.5 GiB"
+    echo "  natpool 推荐值：     ${RECOMMENDED_GB} GiB"
+    echo "  natpool 最低值：     ${MIN_POOL_GB} GiB"
+    read -r -p "natpool 大小 [${RECOMMENDED_GB}]: " NATPOOL_GB
     NATPOOL_GB="${NATPOOL_GB:-${RECOMMENDED_GB}}"
   else
     NATPOOL_GB="${RECOMMENDED_GB}"
@@ -182,10 +224,8 @@ if [[ -z "${NATPOOL_GB}" ]]; then
 fi
 
 [[ "${NATPOOL_GB}" =~ ^[0-9]+$ ]] || die "NATPOOL_GB 必须是整数 GiB"
-MAX_SAFE=$((FREE_GB - 8))
-(( NATPOOL_GB > MAX_SAFE )) && die "natpool=${NATPOOL_GB}GiB 过大；当前最多建议 ${MAX_SAFE}GiB，并至少为系统保留 8GiB"
-(( NATPOOL_GB >= 8 )) || die "natpool 至少需要 8GiB"
-
+(( NATPOOL_GB >= MIN_POOL_GB )) || die "${VIRTUALIZATION_LABEL} 模式 natpool 至少需要 ${MIN_POOL_GB}GiB"
+(( NATPOOL_GB <= MAX_SAFE_GB )) || die "natpool=${NATPOOL_GB}GiB 过大；当前安全上限 ${MAX_SAFE_GB}GiB，需要为系统/XNAT 保留约 2.5GiB"
 
 if command -v incus >/dev/null 2>&1; then
   [[ -z "$(incus storage list --format csv -c n 2>/dev/null || true)" ]] ||
@@ -265,11 +305,11 @@ EOF
 info "3/7 验证 LXC / 存储 / NAT Bridge"
 cleanup_test
 
-incus launch images:debian/12 "${TEST_NAME}" \
+incus launch images:alpine/3.24 "${TEST_NAME}" \
   --storage "${POOL_NAME}" \
   --config limits.cpu=1 \
-  --config limits.memory=128MiB \
-  --device root,size=2GiB
+  --config limits.memory=64MiB \
+  --device root,size=512MiB
 
 IP=""
 for _ in $(seq 1 45); do
@@ -291,11 +331,11 @@ BYTES="$(
 
 incus exec "${TEST_NAME}" -- df -h /
 
-(( BYTES >= 1500*1024*1024 && BYTES <= 2300*1024*1024 )) ||
-  die "2GiB 磁盘配额验证失败"
+(( BYTES >= 384*1024*1024 && BYTES <= 640*1024*1024 )) ||
+  die "512MiB LXC 磁盘配额验证失败"
 
-incus exec "${TEST_NAME}" -- getent hosts deb.debian.org >/dev/null ||
-  die "测试容器无法联网"
+incus exec "${TEST_NAME}" -- sh -lc "apk update >/dev/null" ||
+  die "Alpine LXC 测试容器无法联网"
 
 cleanup_test
 

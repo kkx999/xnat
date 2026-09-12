@@ -42,7 +42,7 @@ class Plan(Base):
     name: Mapped[str] = mapped_column(String(80), unique=True)
     cpu: Mapped[int] = mapped_column(Integer)
     memory_mb: Mapped[int] = mapped_column(Integer)
-    disk_gb: Mapped[int] = mapped_column(Integer)
+    disk_gb: Mapped[float] = mapped_column(Float)
     port_count: Mapped[int] = mapped_column(Integer, default=5)
     bandwidth_mbps: Mapped[int] = mapped_column(Integer, default=100)
     traffic_gb: Mapped[int] = mapped_column(Integer, default=500)
@@ -191,7 +191,7 @@ class Server(Base):
     # Per-service snapshot.
     cpu: Mapped[int | None] = mapped_column(Integer, nullable=True)
     memory_mb: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    disk_gb: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    disk_gb: Mapped[float | None] = mapped_column(Float, nullable=True)
     port_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
     bandwidth_mbps: Mapped[int | None] = mapped_column(Integer, nullable=True)
     traffic_gb: Mapped[int | None] = mapped_column(Integer, nullable=True)

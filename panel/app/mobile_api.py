@@ -340,7 +340,7 @@ def _plan_payload(db, plan: Plan) -> dict:
         "name": plan.name,
         "cpu": int(plan.cpu or 0),
         "memory_mb": int(plan.memory_mb or 0),
-        "disk_gb": int(plan.disk_gb or 0),
+        "disk_gb": float(plan.disk_gb or 0),
         "port_count": int(plan.port_count or 0),
         "bandwidth_mbps": int(plan.bandwidth_mbps or 0),
         "traffic_gb": int(plan.traffic_gb or 0),
@@ -719,7 +719,7 @@ def api_system_images(request: Request):
     with SessionLocal() as db:
         _mobile_session(db, request)
         rows = db.scalars(
-            select(SystemImage).where(SystemImage.is_active.is_(True), SystemImage.family == "apt").order_by(SystemImage.sort_order, SystemImage.id)
+            select(SystemImage).where(SystemImage.is_active.is_(True), SystemImage.family.in_(["apt", "alpine"])).order_by(SystemImage.sort_order, SystemImage.id)
         ).all()
         db.commit()
         return {
@@ -826,7 +826,7 @@ async def api_reinstall_server(request: Request, server_id: int):
         if not confirmation_matches(server, confirm_name):
             raise HTTPException(400, "重装确认编号不正确")
         system_image = db.get(SystemImage, os_image_id)
-        if not system_image or not system_image.is_active or system_image.family != "apt":
+        if not system_image or not system_image.is_active or system_image.family not in {"apt", "alpine"}:
             raise HTTPException(409, "所选系统镜像不可用")
         active_job = db.scalar(
             select(Job).where(
@@ -920,7 +920,7 @@ def api_catalog(request: Request):
             select(Plan).where(Plan.is_active.is_(True)).order_by(Plan.sort_order, Plan.monthly_price_cents, Plan.id)
         ).all()
         images = db.scalars(
-            select(SystemImage).where(SystemImage.is_active.is_(True), SystemImage.family == "apt").order_by(SystemImage.sort_order, SystemImage.id)
+            select(SystemImage).where(SystemImage.is_active.is_(True), SystemImage.family.in_(["apt", "alpine"])).order_by(SystemImage.sort_order, SystemImage.id)
         ).all()
         payload = {
             "balance_cents": int(user.balance_cents or 0),
@@ -1002,7 +1002,7 @@ async def api_purchase(request: Request):
         if _plan_stock(db, plan)["sold_out"]:
             raise HTTPException(409, "该套餐已经售罄")
         system_image = db.get(SystemImage, os_image_id)
-        if not system_image or not system_image.is_active or system_image.family != "apt":
+        if not system_image or not system_image.is_active or system_image.family not in {"apt", "alpine"}:
             raise HTTPException(409, "系统镜像不存在、已停用或暂不支持")
         try:
             coupon, discount = _calculate_coupon_discount(db, user, coupon_code, int(plan.monthly_price_cents or 0))

@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.5.0
+
+- LXC Host 最低安装门槛调整为 1C / 1GB / 4.5GB 可用硬盘；KVM / 混合 Host 调整为 1C / 1GB / 6.5GB，并继续强制检查 `/dev/kvm`。
+- Host 安装菜单新增模式最低门槛、当前资源检测、低容量提示、系统安全预留和 natpool 自动建议。
+- 新增 Alpine 3.24 LXC；Host Agent v1.2.0 支持 apk + OpenRC SSH 初始化，Debian / Ubuntu 原流程保持兼容。
+- LXC 套餐资源下限放宽到 1C / 64MB / 128MB，管理员可自由向上配置；KVM 小鸡继续保留 512MB / 4GB 技术下限。
+- 宿主机后台可分配资源同时参考逻辑分配量和实际资源水位，并区分逻辑分配与 natpool 实际余量。
+- Panel 升级至 v1.5.0，Host Agent 升级至 v1.2.0；Agent API 与 Mobile API 继续保持 v1。
+- 正式支持 v1.4.3 → v1.5.0 原地升级，已有业务数据与自定义镜像保持兼容。
+
 ## v1.4.3
 
 - 首页“在售套餐”补齐“服务器地区”和“网络线路”，与登录后的套餐中心保持相同的 3×3 规格布局。

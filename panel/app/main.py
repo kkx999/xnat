@@ -670,7 +670,13 @@ def seed():
                 SystemImage(name="Debian 13", alias="images:debian/13", family="apt", sort_order=20),
                 SystemImage(name="Ubuntu 22.04 LTS", alias="images:ubuntu/22.04", family="apt", sort_order=30),
                 SystemImage(name="Ubuntu 24.04 LTS", alias="images:ubuntu/24.04", family="apt", sort_order=40),
+                SystemImage(name="Alpine 3.24", alias="images:alpine/3.24", family="alpine", sort_order=50),
             ])
+            db.flush()
+
+        # Preserve existing/custom images and add Alpine only when missing.
+        if not db.scalar(select(SystemImage).where(SystemImage.alias == "images:alpine/3.24")):
+            db.add(SystemImage(name="Alpine 3.24", alias="images:alpine/3.24", family="alpine", sort_order=50))
             db.flush()
 
         default_settings = {
@@ -1048,7 +1054,7 @@ def parse_plan_form(
     name: str,
     cpu: int,
     memory_mb: int,
-    disk_gb: int,
+    disk_gb: float,
     bandwidth_mbps: int,
     traffic_gb: int,
     port_count: int,
@@ -1063,8 +1069,8 @@ def parse_plan_form(
         raise ValueError("CPU 必须在 1-128 之间")
     if memory_mb < 64 or memory_mb > 1048576:
         raise ValueError("内存必须在 64-1048576 MB 之间")
-    if disk_gb < 1 or disk_gb > 65536:
-        raise ValueError("磁盘必须在 1-65536 GB 之间")
+    if disk_gb < 0.125 or disk_gb > 65536:
+        raise ValueError("磁盘必须在 0.125-65536 GB 之间")
     if bandwidth_mbps < 0 or bandwidth_mbps > 10000:
         raise ValueError("带宽必须在 0-10000 Mbps 之间")
     if traffic_gb < 0 or traffic_gb > 100000000:
@@ -1990,7 +1996,7 @@ def buy_plan(
             return RedirectResponse("/plans", status_code=303)
 
         system_image = db.get(SystemImage, os_image_id)
-        if not system_image or not system_image.is_active or system_image.family != "apt":
+        if not system_image or not system_image.is_active or system_image.family not in {"apt", "alpine"}:
             raise HTTPException(400, "系统镜像不存在、已停用或暂不支持")
 
         try:
@@ -2137,7 +2143,7 @@ def reinstall_server(
             flash(request, "重装确认编号不正确。", "error")
             return RedirectResponse(f"/servers/{server.id}", status_code=303)
         system_image = db.get(SystemImage, os_image_id)
-        if not system_image or not system_image.is_active or system_image.family != "apt":
+        if not system_image or not system_image.is_active or system_image.family not in {"apt", "alpine"}:
             flash(request, "所选系统镜像不可用。", "error")
             return RedirectResponse(f"/servers/{server.id}", status_code=303)
         active_job = db.scalar(select(Job).where(Job.server_id == server.id, Job.status.in_(["pending","running"]), Job.job_type.in_(["reinstall_server","delete_server"])))
@@ -3087,7 +3093,7 @@ def admin_create_plan(
     name: str = Form(...),
     cpu: int = Form(...),
     memory_mb: int = Form(...),
-    disk_gb: int = Form(...),
+    disk_gb: float = Form(...),
     bandwidth_mbps: int = Form(...),
     traffic_gb: int = Form(...),
     port_count: int = Form(...),
@@ -3125,7 +3131,7 @@ def admin_create_plan(
         return RedirectResponse("/admin?section=plans", status_code=303)
     if (
         not clean_name or len(clean_name) > 80 or cpu < 1 or memory_mb < 64
-        or disk_gb < 1 or virtualization_type not in {"lxc", "kvm"}
+        or disk_gb < 0.125 or virtualization_type not in {"lxc", "kvm"}
         or price < 0 or reset_price <= 0 or stock_limit < 0
         or not (0 <= sort_order <= 1000000)
         or not (0 <= homepage_sort_order <= 1000000)
@@ -3185,7 +3191,7 @@ def admin_update_plan(
     name: str = Form(...),
     cpu: int = Form(...),
     memory_mb: int = Form(...),
-    disk_gb: int = Form(...),
+    disk_gb: float = Form(...),
     bandwidth_mbps: int = Form(...),
     traffic_gb: int = Form(...),
     port_count: int = Form(...),
@@ -3230,7 +3236,7 @@ def admin_update_plan(
             return RedirectResponse("/admin?section=plans", status_code=303)
         if (
             not clean_name or len(clean_name) > 80 or price < 0 or reset_price <= 0 or cpu < 1
-            or memory_mb < 64 or disk_gb < 1 or virtualization_type not in {"lxc", "kvm"} or stock_limit < 0
+            or memory_mb < 64 or disk_gb < 0.125 or virtualization_type not in {"lxc", "kvm"} or stock_limit < 0
             or not (0 <= sort_order <= 1000000)
             or not (0 <= homepage_sort_order <= 1000000)
         ):
@@ -3320,7 +3326,7 @@ def admin_resize_server_resources(
     server_id: int,
     cpu: int = Form(...),
     memory_mb: int = Form(...),
-    disk_gb: int = Form(...),
+    disk_gb: float = Form(...),
     csrf_token: str = Form(...),
 ):
     validate_csrf(request, csrf_token)
@@ -3329,7 +3335,7 @@ def admin_resize_server_resources(
         raise HTTPException(400, "CPU 核心数无效")
     if memory_mb < 64 or memory_mb > 1_048_576:
         raise HTTPException(400, "内存参数无效")
-    if disk_gb < 1 or disk_gb > 65_536:
+    if disk_gb < 0.125 or disk_gb > 65_536:
         raise HTTPException(400, "磁盘参数无效")
 
     with db_session() as db:
@@ -3350,7 +3356,7 @@ def admin_resize_server_resources(
             flash(request, "KVM 实例最低需要 512 MB 内存和 4 GB 磁盘。", "error")
             return RedirectResponse("/admin?section=servers", status_code=303)
 
-        current_disk = int(server.disk_gb or 0)
+        current_disk = float(server.disk_gb or 0)
         if current_disk and disk_gb < current_disk:
             flash(request, f"磁盘只能扩容，当前为 {current_disk} GB，不能缩小。", "error")
             return RedirectResponse("/admin?section=servers", status_code=303)
@@ -3375,7 +3381,7 @@ def admin_resize_server_resources(
 
             server.cpu = int(actual.get("cpu") or cpu)
             server.memory_mb = int(actual.get("memory_mb") or memory_mb)
-            server.disk_gb = int(actual.get("disk_gb") or disk_gb)
+            server.disk_gb = float(actual.get("disk_gb") or disk_gb)
             server.reconcile_status = "ok"
             server.reconcile_message = None
             server.reconciled_at = datetime.utcnow()
@@ -3734,7 +3740,7 @@ def admin_add_system_image(request:Request,name:str=Form(...),alias:str=Form(...
     with db_session() as db:
         admin=admin_required(request,db)
         if db.scalar(select(SystemImage).where(or_(SystemImage.name==name,SystemImage.alias==alias))): flash(request,"系统名称或镜像别名已经存在。","error"); return RedirectResponse("/admin?section=images",status_code=303)
-        row=SystemImage(name=name,alias=alias,family="apt",is_active=True,sort_order=100); db.add(row); db.flush(); write_audit(db,actor=admin,request=request,action="admin.image.create",target_type="system_image",target_id=row.id,target_name=row.name,detail={"alias":row.alias}); db.commit(); flash(request,f"系统镜像 {name} 已添加。","success")
+        row=SystemImage(name=name,alias=alias,family=("alpine" if alias.lower().startswith("images:alpine/") else "apt"),is_active=True,sort_order=100); db.add(row); db.flush(); write_audit(db,actor=admin,request=request,action="admin.image.create",target_type="system_image",target_id=row.id,target_name=row.name,detail={"alias":row.alias}); db.commit(); flash(request,f"系统镜像 {name} 已添加。","success")
     return RedirectResponse("/admin?section=images",status_code=303)
 
 
@@ -4650,7 +4656,7 @@ def admin_backup_download(request:Request,backup_name:str):
 def health():
     return {
         "status": "ok",
-        "version": "1.4.3",
+        "version": "1.5.0",
         "provider": PROVIDER_NAME,
         "timezone": APP_TIMEZONE,
     }
