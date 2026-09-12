@@ -15,3 +15,11 @@ for old, new in replacements:
         raise SystemExit(f'check.sh expected one match for {old!r}, got {s.count(old)}')
     s = s.replace(old, new, 1)
 p.write_text(s, encoding='utf-8')
+
+docs = Path('docs/MOBILE_API.md')
+d = docs.read_text(encoding='utf-8')
+old = 'XNAT Panel `v1.0.0` 保持 **Mobile API v1**。'
+new = 'XNAT Panel `v1.0.1` 保持 **Mobile API v1**。'
+if d.count(old) != 1:
+    raise SystemExit(f'MOBILE_API.md expected one Panel version marker, got {d.count(old)}')
+docs.write_text(d.replace(old, new, 1), encoding='utf-8')
