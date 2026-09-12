@@ -1,0 +1,228 @@
+name: Prepare XNAT v1.6.4
+
+on:
+  push:
+    branches:
+      - release/v1.6.4
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply scoped Host fixes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, re
+
+          def read(path):
+              return Path(path).read_text(encoding='utf-8')
+
+          def write(path, text):
+              Path(path).write_text(text, encoding='utf-8')
+
+          def replace_once(path, old, new):
+              text = read(path)
+              if text.count(old) != 1:
+                  raise SystemExit(f'{path}: expected one occurrence, got {text.count(old)} for {old[:80]!r}')
+              write(path, text.replace(old, new, 1))
+
+          def regex_once(path, pattern, replacement):
+              text = read(path)
+              new, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+              if count != 1:
+                  raise SystemExit(f'{path}: regex expected one match, got {count}: {pattern[:100]}')
+              write(path, new)
+
+          # Release/component metadata. Panel stays on v1.6.3; only Host Agent moves to v1.2.1.
+          write('VERSION', '1.6.4\n')
+          write('agent/VERSION', '1.2.1\n')
+          replace_once('agent/natvps_agent/__init__.py', '__version__ = "1.2.0"', '__version__ = "1.2.1"')
+          replace_once('agent/natvps_agent/main.py', 'AGENT_VERSION = "1.2.0"', 'AGENT_VERSION = "1.2.1"')
+
+          meta = json.loads(read('release.json'))
+          meta['release_version'] = '1.6.4'
+          meta['panel_version'] = '1.6.3'
+          meta['agent_version'] = '1.2.1'
+          meta['agent_api_version'] = '1'
+          meta['supported_agent_api_versions'] = ['1']
+          meta['mobile_api_version'] = '1'
+          write('release.json', json.dumps(meta, ensure_ascii=False, indent=2) + '\n')
+
+          # Host Agent root-filesystem guard + safe auto cleanup.
+          replace_once(
+              'agent/natvps_agent/main.py',
+              'import re\nimport secrets\nimport socket\nimport string\nimport subprocess\nimport shlex\nimport time\n',
+              'import re\nimport secrets\nimport shutil\nimport socket\nimport string\nimport subprocess\nimport shlex\nimport threading\nimport time\n',
+          )
+          replace_once(
+              'agent/natvps_agent/main.py',
+              'TIMEOUT = int(os.getenv("INCUS_PROVISION_TIMEOUT", "180"))\n',
+              'TIMEOUT = int(os.getenv("INCUS_PROVISION_TIMEOUT", "180"))\nHOST_ROOT_MIN_FREE_MB = max(128, int(os.getenv("HOST_ROOT_MIN_FREE_MB", "512")))\nHOST_JOURNAL_MAX_MB = max(10, int(os.getenv("HOST_JOURNAL_MAX_MB", "50")))\n_HOST_CLEANUP_LOCK = threading.Lock()\n',
+          )
+          replace_once(
+              'agent/natvps_agent/main.py',
+              '    if check and proc.returncode != 0:\n        raise RuntimeError(_command_error(args, proc)[:2200])\n    return proc\n\n\ndef require_instance(name: str):\n',
+              '''    if check and proc.returncode != 0:\n        raise RuntimeError(_command_error(args, proc)[:2200])\n    return proc\n\n\ndef host_root_space_mb() -> dict:\n    usage = shutil.disk_usage("/")\n    mib = 1024 * 1024\n    return {\n        "total_mb": int(usage.total / mib),\n        "used_mb": int(usage.used / mib),\n        "free_mb": int(usage.free / mib),\n    }\n\n\ndef safe_host_cleanup() -> dict:\n    """Free only disposable Host OS caches. Never touch Incus storage/VPS data."""\n    with _HOST_CLEANUP_LOCK:\n        before = host_root_space_mb()["free_mb"]\n        actions = []\n\n        if shutil.which("apt-get"):\n            proc = run(["apt-get", "clean"], check=False, timeout=120)\n            actions.append({"name": "apt-cache", "ok": proc.returncode == 0})\n\n        if shutil.which("journalctl"):\n            proc = run(["journalctl", f"--vacuum-size={HOST_JOURNAL_MAX_MB}M"], check=False, timeout=120)\n            actions.append({"name": "journal", "ok": proc.returncode == 0})\n\n        after = host_root_space_mb()["free_mb"]\n        print(\n            f"[XNAT] Host 安全清理完成：系统盘可用 {before} MiB -> {after} MiB",\n            flush=True,\n        )\n        return {\n            "before_free_mb": before,\n            "after_free_mb": after,\n            "freed_mb": max(0, after - before),\n            "actions": actions,\n        }\n\n\ndef ensure_host_root_space(context: str = "操作") -> dict:\n    space = host_root_space_mb()\n    if space["free_mb"] >= HOST_ROOT_MIN_FREE_MB:\n        return space\n\n    print(\n        f"[XNAT] {context}前检测到 Host 系统盘仅剩 {space['free_mb']} MiB，开始安全自动清理",\n        flush=True,\n    )\n    cleanup = safe_host_cleanup()\n    space = host_root_space_mb()\n    if space["free_mb"] < HOST_ROOT_MIN_FREE_MB:\n        raise HTTPException(\n            status_code=507,\n            detail=(\n                f"Host 系统盘可用空间不足：自动安全清理后仅剩 {space['free_mb']} MiB，"\n                f"至少需要 {HOST_ROOT_MIN_FREE_MB} MiB；请扩容 Host 系统盘或运行 xnat 的『清理 Host 系统空间』"\n            ),\n        )\n    return {**space, "cleanup": cleanup}\n\n\ndef _is_no_space_error(exc: Exception) -> bool:\n    text = str(exc).lower()\n    return "no space left on device" in text or "enospc" in text\n\n\ndef require_instance(name: str):\n''',
+          )
+          replace_once(
+              'agent/natvps_agent/main.py',
+              '''    else:\n        # Preserve the existing container proxy behavior.\n        args.append(f"connect={protocol}:127.0.0.1:{private_port}")\n    run(args, timeout=35)\n\n\ndef add_ssh_proxy(name: str, ssh_port: int):\n''',
+              '''    else:\n        # Preserve the existing container proxy behavior.\n        args.append(f"connect={protocol}:127.0.0.1:{private_port}")\n    try:\n        run(args, timeout=35)\n    except RuntimeError as exc:\n        if not _is_no_space_error(exc):\n            raise\n        safe_host_cleanup()\n        space = host_root_space_mb()\n        if space["free_mb"] < HOST_ROOT_MIN_FREE_MB:\n            raise HTTPException(\n                status_code=507,\n                detail=(\n                    f"Host 系统盘可用空间不足：自动安全清理后仅剩 {space['free_mb']} MiB，"\n                    f"至少需要 {HOST_ROOT_MIN_FREE_MB} MiB"\n                ),\n            ) from exc\n        run(args, timeout=35)\n\n\ndef add_ssh_proxy(name: str, ssh_port: int):\n''',
+          )
+          replace_once(
+              'agent/natvps_agent/main.py',
+              '''def provision(body: ProvisionBody):\n    require_instance(body.instance_name)\n    require_nat_port_allowed(body.ssh_port)\n    if instance_exists(body.instance_name):\n''',
+              '''def provision(body: ProvisionBody):\n    require_instance(body.instance_name)\n    require_nat_port_allowed(body.ssh_port)\n    ensure_host_root_space("创建 VPS")\n    if instance_exists(body.instance_name):\n''',
+          )
+          replace_once(
+              'agent/natvps_agent/main.py',
+              '''def reinstall(instance_id: str, body: ReinstallBody):\n    require_instance(instance_id)\n    require_nat_port_allowed(body.ssh_port)\n    # Validate the requested mode before deleting the current instance.\n''',
+              '''def reinstall(instance_id: str, body: ReinstallBody):\n    require_instance(instance_id)\n    require_nat_port_allowed(body.ssh_port)\n    ensure_host_root_space("重装 VPS")\n    # Validate the requested mode before deleting the current instance.\n''',
+          )
+          replace_once(
+              'agent/natvps_agent/main.py',
+              '''def add_port(instance_id: str, body: PortBody):\n    require_instance(instance_id)\n    require_nat_port_allowed(body.public_port)\n    protocol = body.protocol.lower()\n''',
+              '''def add_port(instance_id: str, body: PortBody):\n    require_instance(instance_id)\n    require_nat_port_allowed(body.public_port)\n    ensure_host_root_space("添加 NAT 端口")\n    protocol = body.protocol.lower()\n''',
+          )
+          replace_once(
+              'agent/natvps_agent/main.py',
+              '''    vm = psutil.virtual_memory()\n    port_start, port_end = nat_port_pool()\n    total_gb, used_gb, storage_source = storage_stats()\n''',
+              '''    vm = psutil.virtual_memory()\n    root_space = host_root_space_mb()\n    port_start, port_end = nat_port_pool()\n    total_gb, used_gb, storage_source = storage_stats()\n''',
+          )
+          replace_once(
+              'agent/natvps_agent/main.py',
+              '''        "memory_available_mb": int(vm.available / 1024 / 1024),\n        "storage_total_gb": round(total_gb, 2),\n''',
+              '''        "memory_available_mb": int(vm.available / 1024 / 1024),\n        "host_root_total_mb": root_space["total_mb"],\n        "host_root_used_mb": root_space["used_mb"],\n        "host_root_free_mb": root_space["free_mb"],\n        "host_root_min_free_mb": HOST_ROOT_MIN_FREE_MB,\n        "host_root_low": root_space["free_mb"] < HOST_ROOT_MIN_FREE_MB,\n        "storage_total_gb": round(total_gb, 2),\n''',
+          )
+
+          # Host installer: distinguish minimum install floor from recommended long-running capacity.
+          p = 'scripts/install-host.sh'
+          text = read(p)
+          text = text.replace('lxc) prefix="LXC"; total_min=4608; reserve=1024; min_pool=1; warn_total=5120 ;;', 'lxc) prefix="LXC"; total_min=4608; reserve=1024; min_pool=1; warn_total=8192 ;;')
+          text = text.replace('kvm) prefix="KVM"; total_min=6656; reserve=1536; min_pool=4; warn_total=8192; requires_kvm="true" ;;', 'kvm) prefix="KVM"; total_min=6656; reserve=1536; min_pool=4; warn_total=12288; requires_kvm="true" ;;')
+          text = text.replace('hybrid) prefix="HYBRID"; total_min=6656; reserve=1536; min_pool=4; warn_total=8192; requires_kvm="true" ;;', 'hybrid) prefix="HYBRID"; total_min=6656; reserve=1536; min_pool=4; warn_total=12288; requires_kvm="true" ;;')
+          text = text.replace('echo "     母鸡基线：1C / 1GB / 4.5GiB 总硬盘"', 'echo "     最低安装：1C / 1GB / 4.5GiB 总硬盘"\n    echo "     建议配置：1C / 1GB / 8GiB+ 总硬盘"')
+          text = text.replace('echo "     母鸡基线：1C / 1GB / 6.5GiB 总硬盘 + /dev/kvm"', 'echo "     最低安装：1C / 1GB / 6.5GiB 总硬盘 + /dev/kvm"\n    echo "     建议配置：2C / 2GB / 12GiB+ 总硬盘"', 1)
+          text = text.replace('echo "     母鸡基线：1C / 1GB / 6.5GiB 总硬盘 + /dev/kvm"', 'echo "     最低安装：1C / 1GB / 6.5GiB 总硬盘 + /dev/kvm"\n    echo "     建议配置：2C / 2GB / 12GiB+ 总硬盘"', 1)
+          text = text.replace('print(f"  系统/XNAT预留：约 {reserve/1024:.2f} GiB")', 'print(f"  系统/XNAT安装预留：约 {reserve/1024:.2f} GiB（不等同于长期安全余量）")')
+          text = text.replace('if (( ROOT_TOTAL_MIB < WARN_TOTAL_MIB || MAX_SAFE_GB == MIN_POOL_GB )); then echo "  [WARN] 当前属于低容量区间，建议只创建少量轻量实例。"; fi', 'if (( ROOT_TOTAL_MIB < WARN_TOTAL_MIB || MAX_SAFE_GB == MIN_POOL_GB )); then\n    echo "  [WARN] 当前 Host 仅达到最低安装区间，建议只用于测试或少量轻量实例。"\n    if [[ "${VIRTUALIZATION_MODE}" == "lxc" ]]; then\n      echo "  [WARN] 长期运行建议使用 8GiB+ 系统盘，并持续保留 Host 系统盘可用空间。"\n    else\n      echo "  [WARN] 长期运行建议使用 12GiB+ 系统盘，并持续保留 Host 系统盘可用空间。"\n    fi\n  fi')
+          text = text.replace('print(f"  系统/XNAT安全预留：  约 {reserve/1024:.2f} GiB")', 'print(f"  系统/XNAT安装预留：  约 {reserve/1024:.2f} GiB（长期运行仍需额外余量）")')
+          write(p, text)
+
+          # xnat CLI: Host-safe cleanup + less confusing Host version UI.
+          replace_once(
+              'scripts/xnat',
+              '  [[ "$release" != unknown ]] && printf \'Release    v%s\\n\' "$release"\n  if [[ "$role" == host ]]; then\n',
+              '  [[ "$role" == panel && "$release" != unknown ]] && printf \'Release    v%s\\n\' "$release"\n  if [[ "$role" == host ]]; then\n',
+          )
+          replace_once(
+              'scripts/xnat',
+              '''cmd_backup(){\n''',
+              '''cmd_host_cleanup(){\n  need_root\n  [[ "$(detect_role)" == host ]] || die "系统空间清理仅适用于 Host Agent"\n  local before after freed answer\n  before="$(fs_available_mb /)"; before="${before:-0}"\n\n  echo "XNAT Host 安全清理"\n  echo "系统盘当前可用：${before} MB"\n  echo\n  echo "仅清理："\n  echo "  - APT 软件包下载缓存"\n  echo "  - systemd journal 历史日志（保留约 50MB）"\n  echo\n  echo "不会删除：VPS、natpool、Incus 实例磁盘、镜像、Agent 配置或用户数据。"\n\n  if [[ "${XNAT_CLEANUP_ASSUME_YES:-0}" != 1 && -t 0 ]]; then\n    read -r -p "确认执行安全清理？[y/N]: " answer\n    [[ "$answer" =~ ^[Yy]$ ]] || { echo "已取消。"; return 0; }\n  elif [[ "${XNAT_CLEANUP_ASSUME_YES:-0}" != 1 && ! -t 0 ]]; then\n    die "非交互清理请设置 XNAT_CLEANUP_ASSUME_YES=1"\n  fi\n\n  if have apt-get; then\n    apt-get clean || warn "APT 缓存清理失败，已继续"\n  fi\n  if have journalctl; then\n    journalctl --vacuum-size=50M || warn "journal 清理失败，已继续"\n  fi\n\n  after="$(fs_available_mb /)"; after="${after:-0}"\n  if [[ "$before" =~ ^[0-9]+$ && "$after" =~ ^[0-9]+$ && "$after" -ge "$before" ]]; then\n    freed=$((after-before))\n  else\n    freed=0\n  fi\n  echo\n  ui_success "Host 系统空间清理完成"\n  echo "清理前可用：${before} MB"\n  echo "清理后可用：${after} MB"\n  echo "本次释放：  ${freed} MB"\n}\n\ncmd_backup(){\n''',
+          )
+
+          regex_once(
+              'scripts/xnat',
+              r'show_update_check\(\)\{.*?\n\}\n\n\nis_prerelease_of_target\(\)\{',
+              '''show_update_check(){\n  local role current current_rel release target api\n  role="$(detect_role)"\n  current="$(current_version "$role")"\n  current_rel="$(current_release)"\n  release="$(resolve_latest_release)"\n  target="$(target_component_version "$release" "$role")"\n  [[ -n "$target" ]] || die "Release v${release} 缺少组件版本信息"\n\n  ui_section "检查结果"\n  if [[ "$role" == host ]]; then\n    printf '组件             Host Agent\\n'\n    printf '当前 Host Agent  v%s\\n' "$current"\n    printf '最新 Host Agent  v%s\\n' "$target"\n    api="$(release_meta_value "$release" agent_api_version)"\n    printf 'Agent API        v%s\\n' "${api:-?}"\n    echo\n\n    if [[ "$current" == "$target" && "$current_rel" == "$release" ]]; then\n      ui_success "Host Agent 已是最新版本"\n    elif [[ "$current" == "$target" ]]; then\n      if [[ "$current_rel" == unknown ]]; then\n        ui_notice "Host Agent 已是最新；有新的 Host 管理脚本可同步（更新包 XNAT v${release}）"\n      else\n        ui_notice "Host Agent 已是最新；Host 管理脚本可从更新包 v${current_rel} 同步到 v${release}"\n      fi\n    elif [[ "$current" != unknown ]] && dpkg --compare-versions "$target" lt "$current"; then\n      ui_notice "当前 Host Agent 版本高于最新正式更新包中的版本"\n    else\n      ui_notice "发现 Host Agent 更新：v${current} → v${target}"\n    fi\n    return 0\n  fi\n\n  printf '组件             %s\\n' "$(component_label "$role")"\n  printf '当前组件版本     v%s\\n' "$current"\n  [[ "$current_rel" != unknown ]] && printf '当前 XNAT Release v%s\\n' "$current_rel"\n  printf '最新 XNAT Release v%s\\n' "$release"\n  printf 'Release 组件版本 v%s\\n' "$target"\n  echo\n\n  if [[ "$current" == "$target" && "$current_rel" == "$release" ]]; then\n    ui_success "当前组件已是最新版本"\n  elif [[ "$current" == "$target" ]]; then\n    if [[ "$current_rel" == unknown ]]; then\n      ui_notice "组件版本相同，但当前 Release 记录缺失；可同步到 Release v${release} 的管理脚本与发布文件"\n    else\n      ui_notice "组件版本相同，但当前 Release 为 v${current_rel}；可同步到 Release v${release} 的管理脚本与发布文件"\n    fi\n  elif [[ "$current" != unknown ]] && dpkg --compare-versions "$target" lt "$current"; then\n    ui_notice "当前组件版本高于该 Release"\n  else\n    ui_notice "发现组件更新：v${current} → v${target}"\n  fi\n}\n\n\nis_prerelease_of_target(){''',
+          )
+
+          replace_once(
+              'scripts/xnat',
+              '''  ui_section "XNAT 更新"\n  echo "组件：$(component_label "$role")"\n  echo "当前组件：v${current}"\n  [[ "$current_rel" != unknown ]] && echo "当前 Release：v${current_rel}"\n  echo "目标 Release：v${release}"\n  echo "目标组件：v${target}"\n''',
+              '''  ui_section "XNAT 更新"\n  echo "组件：$(component_label "$role")"\n  if [[ "$role" == host ]]; then\n    echo "当前 Host Agent：v${current}"\n    echo "目标 Host Agent：v${target}"\n    echo "更新包：XNAT v${release}"\n  else\n    echo "当前组件：v${current}"\n    [[ "$current_rel" != unknown ]] && echo "当前 Release：v${current_rel}"\n    echo "目标 Release：v${release}"\n    echo "目标组件：v${target}"\n  fi\n''',
+          )
+          replace_once(
+              'scripts/xnat',
+              '  echo "组件：$(component_label "$role") v$(current_version "$role") / Release v$(current_release)"\n  [[ "$role" == host ]] && echo "Agent API：v$(current_agent_api_version)"\n',
+              '  if [[ "$role" == host ]]; then\n    echo "组件：Host Agent v$(current_version host)"\n    echo "Agent API：v$(current_agent_api_version)"\n  else\n    echo "组件：$(component_label "$role") v$(current_version "$role") / Release v$(current_release)"\n  fi\n',
+          )
+
+          regex_once(
+              'scripts/xnat',
+              r'interactive_update\(\)\{.*?\n\}\n\ninteractive_backup\(\)\{',
+              '''interactive_update(){\n  local role current v n\n  role="$(detect_role)"\n  while true; do\n    current="$(current_version "$role")"\n    ui_section "检查 / 更新 $(component_label "$role")"\n    printf '当前组件版本：v%s\\n' "$current"\n    [[ "$role" == panel && "$(current_release)" != unknown ]] && printf '当前 XNAT Release：v%s\\n' "$(current_release)"\n    echo\n    if [[ "$role" == host ]]; then\n      echo "  1  检查最新 Host Agent"\n      echo "  2  更新 Host Agent"\n      echo "  3  指定更新包版本"\n    else\n      echo "  1  检查最新正式 Release"\n      echo "  2  更新当前组件"\n      echo "  3  指定 XNAT Release 更新"\n    fi\n    echo "  0  返回"\n    echo\n    prompt_choice "0-3" n || return 0\n    case "$n" in\n      1) show_update_check; pause_return ;;\n      2) cmd_update || true; pause_return ;;\n      3)\n        if [[ "$role" == host ]]; then\n          read -r -p "目标更新包版本（例如 1.6.4）: " v\n        else\n          read -r -p "目标 XNAT Release（例如 1.6.4）: " v\n        fi\n        cmd_update "$v" || true\n        pause_return\n        ;;\n      0) return ;;\n      *) ui_error "无效选择：${n}"; pause_return ;;\n    esac\n  done\n}\n\ninteractive_backup(){''',
+          )
+
+          regex_once(
+              'scripts/xnat',
+              r'interactive_host_menu\(\)\{.*?\n\}\n\ninteractive_menu\(\)\{',
+              '''interactive_host_menu(){\n  local n\n  while true; do\n    print_menu_header host\n    echo\n    echo "  1   查看运行状态"\n    echo "  2   重启 Host Agent"\n    echo "  3   查看实时日志"\n    echo "  4   查看 XNAT 防火墙"\n    echo "  5   修改允许的 Panel IP"\n    echo "  6   轮换 Agent Token"\n    echo "  7   检查 / 更新 Host Agent"\n    echo "  8   系统诊断"\n    echo "  9   清理 Host 系统空间"\n    echo "  10  卸载 Host Agent"\n    echo "  0   退出"\n    echo\n    prompt_choice "0-10" n || exit 0\n    case "$n" in\n      1) ui_section "Host Agent 运行状态"; cmd_host_status; pause_return ;;\n      2) ui_section "重启 Host Agent"; cmd_restart; ui_success "Host Agent 重启完成"; pause_return ;;\n      3)\n        ui_section "Host Agent 实时日志"\n        ui_notice "按 Ctrl+C 退出实时日志并返回菜单"\n        cmd_logs || true\n        pause_return\n        ;;\n      4) ui_section "XNAT 防火墙"; cmd_firewall status; pause_return ;;\n      5) ui_section "允许的 Panel IP"; cmd_set_panel_ip; pause_return ;;\n      6) ui_section "轮换 Agent Token"; cmd_token_rotate; pause_return ;;\n      7) interactive_update ;;\n      8) interactive_diagnostics ;;\n      9) ui_section "清理 Host 系统空间"; cmd_host_cleanup; pause_return ;;\n      10) ui_section "卸载 Host Agent"; cmd_uninstall; exit 0 ;;\n      0) exit 0 ;;\n      *) ui_error "无效选择：${n}"; pause_return ;;\n    esac\n  done\n}\n\ninteractive_menu(){''',
+          )
+          replace_once('scripts/xnat', '  uninstall) shift; cmd_uninstall "$@" ;;\n', '  cleanup) shift; cmd_host_cleanup "$@" ;;\n  uninstall) shift; cmd_uninstall "$@" ;;\n')
+          replace_once(
+              'scripts/xnat',
+              '  *) die "用法：xnat [version|status|restart|logs|doctor|backup|restore|update|token|panel-ip|firewall|domain|cloudflare|uninstall]；诊断报告：xnat doctor report" ;;',
+              '  *) die "用法：xnat [version|status|restart|logs|doctor|backup|restore|update|cleanup|token|panel-ip|firewall|domain|cloudflare|uninstall]；诊断报告：xnat doctor report" ;;',
+          )
+
+          # README/release notes.
+          replace_once(
+              'README.md',
+              '''**当前正式版本：XNAT v1.6.3**\n\n| 组件 | 版本 |\n| --- | --- |\n| XNAT Release | v1.6.3 |\n| Panel | v1.6.3 |\n| Host Agent | v1.2.0 |\n| Agent API | v1 |\n| Mobile API | v1 |\n\n> v1.6.3 为 Panel 修复版本：修正 Incus/LVM 对齐造成的 natpool 微小容量误差。接近套餐分配边界的名义容量按安全容差归一化用于逻辑配额和调度，真实物理占用仍按 Host Agent 原始上报值执行存储水位保护。\n''',
+              '''**当前正式版本：XNAT v1.6.4**\n\n| 组件 | 版本 |\n| --- | --- |\n| XNAT Release | v1.6.4 |\n| Panel | v1.6.3 |\n| Host Agent | v1.2.1 |\n| Agent API | v1 |\n| Mobile API | v1 |\n\n> v1.6.4 为 Host 稳定性修复：Host Agent 增加系统盘低空间保护与白名单安全清理，Host 管理菜单加入手动清理入口；安装器同时明确区分“最低安装”与“建议长期运行”配置。Panel、Agent API 与 Mobile API 保持兼容。\n''',
+          )
+          replace_once(
+              'README.md',
+              '''| 模式 | Host 基线 | 说明 |\n| --- | --- | --- |\n| LXC | 1C / 1GB / 4.5GiB 总硬盘 | 从当前可用空间预留约 1GiB 给系统/XNAT，再计算 natpool |\n| KVM | 1C / 1GB / 6.5GiB 总硬盘 | 需要可用 `/dev/kvm`，预留约 1.5GiB，natpool 至少 4GiB |\n| LXC + KVM | 同 KVM | 同时开放两种实例类型 |\n''',
+              '''| 模式 | 最低安装 | 建议长期运行 | 说明 |\n| --- | --- | --- | --- |\n| LXC | 1C / 1GB / 4.5GiB 总硬盘 | 1C / 1GB / 8GiB+ | 最低值仅用于测试或少量轻量实例；安装阶段仍按可用空间预留约 1GiB 后计算 natpool |\n| KVM | 1C / 1GB / 6.5GiB 总硬盘 | 2C / 2GB / 12GiB+ | 需要可用 `/dev/kvm`，安装阶段预留约 1.5GiB，natpool 至少 4GiB |\n| LXC + KVM | 同 KVM | 2C / 2GB / 12GiB+ | 同时开放两种实例类型 |\n''',
+          )
+          regex_once(
+              'README.md',
+              r'## 升级到 v1\.6\.3\n.*?\n更早版本的升级历史与兼容说明请查看 \[CHANGELOG\.md\]\(CHANGELOG\.md\) 和 \[docs/README\.md\]\(docs/README\.md\)。',
+              '''## 升级到 v1.6.4\n\n现有 Host Agent 可直接原地升级：\n\n```bash\nxnat update 1.6.4\n```\n\n升级器会保留 Agent Token、TLS、Incus、natpool、现有 VPS、端口与 `/etc/xnat/node.json`；Agent API 继续保持 v1。Panel v1.6.3 与 Android v1.2.1 无需因本次 Host 修复升级。\n\n本版 Host Agent 在创建、重装或新增 NAT 端口前检查 Host 根分区；低于 512MiB 时仅清理 APT 下载缓存与历史 journal，清理后仍不足则停止操作并返回明确的空间不足错误。`xnat` Host 菜单也提供“清理 Host 系统空间”手动入口。\n\n更早版本的升级历史与兼容说明请查看 [CHANGELOG.md](CHANGELOG.md) 和 [docs/README.md](docs/README.md)。''',
+          )
+
+          changelog = read('CHANGELOG.md')
+          entry = '''## v1.6.4\n\n- Host Agent 升级至 v1.2.1；Agent API v1、Panel v1.6.3、Mobile API v1 保持不变。\n- 新增 Host 根分区保护：创建、重装 VPS 与新增 NAT 端口前检查系统盘，低于 512MiB 时自动执行白名单安全清理；仍不足则返回 HTTP 507 和明确中文错误，避免继续写满系统盘。\n- Incus proxy 遇到 `No space left on device` 时仅自动清理 APT 下载缓存与历史 journal，并只重试一次；绝不自动删除 natpool、`/var/lib/incus/disks`、VPS、Incus 镜像或用户数据。\n- `xnat` Host 菜单新增“清理 Host 系统空间”，显示清理前后可用空间；支持 `xnat cleanup` 非交互/命令行入口。\n- Host 安装提示将 4.5GiB / 6.5GiB 明确标为最低安装门槛，并新增 LXC 8GiB+、KVM/混合 12GiB+ 的长期运行建议；现有容量算法与最低安装兼容性不变。\n- Host 版本检查界面以 Host Agent 版本为主，不再把仓库总 Release 号显示成 Host 主版本；管理脚本同步场景改为明确的“更新包/Host 管理脚本”提示。\n- 正式支持 Host Agent v1.2.0 → v1.2.1 原地升级，并保留 Agent Token、TLS、Incus、natpool、现有 VPS、端口与节点配置。\n\n'''
+          if not changelog.startswith('# Changelog\n\n'):
+              raise SystemExit('CHANGELOG.md header changed')
+          write('CHANGELOG.md', '# Changelog\n\n' + entry + changelog[len('# Changelog\n\n'):])
+          PY
+
+      - name: Validate syntax and release invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile agent/natvps_agent/main.py agent/natvps_agent/__init__.py
+          bash -n scripts/install-host.sh scripts/upgrade-host-agent.sh scripts/xnat scripts/xnat-firewall
+          python3 -m json.tool release.json >/dev/null
+          test "$(cat VERSION)" = "1.6.4"
+          test "$(cat agent/VERSION)" = "1.2.1"
+          grep -q 'AGENT_VERSION = "1.2.1"' agent/natvps_agent/main.py
+          grep -q 'HOST_ROOT_MIN_FREE_MB' agent/natvps_agent/main.py
+          grep -q 'status_code=507' agent/natvps_agent/main.py
+          grep -q '清理 Host 系统空间' scripts/xnat
+          grep -q '建议配置：1C / 1GB / 8GiB+' scripts/install-host.sh
+          grep -q '建议配置：2C / 2GB / 12GiB+' scripts/install-host.sh
+          python3 - <<'PY'
+          import json
+          d=json.load(open('release.json'))
+          assert d['release_version']=='1.6.4'
+          assert d['panel_version']=='1.6.3'
+          assert d['agent_version']=='1.2.1'
+          assert d['agent_api_version']=='1'
+          assert d['mobile_api_version']=='1'
+          PY
+          bash scripts/check.sh
+
+      - name: Commit validated changes and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/prepare-v164.yml
+          git config user.name "XNAT Release Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(host): add disk-space safeguards and cleanup"
+          git push origin HEAD:release/v1.6.4
