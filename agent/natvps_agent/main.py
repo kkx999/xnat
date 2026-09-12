@@ -20,7 +20,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse
 
-AGENT_VERSION = "1.2.1"
+AGENT_VERSION = "1.0.0"
 AGENT_API_VERSION = "1"
 AGENT_TOKEN = os.getenv("AGENT_TOKEN", "")
 STORAGE_POOL = os.getenv("INCUS_STORAGE_POOL", "natpool")
