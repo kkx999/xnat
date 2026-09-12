@@ -1,0 +1,142 @@
+name: XNAT v1.6.3 validate
+on:
+  push:
+    branches: [release/v1.6.3]
+permissions:
+  contents: write
+jobs:
+  validate-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/v1.6.3
+          fetch-depth: 0
+      - name: Apply v1.6.3 patch
+        shell: bash
+        run: |
+          python3 -m py_compile scripts/release-v163-patch.py
+          python3 scripts/release-v163-patch.py
+      - name: Install dependencies
+        shell: bash
+        run: python3 -m pip install --disable-pip-version-check -r panel/requirements.txt -r agent/requirements.txt
+      - name: Repository regression checks
+        shell: bash
+        run: |
+          bash scripts/check.sh
+          bash -n scripts/*.sh scripts/xnat scripts/xnat-firewall
+      - name: LVM alignment capacity smoke tests
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from datetime import datetime
+          from unittest.mock import patch
+          from sqlalchemy import create_engine
+          from sqlalchemy.orm import Session
+          from panel.app.db import Base
+          from panel.app.models import HostNode, Plan
+          from panel.app.nodes import (
+              host_plan_capacity_estimates,
+              host_schedule_state,
+              normalized_storage_quota_total_gb,
+          )
+
+          assert normalized_storage_quota_total_gb(1.99) == 2.0
+          assert normalized_storage_quota_total_gb(1.97) == 2.0
+          assert normalized_storage_quota_total_gb(1.96) == 1.96
+
+          engine = create_engine('sqlite:///:memory:')
+          Base.metadata.create_all(engine)
+          with Session(engine) as db:
+              host = HostNode(
+                  name='HK', region='hk', api_url='https://127.0.0.1:29443', api_token_enc='x', public_ip='203.0.113.10',
+                  port_start=30000, port_end=39999, max_vps=0, enabled=True, verify_tls=False,
+                  virtualization_modes='lxc', kvm_available=False, maintenance_mode=False,
+                  schedule_cpu_max_percent=100, schedule_memory_max_percent=100, schedule_storage_max_percent=100,
+                  status='online', cpu_percent=6.7, memory_total_mb=967, memory_used_mb=357,
+                  storage_total_gb=1.99, storage_used_gb=0.20, active_vps=0, last_seen_at=datetime.utcnow(),
+              )
+              plan = Plan(
+                  name='NAT Mini', cpu=1, memory_mb=128, disk_gb=1.0, port_count=5,
+                  bandwidth_mbps=100, traffic_gb=500, monthly_price_cents=100,
+                  traffic_reset_price_cents=100, stock_limit=0, virtualization_type='lxc',
+                  sort_order=1, homepage_visible=True, homepage_sort_order=1,
+                  is_recommended=False, recommendation_label='推荐', is_active=True,
+              )
+              db.add_all([host, plan])
+              db.commit()
+
+              state = host_schedule_state(db, host, plan)
+              assert state['allowed'] is True, state
+              cap = state['capacity']
+              assert cap['reported_storage_total_gb'] == 1.99, cap
+              assert cap['quota_storage_total_gb'] == 2.0, cap
+              assert cap['logical_remaining_disk_gb'] == 2.0, cap
+              assert cap['physical_remaining_disk_gb'] == 1.79, cap
+
+              rows = host_plan_capacity_estimates(db, host, [plan])
+              assert rows[0]['count'] == 2, rows
+              assert rows[0]['limiter'] == '存储', rows
+              print('1.99GiB reported / 2GiB nominal / 1GiB plan =>', rows[0])
+
+              # Simulate one already allocated 1GiB VPS. The second 1GiB plan
+              # must be allowed at a 100% logical storage threshold.
+              with patch('panel.app.nodes.host_allocated_disk_gb', return_value=1.0):
+                  second = host_schedule_state(db, host, plan)
+                  assert second['allowed'] is True, second
+              print('second 1GiB VPS scheduling at 100% => allowed')
+
+              # Administrator safety policy must still win at 90%.
+              host.schedule_storage_max_percent = 90
+              db.commit()
+              rows = host_plan_capacity_estimates(db, host, [plan])
+              assert rows[0]['count'] == 1, rows
+              with patch('panel.app.nodes.host_allocated_disk_gb', return_value=1.0):
+                  blocked = host_schedule_state(db, host, plan)
+                  assert blocked['allowed'] is False and blocked['code'] == 'capacity_storage', blocked
+              print('90% storage threshold => one slot / second blocked')
+
+              # Physical watermarks continue to use raw reported bytes.
+              host.schedule_storage_max_percent = 100
+              host.storage_used_gb = 1.99
+              db.commit()
+              physical = host_schedule_state(db, host, plan)
+              assert physical['allowed'] is False and physical['code'] == 'watermark_storage', physical
+              print('raw physical 100% watermark => blocked')
+
+              # Do not inflate a materially smaller pool.
+              host.storage_total_gb = 1.96
+              host.storage_used_gb = 0.20
+              db.commit()
+              rows = host_plan_capacity_estimates(db, host, [plan])
+              assert rows[0]['count'] == 1, rows
+              print('1.96GiB outside tolerance => no snap:', rows[0])
+          PY
+      - name: Panel-only scope check
+        shell: bash
+        run: |
+          git diff --exit-code origin/main -- agent/ scripts/install-host.sh scripts/upgrade-host-agent.sh
+          test "$(cat agent/VERSION)" = "1.2.0"
+          test "$(cat agent/API_VERSION)" = "1"
+      - name: Build release assets
+        shell: bash
+        run: |
+          bash scripts/build-release.sh
+          test -s dist/xnat-panel-v1.6.3.zip
+          test -s dist/xnat-host-agent-v1.2.0.zip
+          test -s dist/xnat-bootstrap-panel-v1.6.3.sh
+          test -s dist/xnat-bootstrap-host-v1.6.3.sh
+          (cd dist && sha256sum -c SHA256SUMS.txt)
+      - name: Commit validated tree
+        shell: bash
+        run: |
+          find panel agent scripts -type d -name '__pycache__' -prune -exec rm -rf {} +
+          find panel agent scripts -type f -name '*.pyc' -delete
+          rm -f scripts/release-v163-patch.py .github/workflows/xnat-v163-validate.yml
+          rmdir .github/workflows 2>/dev/null || true
+          rmdir .github 2>/dev/null || true
+          git config user.name 'XNAT Release Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git commit -m 'XNAT v1.6.3: normalize natpool quota alignment [v163-built]'
+          git push origin HEAD:release/v1.6.3
