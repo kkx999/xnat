@@ -35,11 +35,47 @@ detect_kvm(){
   [[ -c /dev/kvm && -r /dev/kvm && -w /dev/kvm ]]
 }
 
-select_virtualization_mode(){
-  local kvm_ok="false" choice mode
-  detect_kvm && kvm_ok="true"
-  mode="${VIRTUALIZATION_MODE,,}"
+detect_host_resources(){
+  CPU_CORES="$(nproc 2>/dev/null || echo 1)"
+  MEM_TOTAL_MIB="$(awk '/^MemTotal:/{print int($2/1024)}' /proc/meminfo)"
+  MEM_AVAILABLE_MIB="$(awk '/^MemAvailable:/{print int($2/1024)}' /proc/meminfo)"
+  ROOT_TOTAL_MIB="$(df -B1 --output=size / | tail -n1 | awk '{print int($1/1024/1024)}')"
+  ROOT_USED_MIB="$(df -B1 --output=used / | tail -n1 | awk '{print int($1/1024/1024)}')"
+  ROOT_AVAIL_MIB="$(df -B1 --output=avail / | tail -n1 | awk '{print int($1/1024/1024)}')"
+  [[ "${CPU_CORES}" =~ ^[0-9]+$ && "${MEM_TOTAL_MIB}" =~ ^[0-9]+$ && "${MEM_AVAILABLE_MIB}" =~ ^[0-9]+$ && "${ROOT_TOTAL_MIB}" =~ ^[0-9]+$ && "${ROOT_USED_MIB}" =~ ^[0-9]+$ && "${ROOT_AVAIL_MIB}" =~ ^[0-9]+$ ]] || die "无法读取 Host 资源"
+}
 
+compute_mode_capacity(){
+  local mode="$1" prefix total_min reserve min_pool warn_total requires_kvm="false"
+  local pool_mib pool_gb ok="true" reason=""
+  case "$mode" in
+    lxc) prefix="LXC"; total_min=4608; reserve=1024; min_pool=1; warn_total=5120 ;;
+    kvm) prefix="KVM"; total_min=6656; reserve=1536; min_pool=4; warn_total=8192; requires_kvm="true" ;;
+    hybrid) prefix="HYBRID"; total_min=6656; reserve=1536; min_pool=4; warn_total=8192; requires_kvm="true" ;;
+    *) die "未知虚拟化模式：${mode}" ;;
+  esac
+  pool_mib=$(( ROOT_AVAIL_MIB > reserve ? ROOT_AVAIL_MIB - reserve : 0 ))
+  pool_gb=$(( pool_mib / 1024 ))
+  if (( CPU_CORES < 1 )); then ok="false"; reason="${reason:+${reason}；}CPU 少于 1 核"; fi
+  if (( MEM_TOTAL_MIB < 900 )); then ok="false"; reason="${reason:+${reason}；}总内存不足 1GB"; fi
+  if (( ROOT_TOTAL_MIB < total_min )); then ok="false"; reason="${reason:+${reason}；}总硬盘低于 $((total_min/1024)).$(((total_min%1024)*10/1024))GiB 基线"; fi
+  if (( pool_gb < min_pool )); then ok="false"; reason="${reason:+${reason}；}当前可用空间只能安全提供 ${pool_gb}GiB natpool，至少需要 ${min_pool}GiB"; fi
+  if [[ "$requires_kvm" == "true" ]] && ! detect_kvm; then ok="false"; reason="${reason:+${reason}；}/dev/kvm 不可用"; fi
+  printf -v "${prefix}_OK" '%s' "$ok"
+  printf -v "${prefix}_REASON" '%s' "${reason:-满足安装条件}"
+  printf -v "${prefix}_POOL_GB" '%s' "$pool_gb"
+  printf -v "${prefix}_RESERVE_MIB" '%s' "$reserve"
+  printf -v "${prefix}_MIN_POOL_GB" '%s' "$min_pool"
+  printf -v "${prefix}_WARN_TOTAL_MIB" '%s' "$warn_total"
+}
+
+mode_status(){
+  local ok="$1" reason="$2"
+  [[ "$ok" == "true" ]] && printf '✓ 可安装' || printf '✗ %s' "$reason"
+}
+
+select_virtualization_mode(){
+  local choice mode="${VIRTUALIZATION_MODE,,}"
   case "$mode" in
     1|lxc) mode="lxc" ;;
     2|kvm) mode="kvm" ;;
@@ -47,54 +83,61 @@ select_virtualization_mode(){
     "") ;;
     *) die "VIRTUALIZATION_MODE 仅支持 lxc / kvm / hybrid" ;;
   esac
-
+  detect_host_resources
+  compute_mode_capacity lxc
+  compute_mode_capacity kvm
+  compute_mode_capacity hybrid
   if [[ -z "$mode" && -t 0 ]]; then
     echo
-    echo "========================================"
-    echo "       XNAT Host 安装 · 2/3"
-    echo "========================================"
+    echo "=================================================="
+    echo "                 XNAT Host 安装"
+    echo "=================================================="
+    echo "当前服务器："
+    echo "  系统：       ${OS_LABEL}"
+    echo "  CPU：        ${CPU_CORES} Core"
+    echo "  内存：       总计 ${MEM_TOTAL_MIB} MiB / 当前可用 ${MEM_AVAILABLE_MIB} MiB"
+    python3 - "${ROOT_TOTAL_MIB}" "${ROOT_USED_MIB}" "${ROOT_AVAIL_MIB}" <<'PY_DISK'
+import sys
+total, used, avail = map(int, sys.argv[1:])
+print(f"  硬盘：       总计 {total/1024:.2f} GiB / 已用 {used/1024:.2f} GiB / 当前可用 {avail/1024:.2f} GiB")
+PY_DISK
+    detect_kvm && echo "  /dev/kvm：   ✓ 可用" || echo "  /dev/kvm：   ✗ 不可用"
     echo
-    echo "虚拟化能力检测："
-    echo "  LXC：✓ 可用"
-    if [[ "$kvm_ok" == "true" ]]; then
-      echo "  KVM：✓ 可用（/dev/kvm 已开放）"
-      echo
-      echo "请选择此 Host 允许创建的实例类型："
-      echo "  1. LXC"
-      echo "     最低母鸡：1C / 1GB / 4.5GB 可用硬盘"
-      echo "     适合 Alpine / Debian / Ubuntu 轻量 NAT VPS"
-      echo "  2. KVM"
-      echo "     最低母鸡：1C / 1GB / 6.5GB 可用硬盘，且 /dev/kvm 可用"
-      echo "  3. LXC + KVM"
-      echo "     最低母鸡：1C / 1GB / 6.5GB 可用硬盘，且 /dev/kvm 可用"
-      read -r -p "请选择 [1-3] [3]: " choice
-      choice="${choice:-3}"
-      case "$choice" in
-        1) mode="lxc" ;;
-        2) mode="kvm" ;;
-        3) mode="hybrid" ;;
-        *) die "无效选择：${choice}" ;;
-      esac
-    else
-      echo "  KVM：✗ 不可用（未检测到可访问的 /dev/kvm）"
-      echo
-      echo "当前只能启用 LXC。若这台 Host 本身运行在 KVM VPS 中，请让上层商家开放 Nested Virtualization。"
-      read -r -p "按 Enter 继续使用 LXC..." _
-      mode="lxc"
-    fi
+    echo "请选择 Host 运行模式："
+    echo "  1) LXC"
+    echo "     母鸡基线：1C / 1GB / 4.5GiB 总硬盘"
+    echo "     当前预计可用于 natpool：${LXC_POOL_GB} GiB（已预留约 1GiB 给系统/XNAT）"
+    echo "     状态：$(mode_status "${LXC_OK}" "${LXC_REASON}")"
+    echo "  2) KVM"
+    echo "     母鸡基线：1C / 1GB / 6.5GiB 总硬盘 + /dev/kvm"
+    echo "     当前预计可用于 natpool：${KVM_POOL_GB} GiB（已预留约 1.5GiB 给系统/XNAT）"
+    echo "     状态：$(mode_status "${KVM_OK}" "${KVM_REASON}")"
+    echo "  3) LXC + KVM"
+    echo "     母鸡基线：1C / 1GB / 6.5GiB 总硬盘 + /dev/kvm"
+    echo "     当前预计可用于 natpool：${HYBRID_POOL_GB} GiB（已预留约 1.5GiB 给系统/XNAT）"
+    echo "     状态：$(mode_status "${HYBRID_OK}" "${HYBRID_REASON}")"
+    read -r -p "请选择 [1-3] [1]: " choice
+    choice="${choice:-1}"
+    case "$choice" in 1) mode="lxc";; 2) mode="kvm";; 3) mode="hybrid";; *) die "无效选择：${choice}";; esac
   fi
-
   mode="${mode:-lxc}"
-  if [[ "$mode" != "lxc" && "$kvm_ok" != "true" ]]; then
-    die "选择了 KVM，但 /dev/kvm 不可用。请先开启 Nested Virtualization，或使用 VIRTUALIZATION_MODE=lxc。"
-  fi
-  VIRTUALIZATION_MODE="$mode"
   case "$mode" in
-    lxc) VIRTUALIZATION_MODES_JSON='["lxc"]'; VIRTUALIZATION_LABEL="LXC" ;;
-    kvm) VIRTUALIZATION_MODES_JSON='["kvm"]'; VIRTUALIZATION_LABEL="KVM" ;;
-    hybrid) VIRTUALIZATION_MODES_JSON='["lxc","kvm"]'; VIRTUALIZATION_LABEL="LXC + KVM" ;;
+    lxc)
+      [[ "${LXC_OK}" == "true" ]] || die "当前 Host 不满足 LXC 安装条件：${LXC_REASON}"
+      VIRTUALIZATION_MODES_JSON='["lxc"]'; VIRTUALIZATION_LABEL="LXC"; MAX_SAFE_GB="${LXC_POOL_GB}"; SYSTEM_RESERVE_MIB="${LXC_RESERVE_MIB}"; MIN_POOL_GB="${LXC_MIN_POOL_GB}"; WARN_TOTAL_MIB="${LXC_WARN_TOTAL_MIB}"
+      ;;
+    kvm)
+      [[ "${KVM_OK}" == "true" ]] || die "当前 Host 不满足 KVM 安装条件：${KVM_REASON}"
+      VIRTUALIZATION_MODES_JSON='["kvm"]'; VIRTUALIZATION_LABEL="KVM"; MAX_SAFE_GB="${KVM_POOL_GB}"; SYSTEM_RESERVE_MIB="${KVM_RESERVE_MIB}"; MIN_POOL_GB="${KVM_MIN_POOL_GB}"; WARN_TOTAL_MIB="${KVM_WARN_TOTAL_MIB}"
+      ;;
+    hybrid)
+      [[ "${HYBRID_OK}" == "true" ]] || die "当前 Host 不满足 LXC + KVM 安装条件：${HYBRID_REASON}"
+      VIRTUALIZATION_MODES_JSON='["lxc","kvm"]'; VIRTUALIZATION_LABEL="LXC + KVM"; MAX_SAFE_GB="${HYBRID_POOL_GB}"; SYSTEM_RESERVE_MIB="${HYBRID_RESERVE_MIB}"; MIN_POOL_GB="${HYBRID_MIN_POOL_GB}"; WARN_TOTAL_MIB="${HYBRID_WARN_TOTAL_MIB}"
+      ;;
   esac
+  VIRTUALIZATION_MODE="$mode"
 }
+
 trap cleanup_test EXIT
 
 [[ $EUID -eq 0 ]] || die "请使用 root 运行"
@@ -103,8 +146,15 @@ trap cleanup_test EXIT
 [[ -f "${REPO_ROOT}/scripts/xnat" ]] || die "找不到 XNAT 管理脚本"
 
 . /etc/os-release
-[[ "${ID:-}" == "debian" && "${VERSION_CODENAME:-}" == "bookworm" ]] || \
-  die "要求 Debian 12 bookworm"
+case "${ID:-}:${VERSION_CODENAME:-}" in
+  debian:bookworm) OS_LABEL="Debian 12 Bookworm" ;;
+  debian:trixie) OS_LABEL="Debian 13 Trixie" ;;
+  ubuntu:jammy) OS_LABEL="Ubuntu 22.04 LTS Jammy" ;;
+  ubuntu:noble) OS_LABEL="Ubuntu 24.04 LTS Noble" ;;
+  ubuntu:resolute) OS_LABEL="Ubuntu 26.04 LTS Resolute" ;;
+  *) die "当前系统不受支持。支持：Debian 12/13、Ubuntu 22.04/24.04/26.04 LTS" ;;
+esac
+INCUS_SUITE="${VERSION_CODENAME}"
 
 # 全新 Debian 可能没有 python3。先安装基础校验依赖，再验证 PANEL_IP。
 info "0/7 安装基础校验依赖"
@@ -149,83 +199,51 @@ PY
 )" || die "Panel IPv4/CIDR 无效：${PANEL_CIDR}"
 
 select_virtualization_mode
-
-CPU_CORES="$(nproc 2>/dev/null || echo 1)"
-MEM_TOTAL_MIB="$(awk '/^MemTotal:/{print int($2/1024)}' /proc/meminfo)"
-TOTAL_MIB="$(df -B1 --output=size / | tail -n1 | awk '{print int($1/1024/1024)}')"
-FREE_MIB="$(df -B1 --output=avail / | tail -n1 | awk '{print int($1/1024/1024)}')"
-[[ "${CPU_CORES}" =~ ^[0-9]+$ && "${MEM_TOTAL_MIB}" =~ ^[0-9]+$ && "${FREE_MIB}" =~ ^[0-9]+$ ]] || die "无法读取 Host 资源"
-
-# Linux on a 1 GiB VPS normally exposes slightly less than 1024 MiB as MemTotal.
-MIN_RAM_MIB=900
-SYSTEM_RESERVE_MIB=2560
-case "${VIRTUALIZATION_MODE}" in
-  lxc)
-    MIN_FREE_MIB=4608
-    WARN_FREE_MIB=5120
-    MIN_POOL_GB=2
-    HOST_MIN_DISK="4.5 GiB"
-    ;;
-  kvm|hybrid)
-    MIN_FREE_MIB=6656
-    WARN_FREE_MIB=8192
-    MIN_POOL_GB=4
-    HOST_MIN_DISK="6.5 GiB"
-    ;;
-esac
-
-(( CPU_CORES >= 1 )) || die "CPU 不足：${VIRTUALIZATION_LABEL} Host 最低需要 1 核"
-(( MEM_TOTAL_MIB >= MIN_RAM_MIB )) || die "内存不足：${VIRTUALIZATION_LABEL} Host 最低需要 1GB 内存（系统当前可见 ${MEM_TOTAL_MIB} MiB）"
-(( FREE_MIB >= MIN_FREE_MIB )) || die "可用硬盘不足：${VIRTUALIZATION_LABEL} Host 最低需要 ${HOST_MIN_DISK} 可用硬盘"
-
-MAX_SAFE_GB=$(( (FREE_MIB - SYSTEM_RESERVE_MIB) / 1024 ))
-(( MAX_SAFE_GB >= MIN_POOL_GB )) || die "磁盘无法安全创建 natpool：至少需为系统/XNAT 保留约 2.5GiB"
 RECOMMENDED_GB="${MAX_SAFE_GB}"
-
 if [[ -t 0 ]]; then
   echo
-  echo "========================================"
+  echo "=================================================="
   echo "       XNAT Host 安装 · 环境确认"
-  echo "========================================"
-  printf '  模式：        %s\n' "${VIRTUALIZATION_LABEL}"
-  printf '  CPU：         %s 核      ✓ 最低 1 核\n' "${CPU_CORES}"
-  printf '  内存：        %s MiB    ✓ 最低 1 GB\n' "${MEM_TOTAL_MIB}"
-  python3 - "${FREE_MIB}" "${MIN_FREE_MIB}" <<'PY_RES'
+  echo "=================================================="
+  echo "  系统：          ${OS_LABEL}"
+  echo "  模式：          ${VIRTUALIZATION_LABEL}"
+  printf '  CPU：           %s 核\n' "${CPU_CORES}"
+  printf '  内存：          总计 %s MiB / 当前可用 %s MiB\n' "${MEM_TOTAL_MIB}" "${MEM_AVAILABLE_MIB}"
+  python3 - "${ROOT_TOTAL_MIB}" "${ROOT_USED_MIB}" "${ROOT_AVAIL_MIB}" "${SYSTEM_RESERVE_MIB}" <<'PY_RES'
 import sys
-free=int(sys.argv[1]); minimum=int(sys.argv[2])
-print(f"  可用硬盘：    {free/1024:.2f} GiB ✓ 最低 {minimum/1024:.1f} GiB")
+total, used, avail, reserve = map(int, sys.argv[1:])
+print(f"  总硬盘：        {total/1024:.2f} GiB")
+print(f"  当前已用：      {used/1024:.2f} GiB")
+print(f"  当前可用：      {avail/1024:.2f} GiB")
+print(f"  系统/XNAT预留：约 {reserve/1024:.2f} GiB")
 PY_RES
-  if [[ "${VIRTUALIZATION_MODE}" == "kvm" || "${VIRTUALIZATION_MODE}" == "hybrid" ]]; then
-    echo "  /dev/kvm：    ✓ 可用"
-  fi
-  echo "  系统安全预留：约 2.5 GiB"
-  echo "  推荐 natpool：${RECOMMENDED_GB} GiB"
-  if (( FREE_MIB < WARN_FREE_MIB )); then
-    echo
-    echo "  [WARN] 当前属于最低容量区间，仅建议少量轻量实例。"
-  fi
+  [[ "${VIRTUALIZATION_MODE}" == "lxc" ]] || echo "  /dev/kvm：      ✓ 可用"
+  echo "  natpool 可分配：${MAX_SAFE_GB} GiB"
+  if (( ROOT_TOTAL_MIB < WARN_TOTAL_MIB || MAX_SAFE_GB == MIN_POOL_GB )); then echo "  [WARN] 当前属于低容量区间，建议只创建少量轻量实例。"; fi
 fi
-
 if [[ -z "${NATPOOL_GB}" ]]; then
   if [[ -t 0 ]]; then
     echo
     echo "========================================"
     echo "       XNAT Host 安装 · 存储分配"
     echo "========================================"
-    echo "默认已自动计算 natpool，普通安装直接回车即可。"
-    echo "  系统/XNAT 安全预留：约 2.5 GiB"
-    echo "  natpool 推荐值：     ${RECOMMENDED_GB} GiB"
-    echo "  natpool 最低值：     ${MIN_POOL_GB} GiB"
+    echo "已按当前真实可用空间自动计算 natpool，普通安装直接回车即可。"
+    python3 - "${ROOT_AVAIL_MIB}" "${SYSTEM_RESERVE_MIB}" <<'PY_POOL'
+import sys
+avail, reserve = map(int, sys.argv[1:])
+print(f"  当前可用硬盘：       {avail/1024:.2f} GiB")
+print(f"  系统/XNAT安全预留：  约 {reserve/1024:.2f} GiB")
+PY_POOL
+    echo "  natpool 推荐值：      ${RECOMMENDED_GB} GiB"
+    echo "  natpool 最低值：      ${MIN_POOL_GB} GiB"
     read -r -p "natpool 大小 [${RECOMMENDED_GB}]: " NATPOOL_GB
     NATPOOL_GB="${NATPOOL_GB:-${RECOMMENDED_GB}}"
-  else
-    NATPOOL_GB="${RECOMMENDED_GB}"
-  fi
+  else NATPOOL_GB="${RECOMMENDED_GB}"; fi
 fi
-
 [[ "${NATPOOL_GB}" =~ ^[0-9]+$ ]] || die "NATPOOL_GB 必须是整数 GiB"
 (( NATPOOL_GB >= MIN_POOL_GB )) || die "${VIRTUALIZATION_LABEL} 模式 natpool 至少需要 ${MIN_POOL_GB}GiB"
-(( NATPOOL_GB <= MAX_SAFE_GB )) || die "natpool=${NATPOOL_GB}GiB 过大；当前安全上限 ${MAX_SAFE_GB}GiB，需要为系统/XNAT 保留约 2.5GiB"
+(( NATPOOL_GB <= MAX_SAFE_GB )) || die "natpool=${NATPOOL_GB}GiB 超过当前安全上限 ${MAX_SAFE_GB}GiB；请保留系统/XNAT运行空间"
+
 
 if command -v incus >/dev/null 2>&1; then
   [[ -z "$(incus storage list --format csv -c n 2>/dev/null || true)" ]] ||
@@ -234,7 +252,7 @@ if command -v incus >/dev/null 2>&1; then
     die "检测到已有 Incus VPS。本脚本拒绝覆盖。"
 fi
 
-info "1/7 安装 Debian / Incus 依赖"
+info "1/7 安装系统 / Incus 依赖"
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
   ca-certificates curl gnupg openssl python3 python3-venv python3-pip \
@@ -254,11 +272,17 @@ cat > /etc/apt/sources.list.d/zabbly-incus-lts-7.0.sources <<EOF
 Enabled: yes
 Types: deb
 URIs: https://pkgs.zabbly.com/incus/lts-7.0
-Suites: bookworm
+Suites: ${INCUS_SUITE}
 Components: main
 Architectures: $(dpkg --print-architecture)
 Signed-By: /etc/apt/keyrings/zabbly-incus.asc
 EOF
+
+cat > /etc/apt/preferences.d/xnat-zabbly-incus <<'EOF_PIN'
+Package: incus incus-base incus-client
+Pin: origin pkgs.zabbly.com
+Pin-Priority: 1001
+EOF_PIN
 
 apt-get update
 apt-get install -y incus

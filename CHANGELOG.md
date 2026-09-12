@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.6.0
+
+- Panel / Host 支持 Debian 12/13 与 Ubuntu 22.04/24.04/26.04 LTS，不再写死 Debian 12。
+- Host 安装模式菜单在选择前显示系统、CPU、总/可用内存、总/已用/可用硬盘、KVM 状态与各模式预计 natpool。
+- LXC 的 4.5GiB 改为母机总盘基线；按当前 Avail 预留约 1GiB 后计算 natpool，4.9G 总盘 / 3.9G 可用的轻量 Host 可正常进入 LXC 安装。
+- KVM / 混合保留 6.5GiB 总盘、/dev/kvm、约 1.5GiB 系统预留与至少 4GiB natpool 的技术基线。
+- Host 默认模式改为 LXC；不满足条件的模式在选择前直接显示原因。
+- Zabbly Incus 源根据系统 codename 自动配置，并增加包优先级保护。
+- `xnat update`、`xnat doctor`、Panel/Host 安装与升级统一使用同一系统支持矩阵。
+- Panel 升级至 v1.6.0；Host Agent 核心保持 v1.2.0，Agent API / Mobile API 保持 v1。
+
 ## v1.5.0
 
 - LXC Host 最低安装门槛调整为 1C / 1GB / 4.5GB 可用硬盘；KVM / 混合 Host 调整为 1C / 1GB / 6.5GB，并继续强制检查 `/dev/kvm`。
