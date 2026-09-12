@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.6.3
+
+- 修正 Incus/LVM Thin extent / metadata 对齐导致 natpool 实际上报略低于名义容量时，套餐预计数量少算一台的问题。
+- 逻辑配额仅在距离下一个 0.125GiB 分配边界不超过 32MiB 时向上归一化；不会把明显不足的存储容量强行补齐。
+- 实际调度与“预计可开”共用同一逻辑容量口径，避免 2GiB 名义池上报约 1.99GiB 时第二台 1GiB VPS 被错误判定超过 100% 上限。
+- Host Agent 上报的原始 natpool 总量 / 实际使用量保持不变，物理存储水位保护继续使用真实值。
+- Panel 升级至 v1.6.3；Host Agent 保持 v1.2.0、Agent API v1、Mobile API v1。
+- 正式支持 v1.6.2 → v1.6.3 原地升级。
+
 ## v1.6.2
 
 - 修正 Host“按套餐预计可开”磁盘口径：套餐磁盘按逻辑已分配 / 逻辑剩余容量计算，不再把 Incus 镜像缓存、LVM Thin metadata 等物理占用重复扣成 VPS 配额。

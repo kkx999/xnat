@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import time
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
@@ -48,7 +49,7 @@ def host_request(host: HostNode, method: str, path: str, *, payload=None, timeou
         "X-NAT-Timestamp": ts,
         "X-NAT-Signature": _signature(token, ts, method, path, body),
         "Content-Type": "application/json",
-        "User-Agent": "XNAT-Panel/1.6.2",
+        "User-Agent": "XNAT-Panel/1.6.3",
     }
     try:
         with httpx.Client(verify=bool(host.verify_tls), timeout=timeout) as client:
@@ -257,6 +258,35 @@ def host_allocated_disk_gb(db, host_id: int) -> int:
     ) or 0
 
 
+STORAGE_QUOTA_QUANTUM_GB = 0.125
+STORAGE_QUOTA_ALIGNMENT_TOLERANCE_GB = 32 / 1024
+
+
+def normalized_storage_quota_total_gb(reported_total_gb: float | int | None) -> float:
+    """Return the logical natpool quota total without tiny LVM alignment loss.
+
+    XNAT allocates guest disks in 0.125 GiB increments. Incus/LVM may report a
+    configured pool a few MiB below that boundary (for example 1.99 instead of
+    2.00 GiB) because of extent/metadata alignment. Only snap upward when the
+    raw value is within 32 MiB of the next 0.125 GiB boundary. The raw Agent
+    total/used values continue to drive physical storage percentages/watermarks.
+    """
+    try:
+        raw = max(0.0, float(reported_total_gb or 0))
+    except (TypeError, ValueError):
+        return 0.0
+    if raw < 1.0:
+        return raw
+
+    quantum = STORAGE_QUOTA_QUANTUM_GB
+    units = math.ceil((raw - 1e-9) / quantum)
+    aligned = units * quantum
+    delta = aligned - raw
+    if 0 < delta <= STORAGE_QUOTA_ALIGNMENT_TOLERANCE_GB + 1e-9:
+        return round(aligned, 3)
+    return raw
+
+
 def allowed_hosts_for_plan(db, plan: Plan):
     links = db.scalars(select(PlanHost).where(PlanHost.plan_id == plan.id, PlanHost.enabled == True)).all()
     if links:
@@ -321,11 +351,19 @@ def host_schedule_state(db, host: HostNode, plan: Plan | None = None, *, refresh
     storage_limit_percent = thresholds["storage"] or 100
     cpu_limit_percent = thresholds["cpu"] or 100
     memory_allocatable_mb = int((host.memory_total_mb or 0) * memory_limit_percent / 100)
-    storage_allocatable_gb = float((host.storage_total_gb or 0) * storage_limit_percent / 100)
+
+    # Logical disk quota uses a narrowly normalized total so a configured 2 GiB
+    # LVM pool reported as 1.99 GiB does not lose an entire 1 GiB VPS slot.
+    # Physical capacity/watermarks deliberately keep the raw Agent total.
+    reported_storage_total_gb = max(0.0, float(host.storage_total_gb or 0))
+    quota_storage_total_gb = normalized_storage_quota_total_gb(reported_storage_total_gb)
+    quota_storage_allocatable_gb = quota_storage_total_gb * storage_limit_percent / 100
+    physical_storage_allocatable_gb = reported_storage_total_gb * storage_limit_percent / 100
+
     logical_memory_remaining = max(0, memory_allocatable_mb - allocated_memory)
-    logical_storage_remaining = max(0.0, storage_allocatable_gb - allocated_disk)
+    logical_storage_remaining = max(0.0, quota_storage_allocatable_gb - allocated_disk)
     physical_memory_remaining = max(0, memory_allocatable_mb - int(host.memory_used_mb or 0))
-    physical_storage_remaining = max(0.0, storage_allocatable_gb - float(host.storage_used_gb or 0))
+    physical_storage_remaining = max(0.0, physical_storage_allocatable_gb - float(host.storage_used_gb or 0))
     capacity = {
         "allocated_cpu": allocated_cpu,
         "cpu_headroom_percent": round(max(0.0, cpu_limit_percent - float(host.cpu_percent or 0)), 1),
@@ -336,6 +374,8 @@ def host_schedule_state(db, host: HostNode, plan: Plan | None = None, *, refresh
         "physical_remaining_memory_mb": physical_memory_remaining,
         "memory_limit_percent": memory_limit_percent,
         "allocated_disk_gb": round(allocated_disk, 3),
+        "reported_storage_total_gb": round(reported_storage_total_gb, 3),
+        "quota_storage_total_gb": round(quota_storage_total_gb, 3),
         "remaining_disk_gb": round(min(logical_storage_remaining, physical_storage_remaining), 3),
         "logical_remaining_disk_gb": round(logical_storage_remaining, 3),
         "physical_remaining_disk_gb": round(physical_storage_remaining, 3),
@@ -357,10 +397,10 @@ def host_schedule_state(db, host: HostNode, plan: Plan | None = None, *, refresh
             limit = thresholds["memory"] or 100
             if projected_memory > limit:
                 return {"allowed": False, "code": "capacity_memory", "label": "内存不足", "reason": f"开通后分配内存将达到 {projected_memory:.1f}%（上限 {limit}%）", "capacity": capacity}
-        if host.storage_total_gb:
-            projected_disk = (allocated_disk + float(plan.disk_gb or 0)) * 100 / host.storage_total_gb
+        if quota_storage_total_gb:
+            projected_disk = (allocated_disk + float(plan.disk_gb or 0)) * 100 / quota_storage_total_gb
             limit = thresholds["storage"] or 100
-            if projected_disk > limit:
+            if projected_disk > limit + 1e-9:
                 return {"allowed": False, "code": "capacity_storage", "label": "存储不足", "reason": f"开通后逻辑磁盘分配将达到 {projected_disk:.1f}%（上限 {limit}%）", "capacity": capacity}
 
     return {
@@ -433,9 +473,8 @@ def host_plan_capacity_estimates(db, host: HostNode, plans) -> list[dict]:
         disk_gb = max(0.001, float(plan.disk_gb or 0))
         limits = {
             "内存": max(0, int(float(cap.get("remaining_memory_mb") or 0) // memory_mb)),
-            # v1.6.2: disk count is quota capacity, not raw thin-pool bytes.
-            # Physical natpool usage is still enforced by host_schedule_state's
-            # storage watermark before this estimator is allowed to return > 0.
+            # v1.6.3: logical quota already includes the narrow LVM alignment
+            # normalization; raw physical natpool usage still gates scheduling.
             "存储": max(0, int(float(cap.get("logical_remaining_disk_gb") or 0) // disk_gb)),
             "NAT端口": max(0, port_remaining),
         }
@@ -464,7 +503,7 @@ def select_host_for_plan(db, plan: Plan) -> HostNode:
         allocated_memory = host_allocated_memory_mb(db, host.id)
         allocated_disk = host_allocated_disk_gb(db, host.id)
         memory_ratio = allocated_memory / max(host.memory_total_mb, 1)
-        disk_ratio = allocated_disk / max(host.storage_total_gb, 1.0)
+        disk_ratio = allocated_disk / max(normalized_storage_quota_total_gb(host.storage_total_gb), 1.0)
         max_ratio = count / max(host.max_vps, 1) if host.max_vps else 0
         score = float(host.cpu_percent or 0) + memory_ratio * 55 + disk_ratio * 35 + max_ratio * 20
         candidates.append((score, host.id, host))
