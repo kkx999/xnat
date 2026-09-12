@@ -34,6 +34,9 @@ DIAGNOSTIC_DIR="${XNAT_DIAGNOSTIC_DIR:-/root/xnat-diagnostics}"
 UPDATE_MIN_FREE_MB="${XNAT_UPDATE_MIN_FREE_MB:-512}"
 OS_RELEASE_FILE="${XNAT_OS_RELEASE_FILE:-/etc/os-release}"
 NODE_CONFIG_FILE="${XNAT_NODE_CONFIG_FILE:-/etc/xnat/node.json}"
+PANEL_CRED_FILE="${XNAT_PANEL_CRED_FILE:-/root/xnat-panel-credentials.txt}"
+NGINX_UNINSTALL_GUARD="${XNAT_NGINX_UNINSTALL_GUARD:-/etc/nginx/conf.d/00-xnat-default-deny.conf}"
+NGINX_UNINSTALL_GUARD_SSL_DIR="${XNAT_NGINX_UNINSTALL_GUARD_SSL_DIR:-/etc/nginx/ssl/xnat-default-deny}"
 
 # CLI colors are enabled only for an interactive terminal. Set NO_COLOR=1 to disable.
 XNAT_RESET=""
@@ -396,6 +399,130 @@ PY
   rm -f "$tmp4" "$tmp6" "$tmp_real" "$tmp_map"
   [[ "$quiet" == "true" ]] || echo "Cloudflare 真实 IP / 源站保护 IP 段已更新。"
 }
+remove_uninstall_nginx_guard(){
+  rm -f "$NGINX_UNINSTALL_GUARD"
+  rm -rf "$NGINX_UNINSTALL_GUARD_SSL_DIR"
+}
+
+nginx_default_port_exists(){
+  local port="$1"
+  nginx -T 2>/dev/null | awk -v p="$port" '
+    /^[[:space:]]*listen[[:space:]]/ && /default_server/ {
+      token=$2
+      gsub(/;/, "", token)
+      if (token == p || token ~ (":" p "$")) found=1
+    }
+    END { exit(found ? 0 : 1) }
+  '
+}
+
+write_uninstall_nginx_guard(){
+  have nginx || return 0
+  local retired_domain="${1:-}" need80=true need443=true need_cert=false cert_cn="localhost"
+
+  rm -f "$NGINX_UNINSTALL_GUARD"
+  if [[ -n "$retired_domain" ]]; then
+    if [[ "$retired_domain" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$ ]]; then
+      retired_domain="${retired_domain,,}"
+      cert_cn="$retired_domain"
+    else
+      warn "旧 Panel 域名记录格式异常，跳过域名级拒绝占位。"
+      retired_domain=""
+    fi
+  fi
+
+  nginx_default_port_exists 80 && need80=false || true
+  nginx_default_port_exists 443 && need443=false || true
+  if [[ -z "$retired_domain" && "$need80" != true && "$need443" != true ]]; then
+    rm -rf "$NGINX_UNINSTALL_GUARD_SSL_DIR"
+    return 0
+  fi
+
+  if [[ -n "$retired_domain" || "$need443" == true ]]; then
+    need_cert=true
+  fi
+
+  install -d -m 0755 "$(dirname "$NGINX_UNINSTALL_GUARD")"
+  if [[ "$need_cert" == true ]]; then
+    install -d -m 0700 "$NGINX_UNINSTALL_GUARD_SSL_DIR"
+    if [[ ! -s "$NGINX_UNINSTALL_GUARD_SSL_DIR/fullchain.pem" || ! -s "$NGINX_UNINSTALL_GUARD_SSL_DIR/privkey.pem" ]]; then
+      if ! openssl req -x509 -nodes -newkey rsa:2048 -sha256 -days 3650 \
+        -subj "/CN=${cert_cn}" \
+        -keyout "$NGINX_UNINSTALL_GUARD_SSL_DIR/privkey.pem" \
+        -out "$NGINX_UNINSTALL_GUARD_SSL_DIR/fullchain.pem" >/dev/null 2>&1; then
+        warn "无法生成卸载后的 Nginx 拒绝占位证书；HTTPS 串站保护无法启用。"
+        rm -rf "$NGINX_UNINSTALL_GUARD_SSL_DIR"
+        need443=false
+        retired_domain=""
+      else
+        chmod 0600 "$NGINX_UNINSTALL_GUARD_SSL_DIR/privkey.pem"
+        chmod 0644 "$NGINX_UNINSTALL_GUARD_SSL_DIR/fullchain.pem"
+      fi
+    fi
+  else
+    rm -rf "$NGINX_UNINSTALL_GUARD_SSL_DIR"
+  fi
+
+  {
+    if [[ -n "$retired_domain" ]]; then
+      cat <<EOF_RETIRED_DOMAIN
+# XNAT retired Panel hostname guard. It intentionally contains no Panel data.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${retired_domain};
+    return 444;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name ${retired_domain};
+    ssl_certificate ${NGINX_UNINSTALL_GUARD_SSL_DIR}/fullchain.pem;
+    ssl_certificate_key ${NGINX_UNINSTALL_GUARD_SSL_DIR}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    return 444;
+}
+EOF_RETIRED_DOMAIN
+    fi
+    if [[ "$need80" == true ]]; then
+      cat <<'EOF_GUARD_80'
+# XNAT fallback default guard. Prevents unmatched Host headers from falling
+# through to another virtual host after the Panel site is removed.
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    return 444;
+}
+EOF_GUARD_80
+    fi
+    if [[ "$need443" == true ]]; then
+      cat <<EOF_GUARD_443
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name _;
+    ssl_certificate ${NGINX_UNINSTALL_GUARD_SSL_DIR}/fullchain.pem;
+    ssl_certificate_key ${NGINX_UNINSTALL_GUARD_SSL_DIR}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    return 444;
+}
+EOF_GUARD_443
+    fi
+  } > "$NGINX_UNINSTALL_GUARD"
+  chmod 0644 "$NGINX_UNINSTALL_GUARD"
+
+  if nginx -t >/dev/null 2>&1; then
+    systemctl reload nginx >/dev/null 2>&1 || true
+  else
+    warn "卸载后的 Nginx 拒绝占位配置失败，已回滚该保护配置。"
+    rm -f "$NGINX_UNINSTALL_GUARD"
+    rm -rf "$NGINX_UNINSTALL_GUARD_SSL_DIR"
+    nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || true
+  fi
+}
+
 proxy_locations(){
   local hsts="${1:-false}"
   local hsts_line=""
@@ -439,6 +566,7 @@ ${hsts_line}
 EOF_PROXY
 }
 write_ip_nginx(){
+  remove_uninstall_nginx_guard
   ensure_layout
   cat > "$NGINX_SITE" <<EOF_NGINX
 # Managed by XNAT
@@ -456,6 +584,7 @@ EOF_NGINX
 
 write_domain_http_nginx(){
   local domain="$1"
+  remove_uninstall_nginx_guard
   ensure_layout
   cat > "$NGINX_SITE" <<EOF_NGINX
 # Managed by XNAT - ACME bootstrap
@@ -487,6 +616,7 @@ EOF_NGINX
 
 write_domain_https_nginx(){
   local domain="$1" origin_lock="${2:-false}"
+  remove_uninstall_nginx_guard
   local cert_dir="${LETSENCRYPT_LIVE_DIR}/${domain}"
   local origin_guard=""
   if [[ "$origin_lock" == "true" ]]; then
@@ -1858,12 +1988,30 @@ cmd_set_panel_ip(){
 
 cmd_uninstall(){
   need_root
-  local role phrase expected backup
+  local role phrase expected backup="" uninstall_mode="backup" choice="" panel_domain=""
   role="$(detect_role)"
   if [[ "$role" == panel ]]; then
-    expected="REMOVE PANEL"
-    echo "此操作会卸载 XNAT Panel、Nginx 的 XNAT 站点和 XNAT systemd 服务。"
-    echo "数据库与 .env 会先备份到 /root/xnat-backups。"
+    echo "此操作会卸载 XNAT Panel、XNAT systemd 服务和 Panel 的 Nginx 站点。"
+    echo
+    echo "  1  卸载并保留数据备份"
+    echo "  2  完全卸载，删除所有 XNAT Panel 数据"
+    echo "  0  取消"
+    echo
+    read -r -p "请选择 [0-2] [1]: " choice
+    choice="${choice:-1}"
+    case "$choice" in
+      1) uninstall_mode="backup"; expected="REMOVE PANEL" ;;
+      2)
+        uninstall_mode="purge"
+        expected="PURGE PANEL"
+        echo "警告：完全卸载会删除 Panel 数据库、.env、安装凭据、Panel 升级/卸载备份和 XNAT 托管的域名证书。"
+        echo "不会删除 Nginx、Certbot 软件，也不会修改 Komari 或其他站点配置。"
+        echo "为避免旧 Panel 域名串到其他站点，会保留一个不含业务数据的 Nginx 拒绝占位。"
+        ;;
+      0) echo "已取消。"; return 0 ;;
+      *) echo "无效选择，已取消。"; return 0 ;;
+    esac
+    panel_domain="$(state_get domain)"
   else
     expected="REMOVE AGENT"
     echo "此操作只卸载 XNAT Host Agent。"
@@ -1873,17 +2021,42 @@ cmd_uninstall(){
   read -r -p "请输入 ${expected} 确认: " phrase
   [[ "$phrase" == "$expected" ]] || { echo "确认内容不匹配，已取消。"; return 0; }
 
-  backup="/root/xnat-backups/uninstall-${role}-$(date +'%Y%m%d-%H%M%S')"
-  install -d -m 0700 "$backup"
+  if [[ "$role" == host || "$uninstall_mode" == backup ]]; then
+    backup="/root/xnat-backups/uninstall-${role}-$(date +'%Y%m%d-%H%M%S')"
+    install -d -m 0700 "$backup"
+  fi
+
   if [[ "$role" == panel ]]; then
-    [[ -f "$PANEL_DB" ]] && sqlite3 "$PANEL_DB" ".backup '${backup}/panel.db'" || true
-    [[ -f "$PANEL_ENV" ]] && cp -a "$PANEL_ENV" "$backup/.env" || true
+    if [[ "$uninstall_mode" == backup ]]; then
+      [[ -f "$PANEL_DB" ]] && sqlite3 "$PANEL_DB" ".backup '${backup}/panel.db'" || true
+      [[ -f "$PANEL_ENV" ]] && cp -a "$PANEL_ENV" "$backup/.env" || true
+      [[ -f "$PANEL_CRED_FILE" ]] && cp -a "$PANEL_CRED_FILE" "$backup/credentials.txt" || true
+      chmod 0600 "$backup"/* "$backup"/.env 2>/dev/null || true
+    fi
+
     systemctl disable --now xnat-panel.service xnat-maintenance.timer >/dev/null 2>&1 || true
     rm -f /etc/systemd/system/xnat-panel.service /etc/systemd/system/xnat-maintenance.service /etc/systemd/system/xnat-maintenance.timer
     rm -f "$NGINX_LINK" "$NGINX_SITE" "$CF_SNIPPET" "$CF_ORIGIN_MAP" "$WS_MAP"
     rm -f "$CF_TIMER_SERVICE" "$CF_TIMER" "$CERTBOT_DEPLOY_HOOK"
-    nginx -t >/dev/null 2>&1 && systemctl reload nginx || true
-    rm -rf "$PANEL_DIR"
+    rm -rf "$PANEL_DIR" "$ACME_WEBROOT"
+    rm -f "$PANEL_CRED_FILE"
+
+    if [[ "$uninstall_mode" == purge ]]; then
+      if [[ -n "$panel_domain" ]] && have certbot; then
+        certbot delete --cert-name "$panel_domain" --non-interactive >/dev/null 2>&1 || true
+      fi
+      if [[ -d /root/xnat-backups ]]; then
+        find /root/xnat-backups -maxdepth 1 -mindepth 1 -type d \
+          \( -name 'uninstall-panel-*' -o -name 'panel-*' \) -exec rm -rf -- {} +
+        rmdir /root/xnat-backups 2>/dev/null || true
+      fi
+      if [[ -d "$DIAGNOSTIC_DIR" ]]; then
+        find "$DIAGNOSTIC_DIR" -maxdepth 1 -type f -name 'xnat-diagnostic-panel-*' -delete
+        rmdir "$DIAGNOSTIC_DIR" 2>/dev/null || true
+      fi
+    fi
+
+    write_uninstall_nginx_guard "$panel_domain"
   else
     [[ -f "$AGENT_ENV" ]] && cp -a "$AGENT_ENV" "$backup/.env" || true
     [[ -d "$AGENT_DIR/tls" ]] && cp -a "$AGENT_DIR/tls" "$backup/tls" || true
@@ -1891,13 +2064,21 @@ cmd_uninstall(){
     rm -f /etc/systemd/system/xnat-host-agent.service
     rm -rf "$AGENT_DIR"
   fi
+
   have xnat-firewall && xnat-firewall disable || true
   rm -f /etc/systemd/system/xnat-firewall.service
   systemctl daemon-reload
   rm -rf "$XNAT_ETC_DIR"
   rm -f /usr/local/sbin/xnat-firewall
   echo "XNAT $(component_label "$role") 已卸载。"
-  echo "备份：${backup}"
+  if [[ -n "$backup" ]]; then
+    echo "备份：${backup}"
+  elif [[ "$role" == panel ]]; then
+    echo "已执行完全卸载：未保留 XNAT Panel 数据备份。"
+  fi
+  if [[ "$role" == panel && -n "$panel_domain" ]]; then
+    echo "旧域名保护：${panel_domain} 已加入 Nginx 拒绝占位，避免串到 Komari 或其他站点。"
+  fi
   rm -f /usr/local/sbin/xnat
 }
 
