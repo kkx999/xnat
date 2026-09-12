@@ -17,6 +17,21 @@ jobs:
         run: |
           python3 -m py_compile scripts/release-v160-patch.py
           python3 scripts/release-v160-patch.py
+          python3 - <<'PYFIX'
+          from pathlib import Path
+          p=Path('scripts/check.sh')
+          t=p.read_text()
+          pairs=[
+              ('assert \'"version": "1.5.0"\' in main', 'assert \'"version": "1.6.0"\' in main'),
+              ("assert 'XNAT v1.5.0 Multi-Node' in base", "assert 'XNAT v1.6.0 Multi-Node' in base"),
+              ("assert 'Mobile API v1' in docs and 'v1.5.0' in docs", "assert 'Mobile API v1' in docs and 'v1.6.0' in docs"),
+              ("assert '最新正式版本：**v1.5.0**' in readme", "assert '最新正式版本：**v1.6.0**' in readme"),
+          ]
+          for old,new in pairs:
+              if old in t:
+                  t=t.replace(old,new,1)
+          p.write_text(t)
+          PYFIX
       - name: Install validation dependencies
         shell: bash
         run: python3 -m pip install --disable-pip-version-check -r panel/requirements.txt -r agent/requirements.txt
@@ -36,12 +51,11 @@ jobs:
           host=Path('scripts/install-host.sh').read_text()
           for token in ['debian:bookworm','debian:trixie','ubuntu:jammy','ubuntu:noble','ubuntu:resolute','ROOT_TOTAL_MIB','ROOT_AVAIL_MIB','Suites: ${INCUS_SUITE}']:
               assert token in host, token
-          # User-reported 4.9G total / 3.9G available Host: LXC must pass disk policy and expose >=2GiB pool.
           total_mib=5017
           avail_mib=3994
           lxc_pool=max(0, avail_mib-1024)//1024
           assert total_mib >= 4608 and lxc_pool >= 1 and lxc_pool == 2
-          assert total_mib < 6656  # KVM/hybrid remain unavailable on this size.
+          assert total_mib < 6656
           print('v1.6.0 capacity smoke: ok')
           PY
       - name: Build and verify release assets
