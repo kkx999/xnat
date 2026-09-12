@@ -201,8 +201,8 @@ grep -q 'ubuntu:noble' scripts/install-host.sh
 grep -q 'ubuntu:resolute' scripts/install-host.sh
 grep -q 'ROOT_TOTAL_MIB' scripts/install-host.sh
 grep -q 'ROOT_AVAIL_MIB' scripts/install-host.sh
-grep -q 'total_min=4608; reserve=1024; min_pool=1' scripts/install-host.sh
-grep -q 'total_min=6656; reserve=1536; min_pool=4' scripts/install-host.sh
+grep -q 'total_min=4608; reserve=2048; min_pool=1' scripts/install-host.sh
+grep -q 'total_min=6656; reserve=3072; min_pool=4' scripts/install-host.sh
 grep -q '请选择 \[1-3\] \[1\]' scripts/install-host.sh
 grep -q 'Suites: ${INCUS_SUITE}' scripts/install-host.sh
 grep -q 'Pin: origin pkgs.zabbly.com' scripts/install-host.sh
@@ -247,7 +247,7 @@ assert 'cap.get("remaining_disk_gb")' not in fn, 'physical/min storage must not 
 admin=Path('panel/app/templates/admin.html').read_text()
 assert '实际存储继续水位保护' in admin, 'physical storage watermark explanation missing'
 readme=Path('README.md').read_text()
-assert '当前正式版本：XNAT v1.6.4' in readme
+assert '当前正式版本：XNAT v1.6.5' in readme
 assert '指定 v1.4.3 安装' not in readme, 'legacy upgrade manual returned to project landing page'
 print('v1.6.2 logical quota capacity contract: ok')
 PYV162
@@ -267,6 +267,31 @@ assert normalized_storage_quota_total_gb(3.99) == 4.0
 assert normalized_storage_quota_total_gb(2.01) == 2.01
 print('v1.6.3 LVM alignment normalization contract: ok')
 PYV163
+
+# v1.6.5 Host storage-planning contract: install heavy dependencies before
+# sizing natpool, preserve long-running root headroom, then revalidate just
+# before creating the loop-backed LVM pool.
+python3 - <<'PYV165'
+from pathlib import Path
+s=Path('scripts/install-host.sh').read_text()
+plan='\nselect_virtualization_mode\nRECOMMENDED_GB="${MAX_SAFE_GB}"\n'
+assert s.count(plan) == 1, 'capacity-planning call missing/duplicated'
+plan_pos=s.index(plan)
+assert s.index('info "1/7 安装 Host 基础依赖 / Incus"') < plan_pos
+assert s.index('apt-get install -y incus') < plan_pos
+assert s.index('python -m pip install -r requirements.txt') < plan_pos
+assert s.index('apt-get clean') < plan_pos
+assert s.count('apt-get install -y incus') == 1, 'Incus dependency install duplicated'
+assert s.count('python -m pip install -r requirements.txt') == 1, 'Agent runtime install duplicated'
+assert 'info "1/7 安装系统 / Incus 依赖"' not in s, 'old post-planning dependency block returned'
+assert 'info "5/7 配置 XNAT Host Agent"' in s
+assert 'total_min=4608; reserve=2048; min_pool=1' in s
+assert 'total_min=6656; reserve=3072; min_pool=4' in s
+assert 'CURRENT_MAX_SAFE_GB' in s and 'PROJECTED_HOST_FREE_MIB' in s
+assert 'natpool 满载后 Host 系统预留不足' in s
+assert '系统/XNAT长期预留' in s and 'Host 长期运行保留' in s
+print('v1.6.5 post-dependency natpool planning contract: ok')
+PYV165
 
 # v1.3.2 Mobile API v1 contract for XNAT Android v1.0.0.
 test -f panel/app/mobile_api.py

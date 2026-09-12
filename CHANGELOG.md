@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.6.5
+
+- 修复 Host 安装器在 Incus/LVM/Python 等重型依赖安装前就计算 natpool，导致把“安装前空闲空间”错误当作可分配容量的问题。
+- 全新 Host 现在先完成基础依赖、Incus 与 Host Agent Runtime 安装、清理 APT 下载缓存，再重新读取根分区真实可用空间后计算 natpool。
+- LXC 长期 Host 预留从约 1GiB 提高到约 2GiB；KVM / 混合从约 1.5GiB 提高到约 3GiB。该预留按 natpool 满载后的最坏情况计算，不再只是安装前提示。
+- 创建 LVM Thin 前再次读取 `/` 可用空间；如果交互期间空间发生变化，会拒绝创建过大的 natpool，而不是继续把 Host 系统盘压到 512MiB 紧急保护线。
+- v1.6.4 的 512MiB 根分区保护、自动安全清理、HTTP 507 与 Incus ENOSPC 单次恢复继续保持不变。
+- 本次只修改 Host 安装/管理 Release；Panel 保持 v1.6.3，Host Agent 运行时保持 v1.2.1，Agent API v1、Mobile API v1 不变。现有 natpool 不自动缩容。
+
 ## v1.6.4
 
 - Host Agent 升级至 v1.2.1；Agent API v1、Panel v1.6.3、Mobile API v1 保持不变。

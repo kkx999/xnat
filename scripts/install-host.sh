@@ -49,9 +49,9 @@ compute_mode_capacity(){
   local mode="$1" prefix total_min reserve min_pool warn_total requires_kvm="false"
   local pool_mib pool_gb ok="true" reason=""
   case "$mode" in
-    lxc) prefix="LXC"; total_min=4608; reserve=1024; min_pool=1; warn_total=8192 ;;
-    kvm) prefix="KVM"; total_min=6656; reserve=1536; min_pool=4; warn_total=12288; requires_kvm="true" ;;
-    hybrid) prefix="HYBRID"; total_min=6656; reserve=1536; min_pool=4; warn_total=12288; requires_kvm="true" ;;
+    lxc) prefix="LXC"; total_min=4608; reserve=2048; min_pool=1; warn_total=8192 ;;
+    kvm) prefix="KVM"; total_min=6656; reserve=3072; min_pool=4; warn_total=12288; requires_kvm="true" ;;
+    hybrid) prefix="HYBRID"; total_min=6656; reserve=3072; min_pool=4; warn_total=12288; requires_kvm="true" ;;
     *) die "未知虚拟化模式：${mode}" ;;
   esac
   pool_mib=$(( ROOT_AVAIL_MIB > reserve ? ROOT_AVAIL_MIB - reserve : 0 ))
@@ -107,17 +107,17 @@ PY_DISK
     echo "  1) LXC"
     echo "     最低安装：1C / 1GB / 4.5GiB 总硬盘"
     echo "     建议配置：1C / 1GB / 8GiB+ 总硬盘"
-    echo "     当前预计可用于 natpool：${LXC_POOL_GB} GiB（已预留约 1GiB 给系统/XNAT）"
+    echo "     当前预计可用于 natpool：${LXC_POOL_GB} GiB（基础依赖安装后，继续为 Host 系统保留约 2GiB）"
     echo "     状态：$(mode_status "${LXC_OK}" "${LXC_REASON}")"
     echo "  2) KVM"
     echo "     最低安装：1C / 1GB / 6.5GiB 总硬盘 + /dev/kvm"
     echo "     建议配置：2C / 2GB / 12GiB+ 总硬盘"
-    echo "     当前预计可用于 natpool：${KVM_POOL_GB} GiB（已预留约 1.5GiB 给系统/XNAT）"
+    echo "     当前预计可用于 natpool：${KVM_POOL_GB} GiB（基础依赖安装后，继续为 Host 系统保留约 3GiB）"
     echo "     状态：$(mode_status "${KVM_OK}" "${KVM_REASON}")"
     echo "  3) LXC + KVM"
     echo "     最低安装：1C / 1GB / 6.5GiB 总硬盘 + /dev/kvm"
     echo "     建议配置：2C / 2GB / 12GiB+ 总硬盘"
-    echo "     当前预计可用于 natpool：${HYBRID_POOL_GB} GiB（已预留约 1.5GiB 给系统/XNAT）"
+    echo "     当前预计可用于 natpool：${HYBRID_POOL_GB} GiB（基础依赖安装后，继续为 Host 系统保留约 3GiB）"
     echo "     状态：$(mode_status "${HYBRID_OK}" "${HYBRID_REASON}")"
     read -r -p "请选择 [1-3] [1]: " choice
     choice="${choice:-1}"
@@ -201,60 +201,7 @@ print(n)
 PY
 )" || die "Panel IPv4/CIDR 无效：${PANEL_CIDR}"
 
-select_virtualization_mode
-RECOMMENDED_GB="${MAX_SAFE_GB}"
-if [[ -t 0 ]]; then
-  echo
-  echo "=================================================="
-  echo "       XNAT Host 安装 · 环境确认"
-  echo "=================================================="
-  echo "  系统：          ${OS_LABEL}"
-  echo "  模式：          ${VIRTUALIZATION_LABEL}"
-  printf '  CPU：           %s 核\n' "${CPU_CORES}"
-  printf '  内存：          总计 %s MiB / 当前可用 %s MiB\n' "${MEM_TOTAL_MIB}" "${MEM_AVAILABLE_MIB}"
-  python3 - "${ROOT_TOTAL_MIB}" "${ROOT_USED_MIB}" "${ROOT_AVAIL_MIB}" "${SYSTEM_RESERVE_MIB}" <<'PY_RES'
-import sys
-total, used, avail, reserve = map(int, sys.argv[1:])
-print(f"  总硬盘：        {total/1024:.2f} GiB")
-print(f"  当前已用：      {used/1024:.2f} GiB")
-print(f"  当前可用：      {avail/1024:.2f} GiB")
-print(f"  系统/XNAT安装预留：约 {reserve/1024:.2f} GiB（不等同于长期安全余量）")
-PY_RES
-  [[ "${VIRTUALIZATION_MODE}" == "lxc" ]] || echo "  /dev/kvm：      ✓ 可用"
-  echo "  natpool 可分配：${MAX_SAFE_GB} GiB"
-  if (( ROOT_TOTAL_MIB < WARN_TOTAL_MIB || MAX_SAFE_GB == MIN_POOL_GB )); then
-    echo "  [WARN] 当前 Host 仅达到最低安装区间，建议只用于测试或少量轻量实例。"
-    if [[ "${VIRTUALIZATION_MODE}" == "lxc" ]]; then
-      echo "  [WARN] 长期运行建议使用 8GiB+ 系统盘，并持续保留 Host 系统盘可用空间。"
-    else
-      echo "  [WARN] 长期运行建议使用 12GiB+ 系统盘，并持续保留 Host 系统盘可用空间。"
-    fi
-  fi
-fi
-if [[ -z "${NATPOOL_GB}" ]]; then
-  if [[ -t 0 ]]; then
-    echo
-    echo "========================================"
-    echo "       XNAT Host 安装 · 存储分配"
-    echo "========================================"
-    echo "已按当前真实可用空间自动计算 natpool，普通安装直接回车即可。"
-    python3 - "${ROOT_AVAIL_MIB}" "${SYSTEM_RESERVE_MIB}" <<'PY_POOL'
-import sys
-avail, reserve = map(int, sys.argv[1:])
-print(f"  当前可用硬盘：       {avail/1024:.2f} GiB")
-print(f"  系统/XNAT安装预留：  约 {reserve/1024:.2f} GiB（长期运行仍需额外余量）")
-PY_POOL
-    echo "  natpool 推荐值：      ${RECOMMENDED_GB} GiB"
-    echo "  natpool 最低值：      ${MIN_POOL_GB} GiB"
-    read -r -p "natpool 大小 [${RECOMMENDED_GB}]: " NATPOOL_GB
-    NATPOOL_GB="${NATPOOL_GB:-${RECOMMENDED_GB}}"
-  else NATPOOL_GB="${RECOMMENDED_GB}"; fi
-fi
-[[ "${NATPOOL_GB}" =~ ^[0-9]+$ ]] || die "NATPOOL_GB 必须是整数 GiB"
-(( NATPOOL_GB >= MIN_POOL_GB )) || die "${VIRTUALIZATION_LABEL} 模式 natpool 至少需要 ${MIN_POOL_GB}GiB"
-(( NATPOOL_GB <= MAX_SAFE_GB )) || die "natpool=${NATPOOL_GB}GiB 超过当前安全上限 ${MAX_SAFE_GB}GiB；请保留系统/XNAT运行空间"
-
-
+# Refuse an existing Incus deployment before changing packages or storage.
 if command -v incus >/dev/null 2>&1; then
   [[ -z "$(incus storage list --format csv -c n 2>/dev/null || true)" ]] ||
     die "检测到已有 Incus Storage。本脚本仅用于全新 Host。"
@@ -262,7 +209,10 @@ if command -v incus >/dev/null 2>&1; then
     die "检测到已有 Incus VPS。本脚本拒绝覆盖。"
 fi
 
-info "1/7 安装系统 / Incus 依赖"
+# Install the heavy Host dependencies first. Capacity planning below must use
+# the real post-install root free space, otherwise natpool can consume space
+# that Incus/Python/APT still need and later drive / below the 512MiB guard.
+info "1/7 安装 Host 基础依赖 / Incus"
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
   ca-certificates curl gnupg openssl python3 python3-venv python3-pip \
@@ -298,6 +248,94 @@ apt-get update
 apt-get install -y incus
 systemctl enable --now incus
 sleep 2
+
+# Install the Host Agent runtime before sizing natpool as well. The Python
+# virtualenv and dependencies live on /, outside natpool, so they must be part
+# of the real installed-Host baseline rather than consuming the reserve later.
+install -d -m 0755 /opt/xnat
+rm -rf "${DEST_DIR}"
+mkdir -p "${DEST_DIR}"
+cp -a "${SRC_DIR}/." "${DEST_DIR}/"
+cd "${DEST_DIR}"
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+deactivate
+cd "${REPO_ROOT}"
+
+apt-get clean
+rm -f /tmp/xnat-zabbly.asc
+
+# This resource read happens after Incus and the Agent runtime are installed
+# and the APT download cache is cleaned. MAX_SAFE_GB therefore protects the
+# requested long-running Host reserve after the actual software footprint.
+select_virtualization_mode
+RECOMMENDED_GB="${MAX_SAFE_GB}"
+if [[ -t 0 ]]; then
+  echo
+  echo "=================================================="
+  echo "       XNAT Host 安装 · 环境确认"
+  echo "=================================================="
+  echo "  系统：          ${OS_LABEL}"
+  echo "  模式：          ${VIRTUALIZATION_LABEL}"
+  printf '  CPU：           %s 核\n' "${CPU_CORES}"
+  printf '  内存：          总计 %s MiB / 当前可用 %s MiB\n' "${MEM_TOTAL_MIB}" "${MEM_AVAILABLE_MIB}"
+  python3 - "${ROOT_TOTAL_MIB}" "${ROOT_USED_MIB}" "${ROOT_AVAIL_MIB}" "${SYSTEM_RESERVE_MIB}" <<'PY_RES'
+import sys
+total, used, avail, reserve = map(int, sys.argv[1:])
+print(f"  总硬盘：        {total/1024:.2f} GiB")
+print(f"  当前已用：      {used/1024:.2f} GiB")
+print(f"  当前可用：      {avail/1024:.2f} GiB")
+print(f"  系统/XNAT长期预留：约 {reserve/1024:.2f} GiB（不会分给 natpool）")
+PY_RES
+  [[ "${VIRTUALIZATION_MODE}" == "lxc" ]] || echo "  /dev/kvm：      ✓ 可用"
+  echo "  natpool 可分配：${MAX_SAFE_GB} GiB"
+  if (( ROOT_TOTAL_MIB < WARN_TOTAL_MIB || MAX_SAFE_GB == MIN_POOL_GB )); then
+    echo "  [WARN] 当前 Host 仅达到最低安装区间，建议只用于测试或少量轻量实例。"
+    if [[ "${VIRTUALIZATION_MODE}" == "lxc" ]]; then
+      echo "  [WARN] 长期运行建议使用 8GiB+ 系统盘，并持续保留 Host 系统盘可用空间。"
+    else
+      echo "  [WARN] 长期运行建议使用 12GiB+ 系统盘，并持续保留 Host 系统盘可用空间。"
+    fi
+  fi
+fi
+if [[ -z "${NATPOOL_GB}" ]]; then
+  if [[ -t 0 ]]; then
+    echo
+    echo "========================================"
+    echo "       XNAT Host 安装 · 存储分配"
+    echo "========================================"
+    echo "已按当前真实可用空间自动计算 natpool，普通安装直接回车即可。"
+    python3 - "${ROOT_AVAIL_MIB}" "${SYSTEM_RESERVE_MIB}" <<'PY_POOL'
+import sys
+avail, reserve = map(int, sys.argv[1:])
+print(f"  当前可用硬盘：       {avail/1024:.2f} GiB")
+print(f"  Host 长期运行保留：   约 {reserve/1024:.2f} GiB（natpool 满载后仍保留）")
+PY_POOL
+    echo "  natpool 推荐值：      ${RECOMMENDED_GB} GiB"
+    echo "  natpool 最低值：      ${MIN_POOL_GB} GiB"
+    read -r -p "natpool 大小 [${RECOMMENDED_GB}]: " NATPOOL_GB
+    NATPOOL_GB="${NATPOOL_GB:-${RECOMMENDED_GB}}"
+  else NATPOOL_GB="${RECOMMENDED_GB}"; fi
+fi
+[[ "${NATPOOL_GB}" =~ ^[0-9]+$ ]] || die "NATPOOL_GB 必须是整数 GiB"
+(( NATPOOL_GB >= MIN_POOL_GB )) || die "${VIRTUALIZATION_LABEL} 模式 natpool 至少需要 ${MIN_POOL_GB}GiB"
+(( NATPOOL_GB <= MAX_SAFE_GB )) || die "natpool=${NATPOOL_GB}GiB 超过当前安全上限 ${MAX_SAFE_GB}GiB；请保留系统/XNAT运行空间"
+
+# Re-read / immediately before creating the loop-backed LVM pool. This closes
+# the gap between the interactive estimate and the destructive storage step.
+detect_host_resources
+CURRENT_SAFE_MIB=$(( ROOT_AVAIL_MIB > SYSTEM_RESERVE_MIB ? ROOT_AVAIL_MIB - SYSTEM_RESERVE_MIB : 0 ))
+CURRENT_MAX_SAFE_GB=$(( CURRENT_SAFE_MIB / 1024 ))
+(( NATPOOL_GB <= CURRENT_MAX_SAFE_GB )) ||
+  die "磁盘空间在安装过程中发生变化：当前最多只能安全创建 ${CURRENT_MAX_SAFE_GB}GiB natpool；请减小 natpool 或扩容 Host 系统盘"
+PROJECTED_HOST_FREE_MIB=$(( ROOT_AVAIL_MIB - NATPOOL_GB * 1024 ))
+(( PROJECTED_HOST_FREE_MIB >= SYSTEM_RESERVE_MIB )) ||
+  die "natpool 满载后 Host 系统预留不足：预计仅剩 ${PROJECTED_HOST_FREE_MIB}MiB，至少需保留 ${SYSTEM_RESERVE_MIB}MiB"
+
+
+
 
 info "2/7 创建 LVM Thin 与 NAT Bridge"
 cat <<EOF | incus admin init --preseed
@@ -394,18 +432,7 @@ else
   info "4/7 KVM 验证已跳过（当前模式：LXC）"
 fi
 
-info "5/7 安装 XNAT Host Agent"
-install -d -m 0755 /opt/xnat
-rm -rf "${DEST_DIR}"
-mkdir -p "${DEST_DIR}"
-cp -a "${SRC_DIR}/." "${DEST_DIR}/"
-
-cd "${DEST_DIR}"
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-
+info "5/7 配置 XNAT Host Agent"
 PUBLIC_IP="$(curl -4fsS --max-time 10 https://api.ipify.org || true)"
 [[ -n "${PUBLIC_IP}" ]] || die "无法获取公网 IPv4"
 
