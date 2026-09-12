@@ -1,4 +1,4 @@
-# XNAT v1.4.1 详细使用文档
+# XNAT v1.0.0 详细使用文档
 
 > 本文档负责详细说明 XNAT 的安装和运维。  
 > 根目录 `README.md` 保持简洁，具体操作以这里为准。
@@ -14,7 +14,7 @@
 4. 全新 Debian 12 安装 Host
 5. Host 安装器输入 Panel 真实公网 IPv4
 6. Host 安装器检测并选择 LXC / KVM / LXC + KVM
-7. Host 安装器确认 natpool 大小
+7. Host 安装器填写给小鸡使用的总硬盘
 8. 登录 Panel 后台添加 Host Agent
 9. Agent 连接检测成功
 10. 在 Panel 后台配置该节点 NAT 端口池
@@ -72,15 +72,15 @@ bash <(...)
 # 3. 指定版本安装 Panel
 
 ```bash
-XNAT_VERSION=1.4.1 \
+XNAT_VERSION=1.0.0 \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
 ```text
-XNAT_VERSION=1.4.1
+XNAT_VERSION=1.0.0
 ```
 
-表示固定安装 Release `v1.4.1`，不自动跟随以后发布的新版本。
+表示固定安装 正式版本 `v1.0.0`，不自动跟随以后发布的新版本。
 
 ---
 
@@ -184,67 +184,25 @@ XNAT Host 安装 · 2/3
 
 ---
 
-# 7. Host 安装第 3 步：natpool
+# 7. Host 安装第 3 步：小鸡总硬盘
 
-安装器会检测 Host 磁盘，例如：
+XNAT 会在 Incus、LVM、Python 与 Host Runtime 安装完成后重新读取真实剩余空间，并自动给 Host 留出稳定运行空间。
 
-```text
-当前根分区总容量：约 80 GB
-当前可用空间：    约 72 GB
-建议给系统保留：  至少 12 GB
-推荐 natpool：     60 GiB
-
-请输入 natpool 大小 [60]:
-```
-
-## natpool 是什么
-
-`natpool` 是 XNAT 为 Incus 创建的 **LVM Thin 存储池**。
-
-用户购买的：
+普通安装只需要填写：
 
 ```text
-2 GB VPS
-4 GB VPS
-8 GB VPS
+当前最多可以给小鸡：5 GiB
+这部分是所有小鸡共享的总硬盘。
+例如：5 GiB 可以分成 5 台 × 1 GiB，或按其他组合使用。
+
+请输入给小鸡使用的总硬盘 [5]:
 ```
 
-这些 VPS 系统盘都从 `natpool` 中分配。
+用户不需要计算系统预留，也不需要理解底层 LVM Thin 的 `natpool`。底层存储池仍由 XNAT 自动创建和管理。
 
-例如输入：
+内部安全规则：LXC 最低 Host 配置为 1C / 1GB / 8GiB，Host 总空间预算约 4GiB；KVM / 混合最低为 1C / 1GB / 12GiB + `/dev/kvm`，Host 总空间预算约 6GiB。该预算包含系统/XNAT已经使用的空间和后续余量。
 
-```text
-60
-```
-
-表示计划给用户 VPS 磁盘使用约：
-
-```text
-60 GiB
-```
-
-的 Thin Pool。
-
-## 为什么不能把整块磁盘全部给 natpool
-
-Host 自己还需要空间存放：
-
-- Debian 系统
-- 软件包
-- 日志
-- 临时文件
-- XNAT Agent
-- 系统更新
-
-因此脚本会自动给系统预留安全空间，并给出推荐值。
-
-直接按回车：
-
-```text
-[60]:
-```
-
-就采用推荐的 `60 GiB`。
+如果实际剩余空间不足，安装器会直接拒绝继续，不会为了凑小鸡硬盘而挤占 Host 的稳定运行空间。
 
 ---
 

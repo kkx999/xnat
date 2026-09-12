@@ -4,17 +4,16 @@
 
 XNAT 采用 **Panel Server + Host Agent** 分离架构，面向自建 NAT VPS 场景统一管理宿主机、LXC/KVM 实例、套餐、用户、端口、流量、生命周期、通知与运维。
 
-**当前正式版本：XNAT v1.6.5**
+**当前正式版本：v1.0.0**
 
 | 组件 | 版本 |
 | --- | --- |
-| XNAT Release | v1.6.5 |
-| Panel | v1.6.3 |
-| Host Agent | v1.2.1 |
+| XNAT Panel | v1.0.0 |
+| XNAT Host | v1.0.0 |
 | Agent API | v1 |
 | Mobile API | v1 |
 
-> v1.6.5 修复 Host 安装阶段的磁盘规划：先安装 Incus/LVM/Python 与 Host Agent Runtime 并清理 APT 缓存，再按真实剩余空间计算 natpool；LXC 强制为 Host 长期保留约 2GiB，KVM/混合保留约 3GiB。Panel v1.6.3、Host Agent v1.2.1、Agent API v1 与 Mobile API v1 均保持兼容。
+> v1.0.0 是重新整理后的正式基线。Panel 与 Host 统一从 v1.0.0 开始；Host 安装器自动保留稳定运行空间，用户只需要选择虚拟化模式和给小鸡使用的总硬盘。现有 Panel 页面布局、视觉风格与交互逻辑保持不变。
 
 ---
 
@@ -74,11 +73,11 @@ Host 安装器会先检测系统、CPU、总/可用内存、总/已用/可用硬
 
 ### Host 基线
 
-| 模式 | 最低安装 | 建议长期运行 | 说明 |
-| --- | --- | --- | --- |
-| LXC | 1C / 1GB / 4.5GiB 总硬盘 | 1C / 1GB / 8GiB+ | 先完成 Host 基础依赖与 Agent Runtime 安装，再按真实剩余空间计算 natpool；natpool 满载后仍为 Host 保留约 2GiB |
-| KVM | 1C / 1GB / 6.5GiB 总硬盘 | 2C / 2GB / 12GiB+ | 需要可用 `/dev/kvm`；依赖与 Agent Runtime 安装完成后再计算，natpool 满载后仍为 Host 保留约 3GiB，natpool 至少 4GiB |
-| LXC + KVM | 同 KVM | 2C / 2GB / 12GiB+ | 同时开放两种实例类型 |
+| 模式 | 最低配置 | 说明 |
+| --- | --- | --- |
+| LXC | 1C / 1GB / 8GiB 总硬盘 | XNAT 自动为 Host 保留约 4GiB 总空间预算（包含系统/XNAT当前占用和后续余量） |
+| KVM | 1C / 1GB / 12GiB 总硬盘 + `/dev/kvm` | XNAT 自动为 Host 保留约 6GiB 总空间预算；需要可用 `/dev/kvm` |
+| LXC + KVM | 1C / 1GB / 12GiB 总硬盘 + `/dev/kvm` | 同时开放两种实例类型 |
 
 LXC 套餐最低可配置到 **1C / 64MB / 128MB**；KVM Guest 保留 **512MB / 4GB** 技术下限。
 
@@ -110,30 +109,20 @@ bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/boo
 
 1. Panel Server 真实公网 IPv4，用于限制 Host Agent 管理入口。
 2. LXC / KVM / LXC + KVM 模式检测与选择。
-3. 完成 Host 基础依赖 / Incus / Agent Runtime 安装后重新读取真实可用硬盘，再计算 natpool 安全上限。
-4. Incus、LVM Thin、Bridge、Host Agent、防火墙与健康检查。
+3. 完成 Host 基础依赖 / Incus / Agent Runtime 后重新读取真实可用硬盘，并自动为 Host 保留稳定运行空间。
+4. 只询问给所有小鸡共享的总硬盘，然后完成 Incus、LVM Thin、Bridge、Host Agent、防火墙与健康检查。
 
 **NAT 用户端口池不在 Host 安装阶段填写。** Host 连接 Panel 后，在后台节点卡片配置端口范围并同步到 Agent。
 
 ---
 
-## 升级到 v1.6.5
+## v1.0.0 全新基线
 
-现有 Host 可直接原地同步本次 Release：
+v1.0.0 作为重新整理后的正式基线发布。旧开发阶段版本不考虑原地升级兼容；切换到本版时请使用全新系统重新安装 Panel / Host。
 
-```bash
-xnat update 1.6.5
-```
+Host 安装器会先完成自身依赖，再根据真实剩余空间计算可给小鸡使用的总硬盘。LXC 为 Host 预留约 4GiB 总空间预算，KVM / 混合模式约 6GiB；这份预算包含系统/XNAT当前占用与后续运行余量，而不是额外要求保持 4/6GiB 空闲。
 
-v1.6.5 不修改 Panel 业务组件，也不修改 Host Agent 运行时 API：Panel 继续为 v1.6.3，Host Agent 继续为 v1.2.1，Agent API / Mobile API 继续为 v1。现有 VPS、Agent Token、TLS、Incus、natpool、端口和 `/etc/xnat/node.json` 均保持不变。
-
-本版修复的是 **全新 Host 安装器的 natpool 容量规划**：Incus 与 Host Agent Runtime 安装完成后才读取根分区真实剩余空间；LXC 以约 2GiB、KVM/混合以约 3GiB 作为长期 Host 预留，并在创建 LVM Thin 前再次校验，避免把“安装前空闲空间”误算给 natpool。
-
-> 已经创建好的 natpool 不会被升级器自动缩容。自动缩小现有 LVM Thin 风险很高，因此旧 Host 如果已经因为 natpool 过大而接近满盘，应扩容 Host 系统盘，或迁移/重装 Host 后按 v1.6.5 新算法重新分配；不要删除 `/var/lib/incus/disks`。
-
-v1.6.4 引入的 512MiB 根分区保护、白名单安全清理和 HTTP 507 fail-closed 机制继续保留。
-
-更早版本的升级历史与兼容说明请查看 [CHANGELOG.md](CHANGELOG.md) 和 [docs/README.md](docs/README.md)。
+GitHub 发布包版本属于内部更新机制，普通管理界面只显示正在运行的 Panel / Host 组件版本。
 
 ---
 

@@ -929,7 +929,6 @@ print_menu_header(){
   ui_rule
   printf '组件       %s\n' "$(component_label "$role")"
   printf '版本       v%s\n' "$version"
-  [[ "$role" == panel && "$release" != unknown ]] && printf 'Release    v%s\n' "$release"
   if [[ "$role" == host ]]; then
     printf 'Agent API  v%s\n' "$(current_agent_api_version)"
     root_free="$(fs_available_mb /)"
@@ -1104,7 +1103,7 @@ resolve_latest_release(){
   local url tag
   url="$(curl -fsSL --retry 3 --connect-timeout 15 -o /dev/null -w '%{url_effective}' "https://github.com/${XNAT_REPO}/releases/latest")"
   tag="${url##*/}"
-  [[ "$tag" == v* ]] || die "无法解析 GitHub 最新正式 Release"
+  [[ "$tag" == v* ]] || die "无法解析 GitHub 最新正式版本"
   echo "${tag#v}"
 }
 
@@ -1163,7 +1162,7 @@ PY
 panel_agent_api_preflight(){
   local release="$1" supported raw unknown seen api bad=0
   supported="$(release_meta_value "$release" supported_agent_api_versions 2>/dev/null || true)"
-  [[ -n "$supported" ]] || { preflight_warn "Release 未声明 supported_agent_api_versions"; return 0; }
+  [[ -n "$supported" ]] || { preflight_warn "版本信息未声明 supported_agent_api_versions"; return 0; }
   [[ -f "$PANEL_DB" ]] || { preflight_fail "未找到 Panel 数据库"; return 1; }
   if ! raw="$(sqlite3 "$PANEL_DB" "SELECT DISTINCT COALESCE(agent_api_version,'') FROM host_nodes WHERE enabled=1 AND COALESCE(agent_api_version,'')<>'' ORDER BY 1;" 2>/dev/null)"; then
     preflight_fail "无法读取 Host Agent API 版本"
@@ -1184,7 +1183,7 @@ panel_agent_api_preflight(){
     if [[ ",${supported}," == *",${api},"* ]]; then
       seen="${seen:+$seen, }v${api}"
     else
-      preflight_fail "Agent API v${api} 不在 Release v${release} 支持范围（${supported}）" || true
+      preflight_fail "Agent API v${api} 不在目标版本支持范围（${supported}）" || true
       bad=1
     fi
   done <<< "$raw"
@@ -1197,7 +1196,6 @@ run_update_preflight(){
   ui_section "升级预检"
   printf '组件              %s\n' "$(component_label "$role")"
   printf '当前组件版本      v%s\n' "$(current_version "$role")"
-  printf '目标 XNAT Release v%s\n' "$release"
   printf '目标组件版本      v%s\n' "$target"
   echo
 
@@ -1253,7 +1251,7 @@ run_update_preflight(){
     elif [[ -n "$api" ]]; then
       preflight_fail "Agent API 将从 v${current_api} 变为 v${api}；为避免与旧 Panel 不兼容，默认阻止。确认 Panel 已兼容后可设置 XNAT_ALLOW_AGENT_API_CHANGE=1" || true; ((fails+=1))
     else
-      preflight_fail "Release 缺少 Agent API 版本" || true; ((fails+=1))
+      preflight_fail "版本信息缺少 Agent API 版本" || true; ((fails+=1))
     fi
     have incus && incus version >/dev/null 2>&1 && preflight_ok "Incus 可用" || { preflight_fail "Incus 不可用" || true; ((fails+=1)); }
     [[ -f "$AGENT_ENV" ]] && preflight_ok "Agent .env 存在" || { preflight_fail "Agent .env 缺失" || true; ((fails+=1)); }
@@ -1262,9 +1260,9 @@ run_update_preflight(){
 
   if [[ -n "$tree" ]]; then
     if verify_release_tree "$tree" "$release" "$role" "$target"; then
-      preflight_ok "Release 源码与升级脚本完整性检查"
+      preflight_ok "升级源码与脚本完整性检查"
     else
-      preflight_fail "Release 源码完整性检查失败" || true; ((fails+=1))
+      preflight_fail "升级源码完整性检查失败" || true; ((fails+=1))
     fi
   fi
 
@@ -1284,64 +1282,39 @@ show_update_check(){
   current_rel="$(current_release)"
   release="$(resolve_latest_release)"
   target="$(target_component_version "$release" "$role")"
-  [[ -n "$target" ]] || die "Release v${release} 缺少组件版本信息"
+  [[ -n "$target" ]] || die "目标版本缺少组件版本信息"
 
   ui_section "检查结果"
   if [[ "$role" == host ]]; then
     printf '组件             Host Agent
 '
-    printf '当前 Host Agent  v%s
+    printf '当前版本         v%s
 ' "$current"
-    printf '最新 Host Agent  v%s
+    printf '最新版本         v%s
 ' "$target"
     api="$(release_meta_value "$release" agent_api_version)"
     printf 'Agent API        v%s
 ' "${api:-?}"
-    echo
-
-    if [[ "$current" == "$target" && "$current_rel" == "$release" ]]; then
-      ui_success "Host Agent 已是最新版本"
-    elif [[ "$current" == "$target" ]]; then
-      if [[ "$current_rel" == unknown ]]; then
-        ui_notice "Host Agent 已是最新；有新的 Host 管理脚本可同步（更新包 XNAT v${release}）"
-      else
-        ui_notice "Host Agent 已是最新；Host 管理脚本可从更新包 v${current_rel} 同步到 v${release}"
-      fi
-    elif [[ "$current" != unknown ]] && dpkg --compare-versions "$target" lt "$current"; then
-      ui_notice "当前 Host Agent 版本高于最新正式更新包中的版本"
-    else
-      ui_notice "发现 Host Agent 更新：v${current} → v${target}"
-    fi
-    return 0
-  fi
-
-  printf '组件             %s
+  else
+    printf '组件             %s
 ' "$(component_label "$role")"
-  printf '当前组件版本     v%s
+    printf '当前版本         v%s
 ' "$current"
-  [[ "$current_rel" != unknown ]] && printf '当前 XNAT Release v%s
-' "$current_rel"
-  printf '最新 XNAT Release v%s
-' "$release"
-  printf 'Release 组件版本 v%s
+    printf '最新版本         v%s
 ' "$target"
+  fi
   echo
 
   if [[ "$current" == "$target" && "$current_rel" == "$release" ]]; then
     ui_success "当前组件已是最新版本"
   elif [[ "$current" == "$target" ]]; then
-    if [[ "$current_rel" == unknown ]]; then
-      ui_notice "组件版本相同，但当前 Release 记录缺失；可同步到 Release v${release} 的管理脚本与发布文件"
-    else
-      ui_notice "组件版本相同，但当前 Release 为 v${current_rel}；可同步到 Release v${release} 的管理脚本与发布文件"
-    fi
+    ui_notice "当前组件已是最新；有新的管理组件可同步"
   elif [[ "$current" != unknown ]] && dpkg --compare-versions "$target" lt "$current"; then
-    ui_notice "当前组件版本高于该 Release"
+    ui_notice "当前组件版本高于最新正式版本"
   else
     ui_notice "发现组件更新：v${current} → v${target}"
   fi
 }
-
 
 is_prerelease_of_target(){
   local current="$1" target="$2"
@@ -1362,30 +1335,22 @@ cmd_update(){
 
   if [[ -n "$arg" ]]; then
     release="${arg#v}"
-    valid_version "$release" || die "Release 版本格式无效：$release"
+    valid_version "$release" || die "版本格式无效：$release"
   else
     release="$(resolve_latest_release)"
   fi
 
   target="$(target_component_version "$release" "$role")"
-  [[ -n "$target" ]] || die "Release v${release} 缺少组件版本信息"
-  valid_version "$target" || die "Release v${release} 的组件版本无效：$target"
+  [[ -n "$target" ]] || die "目标版本缺少组件版本信息"
+  valid_version "$target" || die "目标组件版本无效：$target"
 
   ui_section "XNAT 更新"
   echo "组件：$(component_label "$role")"
-  if [[ "$role" == host ]]; then
-    echo "当前 Host Agent：v${current}"
-    echo "目标 Host Agent：v${target}"
-    echo "更新包：XNAT v${release}"
-  else
-    echo "当前组件：v${current}"
-    [[ "$current_rel" != unknown ]] && echo "当前 Release：v${current_rel}"
-    echo "目标 Release：v${release}"
-    echo "目标组件：v${target}"
-  fi
+  echo "当前版本：v${current}"
+  echo "目标版本：v${target}"
 
   if [[ "$current" == "$target" && "$current_rel" == "$release" ]]; then
-    ui_success "当前组件与 Release 均无需更新"
+    ui_success "当前组件已是最新版本"
     return 0
   fi
 
@@ -1394,13 +1359,13 @@ cmd_update(){
       if [[ "$role" == host ]]; then
         die "目标 Host 更新包低于当前已同步的更新包。若确需降级，请设置 XNAT_ALLOW_DOWNGRADE=1。"
       else
-        die "目标 XNAT Release 低于当前 Release。若确需降级，请设置 XNAT_ALLOW_DOWNGRADE=1。"
+        die "目标管理版本低于当前已同步版本。若确需降级，请设置 XNAT_ALLOW_DOWNGRADE=1。"
       fi
     fi
     if [[ "$role" == host ]]; then
-      ui_notice "Host Agent 版本保持 v${target}，仅同步更新包 v${release} 中的 Host 管理脚本"
+      ui_notice "Host Agent 版本保持 v${target}，仅同步最新 Host 管理组件"
     else
-      ui_notice "组件版本保持 v${target}，将同步 Release v${release} 的管理脚本与发布文件"
+      ui_notice "Panel 版本保持 v${target}，仅同步最新管理组件"
     fi
   fi
 
@@ -1415,7 +1380,7 @@ cmd_update(){
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' RETURN
   echo
-  echo "正在下载并验证 XNAT Release v${release}..."
+  echo "正在下载并验证 XNAT 更新包..."
   curl -fL --retry 3 --connect-timeout 15 \
     "https://github.com/${XNAT_REPO}/archive/refs/tags/v${release}.tar.gz" \
     -o "$tmp/xnat.tar.gz"
@@ -1435,9 +1400,9 @@ cmd_update(){
     if [[ -t 0 ]]; then
       if [[ "$current" == "$target" ]]; then
         if [[ "$role" == host ]]; then
-          printf '%b' "${XNAT_YELLOW}${XNAT_BOLD}▶${XNAT_RESET} 确认同步 Host 管理脚本（更新包 v${release}）？[y/N]: "
+          printf '%b' "${XNAT_YELLOW}${XNAT_BOLD}▶${XNAT_RESET} 确认同步 Host 管理组件？[y/N]: "
         else
-          printf '%b' "${XNAT_YELLOW}${XNAT_BOLD}▶${XNAT_RESET} 确认同步 $(component_label "$role") 到 XNAT Release v${release}？[y/N]: "
+          printf '%b' "${XNAT_YELLOW}${XNAT_BOLD}▶${XNAT_RESET} 确认同步 $(component_label "$role") 管理组件？[y/N]: "
         fi
       else
         printf '%b' "${XNAT_YELLOW}${XNAT_BOLD}▶${XNAT_RESET} 确认更新 $(component_label "$role") 到 v${target}？[y/N]: "
@@ -1457,9 +1422,9 @@ cmd_update(){
   write_runtime_meta "$role" "$installed" "$release"
   echo
   if [[ "$role" == host ]]; then
-    ui_success "更新完成：Host Agent v${installed}（更新包 v${release}）"
+    ui_success "更新完成：Host Agent v${installed}"
   else
-    ui_success "更新完成：$(component_label "$role") v${installed} / XNAT Release v${release}"
+    ui_success "更新完成：$(component_label "$role") v${installed}"
   fi
 }
 
@@ -1487,7 +1452,7 @@ cmd_doctor(){
     echo "组件：Host Agent v$(current_version host)"
     echo "Agent API：v$(current_agent_api_version)"
   else
-    echo "组件：$(component_label "$role") v$(current_version "$role") / Release v$(current_release)"
+    echo "组件：$(component_label "$role") v$(current_version "$role")"
   fi
   echo
 
@@ -1658,7 +1623,6 @@ cmd_diagnostic_report(){
     echo "Generated: $(date -Is)"
     echo "Component: $(component_label "$role")"
     echo "Version: $(current_version "$role")"
-    echo "XNAT Release: $(current_release)"
     [[ "$role" == host ]] && echo "Agent API: $(current_agent_api_version)"
     echo "Hostname: $(hostname 2>/dev/null || echo unknown)"
     echo "Kernel: $(uname -srmo 2>/dev/null || true)"

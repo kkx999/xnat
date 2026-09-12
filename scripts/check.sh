@@ -71,7 +71,7 @@ grep -q 'prompt_choice()' scripts/xnat
 grep -q 'pause_return()' scripts/xnat
 grep -q 'print_menu_header()' scripts/xnat
 grep -q '按 Ctrl+C 退出实时日志并返回菜单' scripts/xnat
-grep -q '组件版本相同，但当前 Release' scripts/xnat
+grep -q '有新的管理组件可同步' scripts/xnat
 grep -q 'xnat doctor' README.md || true
 
 # v1.0.x Host UX contract: NAT user port range is configured only after the
@@ -201,8 +201,8 @@ grep -q 'ubuntu:noble' scripts/install-host.sh
 grep -q 'ubuntu:resolute' scripts/install-host.sh
 grep -q 'ROOT_TOTAL_MIB' scripts/install-host.sh
 grep -q 'ROOT_AVAIL_MIB' scripts/install-host.sh
-grep -q 'total_min=4608; reserve=2048; min_pool=1' scripts/install-host.sh
-grep -q 'total_min=6656; reserve=3072; min_pool=4' scripts/install-host.sh
+grep -q 'total_min=8192; host_budget=4096; min_pool=1' scripts/install-host.sh
+grep -q 'total_min=12288; host_budget=6144; min_pool=4' scripts/install-host.sh
 grep -q '请选择 \[1-3\] \[1\]' scripts/install-host.sh
 grep -q 'Suites: ${INCUS_SUITE}' scripts/install-host.sh
 grep -q 'Pin: origin pkgs.zabbly.com' scripts/install-host.sh
@@ -285,12 +285,12 @@ assert s.count('apt-get install -y incus') == 1, 'Incus dependency install dupli
 assert s.count('python -m pip install -r requirements.txt') == 1, 'Agent runtime install duplicated'
 assert 'info "1/7 安装系统 / Incus 依赖"' not in s, 'old post-planning dependency block returned'
 assert 'info "5/7 配置 XNAT Host Agent"' in s
-assert 'total_min=4608; reserve=2048; min_pool=1' in s
-assert 'total_min=6656; reserve=3072; min_pool=4' in s
+assert 'total_min=8192; host_budget=4096; min_pool=1' in s
+assert 'total_min=12288; host_budget=6144; min_pool=4' in s
 assert 'CURRENT_MAX_SAFE_GB' in s and 'PROJECTED_HOST_FREE_MIB' in s
-assert 'natpool 满载后 Host 系统预留不足' in s
-assert '系统/XNAT长期预留' in s and 'Host 长期运行保留' in s
-print('v1.6.5 post-dependency natpool planning contract: ok')
+assert '当前磁盘空间不足以保证 Host 稳定运行' in s
+assert '当前最多可给小鸡' in s and '请输入给小鸡使用的总硬盘' in s
+print('v1.0.0 simplified Host storage planning contract: ok')
 PYV165
 
 # v1.3.2 Mobile API v1 contract for XNAT Android v1.0.0.
@@ -573,3 +573,35 @@ grep -q 's.virtualization_type' panel/app/templates/servers.html
 grep -q 's.virtualization_type' panel/app/templates/dashboard.html
 
 echo "XNAT repository checks passed."
+
+
+# v1.0.0 baseline + simplified Host UX.
+python3 - <<'PYV100'
+from pathlib import Path
+import json
+root=Path('.')
+assert (root/'VERSION').read_text().strip() == '1.0.0'
+assert (root/'panel/VERSION').read_text().strip() == '1.0.0'
+assert (root/'agent/VERSION').read_text().strip() == '1.0.0'
+meta=json.loads((root/'release.json').read_text())
+assert meta['release_version']=='1.0.0'
+assert meta['panel_version']=='1.0.0'
+assert meta['agent_version']=='1.0.0'
+assert str(meta['agent_api_version'])=='1'
+assert str(meta['mobile_api_version'])=='1'
+host=(root/'scripts/install-host.sh').read_text()
+assert '最低配置：1C / 1GB / 8GiB 总硬盘' in host
+assert host.count('最低配置：1C / 1GB / 12GiB 总硬盘 + /dev/kvm') == 2
+assert 'host_budget=4096' in host and 'host_budget=6144' in host
+assert 'HOST_SPACE_BUDGET_MIB' in host and 'CURRENT_HOST_HEADROOM_MIB' in host
+assert '请输入给小鸡使用的总硬盘' in host
+for old in ['当前预计可用于 natpool','natpool 推荐值','natpool 最低值','natpool 大小 [','系统/XNAT长期预留','Host 长期运行保留']:
+    assert old not in host, old
+xnat=(root/'scripts/xnat').read_text()
+assert "printf 'Release    v%s" not in xnat
+assert '当前 XNAT Release' not in xnat
+assert '最新 XNAT Release' not in xnat
+assert 'Release 组件版本' not in xnat
+assert '当前组件已是最新；有新的管理组件可同步' in xnat
+print('v1.0.0 baseline contracts: ok')
+PYV100
