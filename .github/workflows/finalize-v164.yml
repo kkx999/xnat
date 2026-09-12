@@ -1,0 +1,73 @@
+name: Finalize XNAT v1.6.4
+
+on:
+  push:
+    branches:
+      - release/v1.6.4
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reuse patch logic and update regression contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          src = Path('.github/workflows/prepare-v164.yml').read_text(encoding='utf-8')
+          marker = "          python3 - <<'PY'\n"
+          start = src.index(marker) + len(marker)
+          end = src.index("\n          PY\n", start)
+          lines = src[start:end].splitlines()
+          out=[]
+          for line in lines:
+              out.append(line[10:] if line.startswith('          ') else line)
+          Path('/tmp/apply_v164.py').write_text('\n'.join(out)+'\n', encoding='utf-8')
+          PY
+          python3 /tmp/apply_v164.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/check.sh')
+          s=p.read_text(encoding='utf-8')
+          old="assert '当前正式版本：XNAT v1.6.3' in readme"
+          new="assert '当前正式版本：XNAT v1.6.4' in readme"
+          if s.count(old) != 1:
+              raise SystemExit(f'expected one README version assertion, got {s.count(old)}')
+          p.write_text(s.replace(old,new,1), encoding='utf-8')
+          PY
+
+      - name: Validate complete release
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile agent/natvps_agent/main.py agent/natvps_agent/__init__.py
+          bash -n scripts/install-host.sh scripts/upgrade-host-agent.sh scripts/xnat scripts/xnat-firewall scripts/check.sh
+          python3 -m json.tool release.json >/dev/null
+          bash scripts/check.sh
+          test "$(cat VERSION)" = "1.6.4"
+          test "$(cat panel/VERSION)" = "1.6.3"
+          test "$(cat agent/VERSION)" = "1.2.1"
+          grep -q 'Host 系统盘可用空间不足' agent/natvps_agent/main.py
+          grep -q '清理 Host 系统空间' scripts/xnat
+          grep -q '最新 Host Agent' scripts/xnat
+          ! grep -q 'rm -rf /var/lib/incus/disks' scripts/xnat agent/natvps_agent/main.py
+
+      - name: Commit validated release branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/prepare-v164.yml .github/workflows/finalize-v164.yml
+          git config user.name "XNAT Release Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(host): add disk-space safeguards and cleanup"
+          git push origin HEAD:release/v1.6.4
