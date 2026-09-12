@@ -17,15 +17,20 @@ jobs:
       - name: Apply direct patch
         shell: bash
         run: |
-          python3 -m py_compile scripts/release-v150-patch.py
           python3 - <<'PY'
           from pathlib import Path
           p=Path('scripts/release-v150-patch.py')
           text=p.read_text()
+          text=text.replace(
+              're.subn(pattern, replacement, text, count=1, flags=re.S)',
+              're.subn(pattern, lambda _match: replacement, text, count=1, flags=re.S)',
+              1,
+          )
           start=text.index("replace_once(\n    p,\n    '''incus launch images:debian/12")
           end=text.index("\n\n# ---------------------------------------------------------------------------\n# Upgrade compatibility", start)
           p.write_text(text[:start] + text[end:])
           PY
+          python3 -m py_compile scripts/release-v150-patch.py
           python3 scripts/release-v150-patch.py
           python3 - <<'PY'
           from pathlib import Path
