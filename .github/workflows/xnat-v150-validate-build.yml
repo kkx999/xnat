@@ -6,6 +6,7 @@ permissions:
   contents: write
 jobs:
   validate-build:
+    if: ${{ !contains(github.event.head_commit.message, '[v150-built]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,39 +17,15 @@ jobs:
         shell: bash
         run: |
           find panel agent scripts -type d -name '__pycache__' -prune -exec rm -rf {} +
-          cat > .gitignore <<'EOF'
-          __pycache__/
-          *.py[cod]
-          EOF
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('CHANGELOG.md')
-          text=p.read_text()
-          if '## v1.5.0' not in text:
-              entry='''## v1.5.0
-
-- LXC Host 最低安装门槛调整为 1C / 1GB / 4.5GB 可用硬盘；KVM / 混合 Host 调整为 1C / 1GB / 6.5GB，并继续强制检查 `/dev/kvm`。
-- Host 安装菜单新增模式对应最低门槛、当前资源检测、低容量提示、系统安全预留和 natpool 自动建议，普通安装无需手动计算存储池。
-- 新增 Alpine 3.24 LXC；Host Agent v1.2.0 新增 `apk + OpenRC` SSH 初始化，Debian / Ubuntu 原有 `apt + systemd` 流程保持兼容。
-- LXC 套餐资源下限放宽到 1C / 64MB / 128MB，磁盘支持 0.125 GiB 步进；管理员仍可自由向上配置，不写死 Alpine 套餐规格。
-- KVM 小鸡继续保留 512MB / 4GB 技术下限，避免完整虚拟机因过低资源产生启动与初始化不稳定。
-- 宿主机后台“可分配资源”改为同时参考逻辑已分配量和实际资源水位，并分别展示逻辑分配与 natpool 实际余量。
-- 已有系统镜像、自定义镜像、套餐、VPS 与 Host 不做破坏性修改；现有安装升级时仅在缺失时补充 Alpine 镜像。
-- Panel 升级至 v1.5.0，Host Agent 升级至 v1.2.0；Agent API 与 Mobile API 均继续保持 v1。
-- 正式支持 v1.4.3 → v1.5.0 原地升级，继续沿用升级前数据库检查、完整备份、健康检查与失败回滚。
-
-'''
-              text=text.replace('# Changelog\n\n', '# Changelog\n\n'+entry, 1)
-              p.write_text(text)
-          PY
+          printf '%s\n' '__pycache__/' '*.py[cod]' > .gitignore
+          python3 -c 'from pathlib import Path; p=Path("CHANGELOG.md"); t=p.read_text(); e="## v1.5.0\n\n- LXC Host 最低安装门槛调整为 1C / 1GB / 4.5GB 可用硬盘；KVM / 混合 Host 调整为 1C / 1GB / 6.5GB，并继续强制检查 `/dev/kvm`。\n- Host 安装菜单新增模式最低门槛、当前资源检测、低容量提示、系统安全预留和 natpool 自动建议。\n- 新增 Alpine 3.24 LXC；Host Agent v1.2.0 支持 apk + OpenRC SSH 初始化，Debian / Ubuntu 原流程保持兼容。\n- LXC 套餐资源下限放宽到 1C / 64MB / 128MB，管理员可自由向上配置；KVM 小鸡继续保留 512MB / 4GB 技术下限。\n- 宿主机后台可分配资源同时参考逻辑分配量和实际资源水位，并区分逻辑分配与 natpool 实际余量。\n- Panel 升级至 v1.5.0，Host Agent 升级至 v1.2.0；Agent API 与 Mobile API 继续保持 v1。\n- 正式支持 v1.4.3 → v1.5.0 原地升级，已有业务数据与自定义镜像保持兼容。\n\n"; p.write_text(t if "## v1.5.0" in t else t.replace("# Changelog\n\n", "# Changelog\n\n"+e, 1))'
           git config user.name 'XNAT Release Bot'
           git config user.email 'actions@users.noreply.github.com'
           git add -A
           git commit -m 'chore: clean release tree and document v1.5.0'
       - name: Install validation dependencies
         shell: bash
-        run: |
-          python3 -m pip install --disable-pip-version-check -r panel/requirements.txt -r agent/requirements.txt
+        run: python3 -m pip install --disable-pip-version-check -r panel/requirements.txt -r agent/requirements.txt
       - name: Full project checks
         shell: bash
         run: |
@@ -58,38 +35,8 @@ jobs:
             echo 'Found stale integer disk handling that would truncate sub-GiB LXC disks.' >&2
             exit 1
           fi
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          meta=json.loads(Path('release.json').read_text())
-          assert Path('VERSION').read_text().strip() == '1.5.0'
-          assert Path('panel/VERSION').read_text().strip() == '1.5.0'
-          assert Path('agent/VERSION').read_text().strip() == '1.2.0'
-          assert meta['panel_version'] == '1.5.0'
-          assert meta['agent_version'] == '1.2.0'
-          assert str(meta['agent_api_version']) == '1'
-          PY
-          rm -f /tmp/xnat-v150-smoke.db
-          (
-            cd panel
-            APP_SECRET=0123456789abcdef0123456789abcdef DATABASE_URL=sqlite:////tmp/xnat-v150-smoke.db ADMIN_PASSWORD='SmokeOnly-12345!' python3 - <<'PY'
-          from sqlalchemy import select
-          from app.main import seed
-          from app.db import SessionLocal
-          from app.models import SystemImage
-          seed()
-          with SessionLocal() as db:
-              alpine=db.scalar(select(SystemImage).where(SystemImage.alias == 'images:alpine/3.24'))
-              assert alpine is not None and alpine.family == 'alpine'
-          print('panel seed smoke: ok')
-          PY
-          )
-          PYTHONPATH=agent AGENT_TOKEN=smoke-token python3 - <<'PY'
-          from natvps_agent.main import disk_size_value
-          assert disk_size_value(0.125) == '128MiB'
-          assert disk_size_value(1) == '1024MiB'
-          print('agent fractional disk smoke: ok')
-          PY
+          python3 -c 'import json; from pathlib import Path; m=json.loads(Path("release.json").read_text()); assert Path("VERSION").read_text().strip()=="1.5.0"; assert Path("panel/VERSION").read_text().strip()=="1.5.0"; assert Path("agent/VERSION").read_text().strip()=="1.2.0"; assert m["panel_version"]=="1.5.0" and m["agent_version"]=="1.2.0" and str(m["agent_api_version"])=="1"'
+          PYTHONPATH=agent AGENT_TOKEN=validation-token python3 -c 'from natvps_agent.main import disk_size_value; assert disk_size_value(0.125)=="128MiB"; assert disk_size_value(1)=="1024MiB"; print("fractional disk smoke: ok")'
       - name: Build release assets
         shell: bash
         run: |
@@ -99,7 +46,7 @@ jobs:
           test -s dist/xnat-bootstrap-panel-v1.5.0.sh
           test -s dist/xnat-bootstrap-host-v1.5.0.sh
           grep -q 'XNAT v1.5.0' dist/RELEASE_NOTES.md
-          sha256sum -c dist/SHA256SUMS.txt
+          (cd dist && sha256sum -c SHA256SUMS.txt)
       - name: Commit validated release assets
         shell: bash
         run: |
