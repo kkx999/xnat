@@ -17,6 +17,25 @@ jobs:
         run: |
           python3 -m py_compile scripts/release-v162-patch.py
           python3 scripts/release-v162-patch.py
+          # One legacy regression block coupled old feature checks to the then-current
+          # release number. Keep the feature checks, but make current-version checks dynamic.
+          python3 - <<'PYGUARD'
+          from pathlib import Path
+          p = Path('scripts/check.sh')
+          s = p.read_text()
+          replacements = {
+              "assert release == '1.6.1', f'unexpected release version: {release}'": "assert release == panel, f'release/panel version mismatch: {release} / {panel}'",
+              "assert panel == '1.6.1', f'unexpected Panel version: {panel}'": "assert panel == meta['panel_version'], f'unexpected Panel version: {panel}'",
+              "assert '\"version\": \"1.6.1\"' in main, 'health version mismatch'": "assert f'\"version\": \"{panel}\"' in main, 'health version mismatch'",
+              "assert 'XNAT v1.6.1 Multi-Node' in base, 'footer version mismatch'": "assert f'XNAT v{panel} Multi-Node' in base, 'footer version mismatch'",
+              "assert 'Mobile API v1' in docs and 'v1.6.1' in docs, 'Mobile API docs version mismatch'": "assert 'Mobile API v1' in docs and f'v{panel}' in docs, 'Mobile API docs version mismatch'",
+              "assert '最新正式版本：**v1.6.1**' in readme, 'formal release version must be documented'": "assert f'当前正式版本：XNAT v{release}' in readme, 'formal release version must be documented'",
+          }
+          for old, new in replacements.items():
+              assert old in s, old
+              s = s.replace(old, new, 1)
+          p.write_text(s)
+          PYGUARD
       - name: Install dependencies
         shell: bash
         run: python3 -m pip install --disable-pip-version-check -r panel/requirements.txt -r agent/requirements.txt
