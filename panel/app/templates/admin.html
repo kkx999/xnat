@@ -1064,14 +1064,14 @@
           <div class="node-metrics-grid">
             <div><span>CPU</span><strong>{{ '%.1f'|format(h.cpu_percent or 0) }}%</strong></div>
             <div><span>内存</span><strong>{{ h.memory_used_mb }} / {{ h.memory_total_mb }} MB</strong></div>
-            <div><span>存储</span><strong>{{ '%.1f'|format(h.storage_used_gb or 0) }} / {{ '%.1f'|format(h.storage_total_gb or 0) }} GB</strong></div>
+            <div><span>存储实际</span><strong>{{ '%.1f'|format(h.storage_used_gb or 0) }} / {{ '%.1f'|format(h.storage_total_gb or 0) }} GB</strong></div>
             <div><span>VPS</span><strong>{{ h.active_vps }}{% if h.max_vps %} / {{ h.max_vps }}{% endif %}</strong></div>
             <div><span>虚拟化</span><strong>{% if "lxc" in (hs.get("virtualization_modes") or []) and "kvm" in (hs.get("virtualization_modes") or []) %}LXC + KVM{% elif "kvm" in (hs.get("virtualization_modes") or []) %}KVM{% else %}LXC{% endif %}</strong><small>{% if "kvm" in (hs.get("virtualization_modes") or []) %}KVM {{ "可用" if hs.get("kvm_available") else "当前不可用" }}{% else %}LXC Host{% endif %}</small></div>
             <div class="node-estimate-metric"><span>预计可开</span>{% if estimates %}{% set best = estimates|max(attribute='count') %}<strong>≈ {{ best.count }} 台</strong><small>{{ best.plan_name }} · 当前资源</small>{% else %}<strong>0 台</strong><small>暂无在售可调度套餐</small>{% endif %}</div>
           </div>
 
           <div class="node-plan-capacity-visible">
-            <div class="node-plan-capacity-head"><div><strong>按套餐预计可开</strong><span>当前实时余量，直接显示</span></div><small>内存 / 存储 / VPS上限 / NAT端口取最小值；CPU按调度水位实时判定</small></div>
+            <div class="node-plan-capacity-head"><div><strong>按套餐预计可开</strong><span>当前实时余量，直接显示</span></div><small>内存 / 逻辑存储 / VPS上限 / NAT端口取最小值；实际存储继续水位保护</small></div>
             <div class="node-plan-capacity-grid">
               {% for item in estimates %}
               <div class="node-plan-capacity-item {% if item.count <= 0 %}blocked{% endif %}">
