@@ -24,7 +24,9 @@ jobs:
           lines=[]
           for line in src[start:end]:
               lines.append(line[10:] if line.startswith('          ') else line)
-          Path('/tmp/xnat-v150-patch.py').write_text('\n'.join(lines)+'\n')
+          patch='\n'.join(lines)+'\n'
+          patch=patch.replace("if [ -f /etc/os-release ]; then . /etc/os-release; printf '%s' \\\"${ID:-}\\\"; fi", "if [ -f /etc/alpine-release ]; then echo alpine; elif command -v apt-get >/dev/null 2>&1; then echo debian; fi")
+          Path('/tmp/xnat-v150-patch.py').write_text(patch)
           PY
           python3 /tmp/xnat-v150-patch.py
       - name: Syntax and contract checks
@@ -38,11 +40,12 @@ jobs:
           grep -q 'MIN_FREE_MIB=6656' scripts/install-host.sh
           grep -q 'images:alpine/3.24' panel/app/main.py
           grep -q 'apk add --no-cache openssh' agent/natvps_agent/main.py
+          grep -q '0.125' panel/app/templates/admin.html
+          grep -q 'physical_remaining_disk_gb' panel/app/nodes.py
       - name: Commit result
         shell: bash
         run: |
-          rm -f .github/workflows/xnat-v150-run.yml .github/workflows/xnat-v150-maintenance.yml
-          rmdir .github/workflows 2>/dev/null || true
+          rm -rf .github/workflows
           rmdir .github 2>/dev/null || true
           git config user.name 'XNAT Release Bot'
           git config user.email 'actions@users.noreply.github.com'
