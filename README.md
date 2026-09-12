@@ -4,8 +4,8 @@
 
 XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、多宿主机节点、套餐、用户、流量、通知及日常运维。
 
-当前版本：**v1.5.0**<br>
-最新正式版本：**v1.5.0**
+当前版本：**v1.6.0**<br>
+最新正式版本：**v1.6.0**
 
 
 ## 更新日志
@@ -14,7 +14,7 @@ XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、
 
 > 📋 **[查看完整更新日志（CHANGELOG.md）](CHANGELOG.md)**
 
-当前正式源码关系：**XNAT Release v1.5.0 / Panel v1.5.0 / Mobile API v1 / Host Agent v1.2.0 / Agent API v1**。
+当前正式源码关系：**XNAT Release v1.6.0 / Panel v1.6.0 / Mobile API v1 / Host Agent v1.2.0 / Agent API v1**。
 
 ---
 
@@ -46,12 +46,13 @@ XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、
 ## 环境要求
 
 ```text
-Debian 12 Bookworm
+Debian 12 Bookworm / Debian 13 Trixie
+Ubuntu 22.04 LTS / 24.04 LTS / 26.04 LTS
 ```
 
 Panel 与 Host Node 建议分开部署。
 
-Host 需要支持 Incus / LXC 所需的虚拟化能力。
+Host 会自动识别系统版本、CPU、内存、总硬盘、当前可用硬盘与 `/dev/kvm`，再判断 LXC / KVM / 混合模式是否可安装。
 
 ---
 
@@ -81,7 +82,7 @@ Host 安装器会一步一步询问：
 
 1. **Panel Server 的真实公网 IPv4**：用于限制 Host Agent 管理端口，只允许 Panel 访问。
 2. **虚拟化模式**：自动检测 `/dev/kvm`，可选择 LXC、KVM 或 LXC + KVM；没有可访问的 `/dev/kvm` 时只允许 LXC。
-3. **natpool 大小**：用于存放用户 VPS 磁盘；脚本会检测磁盘并给出推荐值。
+3. **真实资源容量**：菜单直接显示总硬盘、当前可用硬盘和各模式预计可分配 natpool；LXC 按总盘 4.5GiB 基线判断，不再要求安装后仍剩 4.5GiB。
 
 > 如果 Host 自身是一台 KVM VPS，想在里面继续创建 KVM VM，需要上层宿主机开放 Nested Virtualization，并让 `/dev/kvm` 在 Host 内可访问。
 

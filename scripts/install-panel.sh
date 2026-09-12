@@ -23,7 +23,16 @@ die(){ echo "[ERROR] $*" >&2; exit 1; }
 [[ -f "${REPO_ROOT}/scripts/xnat" ]] || die "找不到 XNAT 管理脚本"
 
 . /etc/os-release
-[[ "${ID:-}" == "debian" && "${VERSION_CODENAME:-}" == "bookworm" ]] || die "要求 Debian 12 bookworm"
+case "${ID:-}:${VERSION_CODENAME:-}" in
+  debian:bookworm) OS_LABEL="Debian 12 Bookworm" ;;
+  debian:trixie) OS_LABEL="Debian 13 Trixie" ;;
+  ubuntu:jammy) OS_LABEL="Ubuntu 22.04 LTS Jammy" ;;
+  ubuntu:noble) OS_LABEL="Ubuntu 24.04 LTS Noble" ;;
+  ubuntu:resolute) OS_LABEL="Ubuntu 26.04 LTS Resolute" ;;
+  *) die "当前系统不受支持。支持：Debian 12/13、Ubuntu 22.04/24.04/26.04 LTS" ;;
+esac
+info "系统兼容性"
+echo "检测到：${OS_LABEL}"
 
 if [[ -f "${DEST_DIR}/.env" ]]; then
   die "${DEST_DIR} 已存在 .env。本脚本仅用于全新安装，请使用 scripts/upgrade-panel.sh 升级。"

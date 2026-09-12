@@ -60,6 +60,21 @@ need_root(){ [[ ${EUID:-$(id -u)} -eq 0 ]] || die "请使用 root 运行 xnat �
 
 have(){ command -v "$1" >/dev/null 2>&1; }
 
+supported_os_label(){
+  local file="${1:-$OS_RELEASE_FILE}" id codename
+  [[ -r "$file" ]] || return 1
+  id="$(. "$file"; printf '%s' "${ID:-}")"
+  codename="$(. "$file"; printf '%s' "${VERSION_CODENAME:-}")"
+  case "${id}:${codename}" in
+    debian:bookworm) printf '%s' "Debian 12 Bookworm" ;;
+    debian:trixie) printf '%s' "Debian 13 Trixie" ;;
+    ubuntu:jammy) printf '%s' "Ubuntu 22.04 LTS Jammy" ;;
+    ubuntu:noble) printf '%s' "Ubuntu 24.04 LTS Noble" ;;
+    ubuntu:resolute) printf '%s' "Ubuntu 26.04 LTS Resolute" ;;
+    *) return 1 ;;
+  esac
+}
+
 ui_rule(){ printf '%b\n' "${XNAT_DIM}----------------------------------------------------${XNAT_RESET}"; }
 ui_success(){ printf '%b\n' "${XNAT_GREEN}✓${XNAT_RESET} $*"; }
 ui_notice(){ printf '%b\n' "${XNAT_YELLOW}!${XNAT_RESET} $*"; }
@@ -1140,11 +1155,8 @@ run_update_preflight(){
   printf '目标组件版本      v%s\n' "$target"
   echo
 
-  if [[ -r "$OS_RELEASE_FILE" ]] && grep -q '^ID=debian' "$OS_RELEASE_FILE" && grep -q '^VERSION_CODENAME=bookworm' "$OS_RELEASE_FILE"; then
-    preflight_ok "Debian 12 Bookworm"
-  else
-    preflight_fail "当前正式版要求 Debian 12 Bookworm" || true; ((fails+=1))
-  fi
+  local os_label=""
+  if os_label="$(supported_os_label "$OS_RELEASE_FILE")"; then preflight_ok "$os_label"; else preflight_fail "系统不受支持：需要 Debian 12/13 或 Ubuntu 22.04/24.04/26.04 LTS" || true; ((fails+=1)); fi
 
   available="$(fs_available_mb /root)"
   available="${available:-0}"
@@ -1378,11 +1390,8 @@ cmd_doctor(){
   [[ "$role" == host ]] && echo "Agent API：v$(current_agent_api_version)"
   echo
 
-  if [[ -r "$OS_RELEASE_FILE" ]] && grep -q '^ID=debian' "$OS_RELEASE_FILE" && grep -q '^VERSION_CODENAME=bookworm' "$OS_RELEASE_FILE"; then
-    doctor_ok "Debian 12 Bookworm"
-  else
-    doctor_warn "当前系统不是 Debian 12 Bookworm"
-  fi
+  local os_label=""
+  if os_label="$(supported_os_label "$OS_RELEASE_FILE")"; then doctor_ok "$os_label"; else doctor_warn "当前系统不在正式支持列表（Debian 12/13、Ubuntu 22.04/24.04/26.04 LTS）"; fi
 
   available="$(fs_available_mb /)"; available="${available:-0}"
   if [[ "$available" =~ ^[0-9]+$ ]] && (( available >= 1024 )); then

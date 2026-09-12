@@ -31,12 +31,20 @@ env_file_value(){
 [[ -f "${REPO_ROOT}/scripts/xnat-firewall" ]] || die "目标 Release 缺少 xnat-firewall"
 
 . /etc/os-release
-[[ "${ID:-}" == "debian" && "${VERSION_CODENAME:-}" == "bookworm" ]] || die "当前正式版要求 Debian 12 bookworm"
+case "${ID:-}:${VERSION_CODENAME:-}" in
+  debian:bookworm) OS_LABEL="Debian 12 Bookworm" ;;
+  debian:trixie) OS_LABEL="Debian 13 Trixie" ;;
+  ubuntu:jammy) OS_LABEL="Ubuntu 22.04 LTS Jammy" ;;
+  ubuntu:noble) OS_LABEL="Ubuntu 24.04 LTS Noble" ;;
+  ubuntu:resolute) OS_LABEL="Ubuntu 26.04 LTS Resolute" ;;
+  *) die "当前系统不受支持。支持：Debian 12/13、Ubuntu 22.04/24.04/26.04 LTS" ;;
+esac
 
 CURRENT_VERSION="$(grep -E '^__version__[[:space:]]*=' "${TARGET_DIR}/app/__init__.py" 2>/dev/null | head -n1 | cut -d'"' -f2 || true)"
 CURRENT_VERSION="${CURRENT_VERSION:-unknown}"
 
 case "$CURRENT_VERSION" in
+  1.5.0) UPGRADE_PATH="verified-v1.5.0" ;;
   1.4.3) UPGRADE_PATH="verified-v1.4.3" ;;
   1.4.2-dev1) UPGRADE_PATH="verified-v1.4.2-dev1" ;;
   1.4.2) UPGRADE_PATH="verified-v1.4.2" ;;
