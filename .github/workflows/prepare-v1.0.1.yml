@@ -24,6 +24,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           python3 .github/prepare-v1.0.1.py
+          sed -i 's/XNAT v1\.0\.0 Multi-Node/XNAT v1.0.1 Multi-Node/' panel/app/templates/base.html
 
       - name: Install validation dependencies
         run: |
@@ -53,7 +54,7 @@ jobs:
           set -Eeuo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add VERSION panel/VERSION panel/app/__init__.py panel/app/main.py release.json \
+          git add VERSION panel/VERSION panel/app/__init__.py panel/app/main.py panel/app/templates/base.html release.json \
             scripts/xnat scripts/upgrade-panel.sh scripts/build-release.sh scripts/check.sh \
             README.md panel/README.md CHANGELOG.md dist
           git commit -m "XNAT v1.0.1: harden Panel uninstall"
