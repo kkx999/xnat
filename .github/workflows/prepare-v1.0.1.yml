@@ -24,6 +24,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           python3 .github/prepare-v1.0.1.py
+          python3 .github/fix-check-v1.0.1.py
           sed -i 's/XNAT v1\.0\.0 Multi-Node/XNAT v1.0.1 Multi-Node/' panel/app/templates/base.html
 
       - name: Install validation dependencies
