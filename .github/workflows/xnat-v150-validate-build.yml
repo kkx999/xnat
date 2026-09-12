@@ -29,6 +29,9 @@ jobs:
           sed -i 's/最新正式版本：\*\*v1.4.3\*\*/最新正式版本：**v1.5.0**/' README.md
           sed -i 's/XNAT Release v1.4.3 \/ Panel v1.4.3 \/ Mobile API v1 \/ Host Agent v1.1.1 \/ Agent API v1/XNAT Release v1.5.0 \/ Panel v1.5.0 \/ Mobile API v1 \/ Host Agent v1.2.0 \/ Agent API v1/' README.md
           python3 -c 'from pathlib import Path; p=Path("docs/MOBILE_API.md"); t=p.read_text(); old="XNAT Panel `v1.4.3` 继续保持 **Mobile API v1**。本次仅修复 Web 首页套餐规格展示，不改变 v1.4.2 已提供的接口字段、路由或 Android 客户端语义，也不要求 Host Agent / Agent API 升级。"; new="XNAT Panel `v1.5.0` 继续保持 **Mobile API v1**。本次新增 Alpine LXC、低资源 Host 与分数 GiB LXC 磁盘支持；Mobile API v1 的版本号及既有接口语义保持兼容。"; assert old in t; p.write_text(t.replace(old,new,1))'
+          sed -i 's/disk_gb: int,/disk_gb: float,/' panel/app/main.py
+          sed -i 's/磁盘必须在 1-65536 GB 之间/磁盘必须在 0.125-65536 GB 之间/' panel/app/main.py
+          python3 -c 'from pathlib import Path; p=Path("panel/app/reconcile.py"); t=p.read_text(); old="if state.disk_gb is not None and int(state.disk_gb) != int(server.disk_gb or 0):"; new="if state.disk_gb is not None and abs(float(state.disk_gb) - float(server.disk_gb or 0)) > 0.0005:"; assert old in t; p.write_text(t.replace(old,new,1))'
           git config user.name 'XNAT Release Bot'
           git config user.email 'actions@users.noreply.github.com'
           git add -A
@@ -41,7 +44,7 @@ jobs:
         run: |
           bash scripts/check.sh
           bash -n scripts/*.sh
-          if grep -RInE 'disk_gb: int|int\([^)]*disk_gb' panel/app agent/natvps_agent; then
+          if grep -RInE 'disk_gb: int|int\(state\.disk_gb\)|int\(server\.disk_gb' panel/app agent/natvps_agent; then
             echo 'Found stale integer disk handling that would truncate sub-GiB LXC disks.' >&2
             exit 1
           fi
