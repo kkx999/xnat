@@ -418,7 +418,7 @@ nginx_default_port_exists(){
 
 write_uninstall_nginx_guard(){
   have nginx || return 0
-  local retired_domain="${1:-}" need80=true need443=true need_cert=false cert_cn="localhost"
+  local retired_domain="${1:-}" need80=true need443=true need_cert=false retired_https=true cert_cn="localhost"
 
   rm -f "$NGINX_UNINSTALL_GUARD"
   if [[ -n "$retired_domain" ]]; then
@@ -453,7 +453,7 @@ write_uninstall_nginx_guard(){
         warn "无法生成卸载后的 Nginx 拒绝占位证书；HTTPS 串站保护无法启用。"
         rm -rf "$NGINX_UNINSTALL_GUARD_SSL_DIR"
         need443=false
-        retired_domain=""
+        retired_https=false
       else
         chmod 0600 "$NGINX_UNINSTALL_GUARD_SSL_DIR/privkey.pem"
         chmod 0644 "$NGINX_UNINSTALL_GUARD_SSL_DIR/fullchain.pem"
@@ -465,7 +465,7 @@ write_uninstall_nginx_guard(){
 
   {
     if [[ -n "$retired_domain" ]]; then
-      cat <<EOF_RETIRED_DOMAIN
+      cat <<EOF_RETIRED_DOMAIN_HTTP
 # XNAT retired Panel hostname guard. It intentionally contains no Panel data.
 server {
     listen 80;
@@ -473,7 +473,10 @@ server {
     server_name ${retired_domain};
     return 444;
 }
-
+EOF_RETIRED_DOMAIN_HTTP
+    fi
+    if [[ -n "$retired_domain" && "$retired_https" == true ]]; then
+      cat <<EOF_RETIRED_DOMAIN_HTTPS
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
@@ -483,7 +486,7 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     return 444;
 }
-EOF_RETIRED_DOMAIN
+EOF_RETIRED_DOMAIN_HTTPS
     fi
     if [[ "$need80" == true ]]; then
       cat <<'EOF_GUARD_80'
@@ -497,7 +500,7 @@ server {
 }
 EOF_GUARD_80
     fi
-    if [[ "$need443" == true ]]; then
+    if [[ "$need443" == true && "$retired_https" == true ]]; then
       cat <<EOF_GUARD_443
 server {
     listen 443 ssl default_server;
@@ -2035,6 +2038,7 @@ cmd_uninstall(){
     fi
 
     systemctl disable --now xnat-panel.service xnat-maintenance.timer >/dev/null 2>&1 || true
+    systemctl disable --now xnat-cloudflare-refresh.timer >/dev/null 2>&1 || true
     rm -f /etc/systemd/system/xnat-panel.service /etc/systemd/system/xnat-maintenance.service /etc/systemd/system/xnat-maintenance.timer
     rm -f "$NGINX_LINK" "$NGINX_SITE" "$CF_SNIPPET" "$CF_ORIGIN_MAP" "$WS_MAP"
     rm -f "$CF_TIMER_SERVICE" "$CF_TIMER" "$CERTBOT_DEPLOY_HOOK"

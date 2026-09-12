@@ -227,6 +227,8 @@ grep -q '1.0.0) UPGRADE_PATH="verified-v1.0.0"' scripts/upgrade-panel.sh
 grep -q 'write_uninstall_nginx_guard' scripts/xnat
 grep -q 'write_uninstall_nginx_guard "$panel_domain"' scripts/xnat
 grep -q 'XNAT retired Panel hostname guard' scripts/xnat
+grep -q 'retired_https=false' scripts/xnat
+grep -q 'systemctl disable --now xnat-cloudflare-refresh.timer' scripts/xnat
 grep -q '完全卸载，删除所有 XNAT Panel 数据' scripts/xnat
 grep -q '00-xnat-default-deny.conf' scripts/xnat
 python3 - <<'PYV161'
