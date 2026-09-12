@@ -2,244 +2,161 @@
 
 > 基于 **Incus + LVM Thin** 的多节点 NAT VPS 管理平台。
 
-XNAT 采用 **Panel Server + Host Agent** 分离架构，用于管理 NAT VPS、多宿主机节点、套餐、用户、流量、通知及日常运维。
+XNAT 采用 **Panel Server + Host Agent** 分离架构，面向自建 NAT VPS 场景统一管理宿主机、LXC/KVM 实例、套餐、用户、端口、流量、生命周期、通知与运维。
 
-当前版本：**v1.6.1**<br>
-最新正式版本：**v1.6.1**
+**当前正式版本：XNAT v1.6.2**
 
+| 组件 | 版本 |
+| --- | --- |
+| XNAT Release | v1.6.2 |
+| Panel | v1.6.2 |
+| Host Agent | v1.2.0 |
+| Agent API | v1 |
+| Mobile API | v1 |
 
-## 更新日志
-
-版本更新记录已独立维护，首页仅保留项目能力、安装和当前版本升级说明。
-
-> 📋 **[查看完整更新日志（CHANGELOG.md）](CHANGELOG.md)**
-
-当前正式源码关系：**XNAT Release v1.6.1 / Panel v1.6.1 / Mobile API v1 / Host Agent v1.2.0 / Agent API v1**。
-
----
-
-## 主要能力
-
-- 多节点 Panel + Host Agent
-- Incus + LVM Thin
-- NAT VPS 自动开通、重装、删除
-- CPU / 内存 / 磁盘 / 带宽管理
-- TCP / UDP NAT 端口
-- 流量统计、独立流量周期、超额限速与付费自助流量重置
-- 节点维护 / Drain 与资源水位调度保护
-- 宿主机剩余可分配资源展示、按套餐预计可开数量与紧凑节点管理
-- 到期提醒、宽限期、自动停机与可选延迟删除
-- Host 离线、natpool、任务和备份异常通知
-- 套餐、库存、用户与订单
-- USDT 充值
-- Telegram / SMTP 通知
-- 工单、审计与数据库备份
-- Panel 域名、HTTPS、Cloudflare
-- XNAT 敏感管理端口自动保护
-- 用户端与管理后台独立深色 / 明亮主题
-- 统一 Toast、Switch、网页确认 Modal 与操作反馈
-- 独立公告中心：历史公告、未读提示、首次登录重点公告与后台公告管理
-- `xnat` 统一管理命令、升级预检、增强系统诊断与脱敏诊断报告
+> v1.6.2 为 Panel 修复版本：修正 Host “按套餐预计可开”磁盘口径。VPS 磁盘数量按逻辑配额计算，Incus 镜像缓存 / LVM Thin metadata 等真实占用继续由 natpool 存储水位保护，不再被误当成已分配给小鸡的套餐磁盘。
 
 ---
 
-## 环境要求
+## 架构
 
 ```text
-Debian 12 Bookworm / Debian 13 Trixie
-Ubuntu 22.04 LTS / 24.04 LTS / 26.04 LTS
+用户 / 管理员
+      │
+      ▼
+┌──────────────┐
+│ XNAT Panel   │  用户、套餐、订单、调度、通知、备份
+└──────┬───────┘
+       │ HTTPS + HMAC / Agent API v1
+       ▼
+┌──────────────┐      ┌──────────────┐
+│ Host Agent A │ ...  │ Host Agent N │
+└──────┬───────┘      └──────┬───────┘
+       │                     │
+       ▼                     ▼
+ Incus + LVM Thin       Incus + LVM Thin
+ LXC / KVM              LXC / KVM
 ```
 
-Panel 与 Host Node 建议分开部署。
-
-Host 会自动识别系统版本、CPU、内存、总硬盘、当前可用硬盘与 `/dev/kvm`，再判断 LXC / KVM / 混合模式是否可安装。
+Panel 与 Host Node 建议分开部署。Host Agent 管理端口默认只允许 Panel Server 访问。
 
 ---
 
-# Panel 一键安装
+## 核心能力
 
-全新 Debian 12：
+- **多节点调度**：Panel + 多 Host Agent，支持节点启停、维护 / Drain、最大 VPS 与资源水位保护。
+- **LXC / KVM / 混合模式**：Host 安装时检测 `/dev/kvm`，按机器条件开放可用虚拟化模式。
+- **真实 Host 容量**：展示 CPU、实际内存、natpool 实际占用、逻辑已分配资源与调度余量。
+- **按套餐预计可开**：常驻显示每个有效套餐当前预计还能创建多少台，并显示容量瓶颈。
+- **NAT VPS 生命周期**：自动开通、开关机、重装、扩容、删除，到期提醒、宽限、自动停机与可选延迟删除。
+- **NAT 端口**：Host 独立 TCP / UDP 端口池，Panel 配置后同步到 Agent，并处理端口冲突与余量告警。
+- **资源与流量**：CPU / 内存 / 磁盘 / 带宽、流量周期、超额限速、付费自助流量重置。
+- **套餐与业务**：套餐、库存、用户、余额、订单、USDT 充值、工单与审计。
+- **通知**：Telegram / SMTP，覆盖 Host 离线、natpool 水位、任务、备份、到期等事件。
+- **运维与安全**：HTTPS / Cloudflare、敏感管理端口保护、SQLite 备份、升级预检、失败回滚、`xnat doctor` 脱敏诊断。
+- **Web / Mobile API**：用户端与管理后台独立明暗主题；Mobile API v1 与 Web Panel 共用同一业务数据。
+
+---
+
+## 支持环境
+
+Panel 与 Host 当前支持：
+
+```text
+Debian 12 Bookworm
+Debian 13 Trixie
+Ubuntu 22.04 LTS Jammy
+Ubuntu 24.04 LTS Noble
+Ubuntu 26.04 LTS Resolute
+```
+
+Host 安装器会先检测系统、CPU、总/可用内存、总/已用/可用硬盘与 `/dev/kvm`，再显示每种虚拟化模式能否安装及原因。
+
+### Host 基线
+
+| 模式 | Host 基线 | 说明 |
+| --- | --- | --- |
+| LXC | 1C / 1GB / 4.5GiB 总硬盘 | 从当前可用空间预留约 1GiB 给系统/XNAT，再计算 natpool |
+| KVM | 1C / 1GB / 6.5GiB 总硬盘 | 需要可用 `/dev/kvm`，预留约 1.5GiB，natpool 至少 4GiB |
+| LXC + KVM | 同 KVM | 同时开放两种实例类型 |
+
+LXC 套餐最低可配置到 **1C / 64MB / 128MB**；KVM Guest 保留 **512MB / 4GB** 技术下限。
+
+> 如果 Host 自身也是一台 VPS，而你希望在其中继续运行 KVM VM，上层宿主机必须开放 Nested Virtualization，并让 `/dev/kvm` 对当前 Host 可用。
+
+---
+
+## Panel 一键安装
+
+在受支持的全新系统上执行：
 
 ```bash
 apt-get update && apt-get install -y curl ca-certificates && \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
 ```
 
-安装过程中可直接配置 Panel 域名、HTTPS 与 Cloudflare。
+安装过程中可配置 Panel 域名、HTTPS 与 Cloudflare。
 
 ---
 
-# Host 一键安装
-
-全新 Debian 12：
+## Host 一键安装
 
 ```bash
 apt-get update && apt-get install -y curl ca-certificates && \
 bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-host.sh)
 ```
 
-Host 安装器会一步一步询问：
+安装器会依次处理：
 
-1. **Panel Server 的真实公网 IPv4**：用于限制 Host Agent 管理端口，只允许 Panel 访问。
-2. **虚拟化模式**：自动检测 `/dev/kvm`，可选择 LXC、KVM 或 LXC + KVM；没有可访问的 `/dev/kvm` 时只允许 LXC。
-3. **真实资源容量**：菜单直接显示总硬盘、当前可用硬盘和各模式预计可分配 natpool；LXC 按总盘 4.5GiB 基线判断，不再要求安装后仍剩 4.5GiB。
+1. Panel Server 真实公网 IPv4，用于限制 Host Agent 管理入口。
+2. LXC / KVM / LXC + KVM 模式检测与选择。
+3. Host 真实资源检测与 natpool 安全建议。
+4. Incus、LVM Thin、Bridge、Host Agent、防火墙与健康检查。
 
-> 如果 Host 自身是一台 KVM VPS，想在里面继续创建 KVM VM，需要上层宿主机开放 Nested Virtualization，并让 `/dev/kvm` 在 Host 内可访问。
-
-**NAT 用户端口池不在 Host 安装时填写。**
-
-Host 连接 Panel 成功后，在 Panel 后台节点设置中配置 NAT 端口范围，并自动同步到 Agent。
+**NAT 用户端口池不在 Host 安装阶段填写。** Host 连接 Panel 后，在后台节点卡片配置端口范围并同步到 Agent。
 
 ---
 
-# 指定 v1.4.3 安装
+## 升级到 v1.6.2
 
-Panel：
-
-```bash
-XNAT_VERSION=1.4.3 \
-bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-panel.sh)
-```
-
-Host：
+现有 **v1.6.1 Panel**：
 
 ```bash
-XNAT_VERSION=1.4.3 \
-bash <(curl -fsSL https://raw.githubusercontent.com/kkx999/xnat/main/scripts/bootstrap-host.sh)
+xnat update 1.6.2
 ```
 
-> `XNAT_VERSION=1.4.3` 指 XNAT Release 版本。XNAT v1.4.3 使用 **Panel v1.4.3 / Mobile API v1 / Host Agent v1.1.1 / Agent API v1**。
+升级器会执行 Release 校验、SQLite `PRAGMA quick_check`、备份、原地更新、健康检查与失败回滚，并保留 `.env`、数据库、用户、余额、订单、VPS、Host、套餐、端口、支付、通知、工单等数据。
+
+本次 **Host Agent 仍为 v1.2.0 / Agent API v1**，Host 不需要重装，也不要求升级 Agent 核心。
+
+更早版本的升级历史与兼容说明请查看 [CHANGELOG.md](CHANGELOG.md) 和 [docs/README.md](docs/README.md)。
 
 ---
 
-# 从 v1.4.2 升级到 v1.4.3
+## 管理与诊断
 
-Panel：
-
-```bash
-xnat update 1.4.3
-```
-
-Host：
-
-```bash
-xnat update 1.4.3
-```
-
-更新命令会先执行 v1.4.3 升级预检并验证下载的 Release，再询问是否继续。Panel 会保留 `.env`、SQLite、用户、余额、订单、VPS、Host、套餐、端口、工单与支付数据，并继续执行升级前后 `PRAGMA quick_check`、完整备份、健康检查与失败回滚。Host 会保留 Agent Token、TLS、Incus、natpool、虚拟化配置和现有 VPS。
-
-Host Agent 仍为 **v1.1.1 / Agent API v1**；本次没有 Host Agent 协议变更。Host 无需升级 Agent，必要时可执行 `xnat update 1.4.3` 同步 Release 元数据与管理脚本。
-
-
----
-
-# 从 v1.3.1 升级到 v1.3.2
-
-Panel：
-
-```bash
-xnat update 1.3.2
-```
-
-升级器会先执行 SQLite `PRAGMA quick_check`，备份 `panel.db`、`.env`、旧代码、systemd 单元和管理命令，然后替换 Panel 代码、执行 additive schema 检查并验证 `/health` 返回 v1.3.2。升级失败会尝试恢复升级前快照。
-
-如果当前 v1.3.1 已经手工安装过 Mobile API dev1～dev5，同样可以直接升级；正式 v1.3.2 会覆盖为统一的 Mobile API v1 实现，现有数据库和登录数据不需要重建。
-
-Host Agent 仍为 **v1.1.0 / Agent API v1**，Host 无需更新。
-
----
-
-# 从 v1.3.0 升级到 v1.3.1
-
-Panel：
-
-```bash
-xnat update 1.3.1
-```
-
-本次没有数据库破坏性变更，升级器会先备份 SQLite、`.env`、旧代码与 systemd 配置，再原地更新并执行 additive schema 校验。Host Agent 仍为 v1.1.0，已经运行 v1.1.0 的 Host 无需更新。
-
-也支持 v1.2.0 Panel 直接执行 `xnat update 1.3.1`；若 Host 仍是旧 Agent，则需要把 Host 更新到本 Release 对应的 Agent v1.1.0。
-
----
-
-# 从 v1.2.0 升级到 v1.3.0
-
-Panel：
-
-```bash
-xnat update 1.3.0
-```
-
-Host 也需要升级到本 Release 的 **Host Agent v1.1.0**。首次从旧 Agent 升级时会让你选择 LXC / KVM / LXC + KVM；旧节点默认保持 LXC，不会因为升级自动改成 KVM。
-
----
-
-# 从 v1.1.1 升级到 v1.2.0
-
-正式兼容基线是 **XNAT Panel v1.1.1**。现有 v1.1.1 Panel 直接执行：
-
-```bash
-xnat update 1.2.0
-```
-
-也可以执行：
+统一管理入口：
 
 ```bash
 xnat
 ```
 
-然后选择 **检查 / 更新 Panel**。
-
-v1.1.1 自带的 `xnat update` 会下载 v1.2.0 Tag 源码并调用 v1.2.0 的 `scripts/upgrade-panel.sh`。升级流程会自动：
-
-- 确认 v1.1.1 → v1.2.0 正式升级路径；
-- 对 SQLite 执行 `PRAGMA quick_check`；
-- 备份 `panel.db`、`.env`、旧 Panel 代码、systemd 单元与管理命令；
-- 保留原有监听地址与端口；
-- 原地更新 Panel 到 v1.2.0；
-- 执行 additive schema migration，不重建旧业务表；
-- 保留用户、余额、订单、VPS、Host、套餐、支付、通知、公告及公告已读记录；
-- 健康检查或数据库检查失败时自动尝试回滚。
-
-手动源码包升级：
-
-```bash
-cd /root/xnat-main
-bash scripts/upgrade-panel-from-v1.1.1.sh
-```
-
-本次仅升级 Panel；**Host Agent 保持 v1.0.0 / Agent API v1，无需升级或重装。**
-
-> 如果仍在更早版本，推荐先按正式 Release 链升级到 v1.1.1，再执行 `xnat update 1.2.0`。
-
----
-
-# 管理
-
-安装后执行：
-
-```bash
-xnat
-```
-
-Panel 与 Host 会自动显示对应的管理菜单。
-
-需要导出自动脱敏的系统诊断报告时：
+导出自动脱敏诊断报告：
 
 ```bash
 xnat doctor report
 ```
 
-报告默认保存到 `/root/xnat-diagnostics/`。
+报告默认写入 `/root/xnat-diagnostics/`。
 
 ---
 
-# 文档
+## 文档
 
-详细安装、节点接入、域名、HTTPS、Cloudflare、防火墙、更新、备份、Token 与故障排查：
-
-[查看 docs/README.md](docs/README.md)
+- [完整更新日志](CHANGELOG.md)
+- [安装、节点接入、更新、备份与故障排查](docs/README.md)
+- [Mobile API v1](docs/MOBILE_API.md)
+- [安全说明](SECURITY.md)
 
 ---
 

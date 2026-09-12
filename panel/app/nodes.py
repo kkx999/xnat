@@ -48,7 +48,7 @@ def host_request(host: HostNode, method: str, path: str, *, payload=None, timeou
         "X-NAT-Timestamp": ts,
         "X-NAT-Signature": _signature(token, ts, method, path, body),
         "Content-Type": "application/json",
-        "User-Agent": "XNAT-Panel/1.6.1",
+        "User-Agent": "XNAT-Panel/1.6.2",
     }
     try:
         with httpx.Client(verify=bool(host.verify_tls), timeout=timeout) as client:
@@ -372,12 +372,13 @@ def host_schedule_state(db, host: HostNode, plan: Plan | None = None, *, refresh
 def host_plan_capacity_estimates(db, host: HostNode, plans) -> list[dict]:
     """Estimate how many additional VPS instances this Host can accept per active plan.
 
-    This is a Panel-only display helper. It uses the same Host scheduling state
-    and conservative remaining memory/storage values as real placement, then
-    also caps by max_vps and remaining NAT ports (one SSH port is required per
-    newly provisioned instance). CPU stays a live watermark just like the
-    scheduler; without changing Agent API v1 we intentionally do not invent a
-    physical-core count.
+    This is a Panel-only display helper. It uses the same Host scheduling state.
+    Memory remains conservative (logical/physical minimum), while disk quota count
+    uses logical remaining storage so Incus image cache and LVM thin metadata are
+    not mistaken for customer VPS quota. Real natpool usage still gates scheduling
+    through the storage watermark. max_vps and remaining NAT ports also cap the
+    count. CPU stays a live watermark because Agent API v1 does not report a total
+    physical-core capacity.
     """
     rows = [plan for plan in (plans or []) if bool(getattr(plan, "is_active", False))]
     if not rows:
@@ -432,7 +433,10 @@ def host_plan_capacity_estimates(db, host: HostNode, plans) -> list[dict]:
         disk_gb = max(0.001, float(plan.disk_gb or 0))
         limits = {
             "内存": max(0, int(float(cap.get("remaining_memory_mb") or 0) // memory_mb)),
-            "存储": max(0, int(float(cap.get("remaining_disk_gb") or 0) // disk_gb)),
+            # v1.6.2: disk count is quota capacity, not raw thin-pool bytes.
+            # Physical natpool usage is still enforced by host_schedule_state's
+            # storage watermark before this estimator is allowed to return > 0.
+            "存储": max(0, int(float(cap.get("logical_remaining_disk_gb") or 0) // disk_gb)),
             "NAT端口": max(0, port_remaining),
         }
         if max_vps_remaining is not None:
