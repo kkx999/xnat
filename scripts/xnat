@@ -2000,8 +2000,6 @@ interactive_update(){
     ui_section "检查 / 更新 $(component_label "$role")"
     printf '当前组件版本：v%s
 ' "$current"
-    [[ "$role" == panel && "$(current_release)" != unknown ]] && printf '当前 XNAT Release：v%s
-' "$(current_release)"
     echo
     if [[ "$role" == host ]]; then
       echo "  1  检查最新 Host Agent"
