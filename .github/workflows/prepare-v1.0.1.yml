@@ -29,8 +29,10 @@ jobs:
 
       - name: Install validation dependencies
         run: |
+          set -Eeuo pipefail
           sudo apt-get update
-          sudo apt-get install -y python3-jinja2 zip
+          sudo apt-get install -y python3-jinja2 python3-pip zip
+          python3 -m pip install -r panel/requirements.txt
 
       - name: Run regression checks
         run: |
