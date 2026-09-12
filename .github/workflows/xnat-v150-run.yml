@@ -43,6 +43,9 @@ jobs:
           text=text.replace('die "2GiB 磁盘配额验证失败"', 'die "512MiB LXC 磁盘配额验证失败"', 1)
           text=text.replace('incus exec "${TEST_NAME}" -- getent hosts deb.debian.org >/dev/null ||\n  die "测试容器无法联网"', 'incus exec "${TEST_NAME}" -- sh -lc "apk update >/dev/null" ||\n  die "Alpine LXC 测试容器无法联网"', 1)
           p.write_text(text)
+          for name in ('panel/app/providers/remote.py', 'panel/app/providers/mock.py'):
+              q=Path(name)
+              q.write_text(q.read_text().replace('disk_gb: int', 'disk_gb: float'))
           PY
       - name: Syntax and contract checks
         shell: bash
