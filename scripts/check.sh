@@ -519,7 +519,7 @@ for token in ['plan.server_region or "-"', 'plan.network_line or "-"']:
     assert token in home and token in plans, f'home/plans field parity missing: {token}'
 assert home.index('plan.server_region or "-"') < home.index('plan.network_line or "-"') < home.index('plan.port_count'), 'home plan 3x3 field order mismatch'
 readme=(root/'README.md').read_text()
-assert f'当前正式版本：XNAT v{release}' in readme, 'formal release version must be documented'
+assert f'当前正式版本：v{release}' in readme, 'formal release version must be documented'
 assert 'is_prerelease_of_target' in (root/'scripts/xnat').read_text(), 'formalization-aware CLI guard missing'
 print('v1.4.3 home-plan parity guards: ok')
 PYDEV142
