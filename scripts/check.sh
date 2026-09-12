@@ -247,7 +247,7 @@ assert 'cap.get("remaining_disk_gb")' not in fn, 'physical/min storage must not 
 admin=Path('panel/app/templates/admin.html').read_text()
 assert '实际存储继续水位保护' in admin, 'physical storage watermark explanation missing'
 readme=Path('README.md').read_text()
-assert '当前正式版本：XNAT v1.6.5' in readme
+assert '当前正式版本：v1.0.0' in readme
 assert '指定 v1.4.3 安装' not in readme, 'legacy upgrade manual returned to project landing page'
 print('v1.6.2 logical quota capacity contract: ok')
 PYV162
