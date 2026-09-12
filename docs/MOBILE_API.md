@@ -1,6 +1,6 @@
 # XNAT Mobile API v1
 
-XNAT Panel `v1.4.3` 继续保持 **Mobile API v1**。本次仅修复 Web 首页套餐规格展示，不改变 v1.4.2 已提供的接口字段、路由或 Android 客户端语义，也不要求 Host Agent / Agent API 升级。
+XNAT Panel `v1.5.0` 继续保持 **Mobile API v1**。本次新增 Alpine LXC、低资源 Host 与分数 GiB LXC 磁盘支持；Mobile API v1 的版本号及既有接口语义保持兼容。
 
 Base prefix: `/api/v1`
 

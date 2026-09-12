@@ -1054,7 +1054,7 @@ def parse_plan_form(
     name: str,
     cpu: int,
     memory_mb: int,
-    disk_gb: int,
+    disk_gb: float,
     bandwidth_mbps: int,
     traffic_gb: int,
     port_count: int,
@@ -1070,7 +1070,7 @@ def parse_plan_form(
     if memory_mb < 64 or memory_mb > 1048576:
         raise ValueError("内存必须在 64-1048576 MB 之间")
     if disk_gb < 0.125 or disk_gb > 65536:
-        raise ValueError("磁盘必须在 1-65536 GB 之间")
+        raise ValueError("磁盘必须在 0.125-65536 GB 之间")
     if bandwidth_mbps < 0 or bandwidth_mbps > 10000:
         raise ValueError("带宽必须在 0-10000 Mbps 之间")
     if traffic_gb < 0 or traffic_gb > 100000000:

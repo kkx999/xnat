@@ -41,7 +41,7 @@ def reconcile_server(db, provider, server: Server, *, repair: bool = True) -> di
         resource_drift.append(f"CPU {state.cpu}≠{server.cpu}")
     if state.memory_mb is not None and int(state.memory_mb) != int(server.memory_mb or 0):
         resource_drift.append(f"内存 {state.memory_mb}MB≠{server.memory_mb}MB")
-    if state.disk_gb is not None and int(state.disk_gb) != int(server.disk_gb or 0):
+    if state.disk_gb is not None and abs(float(state.disk_gb) - float(server.disk_gb or 0)) > 0.0005:
         resource_drift.append(f"磁盘 {state.disk_gb}GB≠{server.disk_gb}GB")
     if resource_drift:
         errors.append("资源配置不一致：" + "，".join(resource_drift))
