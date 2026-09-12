@@ -38,11 +38,15 @@ jobs:
           from pathlib import Path
           p=Path('scripts/check.sh')
           s=p.read_text(encoding='utf-8')
-          old="assert '当前正式版本：XNAT v1.6.3' in readme"
-          new="assert '当前正式版本：XNAT v1.6.4' in readme"
-          if s.count(old) != 1:
-              raise SystemExit(f'expected one README version assertion, got {s.count(old)}')
-          p.write_text(s.replace(old,new,1), encoding='utf-8')
+          replacements={
+              "assert '当前正式版本：XNAT v1.6.3' in readme": "assert '当前正式版本：XNAT v1.6.4' in readme",
+              "assert release == panel, f'release/panel version mismatch: {release} / {panel}'": "assert release == meta['release_version'], f'release metadata mismatch: {release} / {meta.get(\"release_version\")}'",
+          }
+          for old,new in replacements.items():
+              if s.count(old) != 1:
+                  raise SystemExit(f'expected one regression assertion, got {s.count(old)}: {old}')
+              s=s.replace(old,new,1)
+          p.write_text(s, encoding='utf-8')
           PY
 
       - name: Install validation dependencies
