@@ -10,14 +10,14 @@ XNAT 将用户、套餐、订单、Host、实例、NAT 端口、流量、生命�
 | --- | --- |
 | XNAT Release | v1.0.3 |
 | XNAT Panel | v1.0.3 |
-| XNAT Host Agent | v1.0.2 |
+| XNAT Host Agent | v1.0.3 |
 | Agent API | v2 |
 | Mobile API | v1 |
 | XNAT Android | v1.0.2 |
 
 ## 版本说明
 
-v1.0.3 是镜像最低系统盘策略与后台配置能力更新。Panel 为 v1.0.3，Host Agent 为 v1.0.2，Agent API 保持 v2，Mobile API 保持 v1。
+v1.0.3 是镜像最低系统盘策略与后台配置能力更新。Panel 为 v1.0.3，Host Agent 为 v1.0.3，Agent API 保持 v2，Mobile API 保持 v1。
 
 系统镜像的最低系统盘现在由 Panel 后台每个镜像自己的 `min_disk_gb` 决定，不再按 Debian / Ubuntu 家族写死。默认 Debian 为 1 GiB、Ubuntu 为 2 GiB、Alpine 为 1 GiB；LXC 直接使用后台配置值，KVM 仅保留 3 GiB 全局技术底线。
 
@@ -118,7 +118,7 @@ Ubuntu 26.04 LTS Resolute
 - 旧数据库只执行一次安全迁移，不会持续覆盖管理员自定义值。
 - Mobile API v1 系统镜像响应新增 `min_disk_gb`。
 - v1.0.2 → v1.0.3 标记为正式验证的直接升级路径。
-- Host Agent v1.0.2 移除 Debian / Ubuntu / Alpine 的旧镜像家族硬编码，LXC 不再覆盖 Panel 的逐镜像最低系统盘配置。
+- Host Agent v1.0.3 保留 v1.0.2 的镜像磁盘策略修复，并增强安全重装：Incus 本地 rename 失败时可使用停止态临时副本兜底，回滚同样支持 copy 恢复；预备失败会返回真实 Incus 错误且不直接删除原实例。
 - Agent API 与 Panel 整体 UI 保持不变。
 
 ### v1.0.2

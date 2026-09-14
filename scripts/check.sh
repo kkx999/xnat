@@ -590,11 +590,11 @@ import json
 root=Path('.')
 assert (root/'VERSION').read_text().strip() == '1.0.3'
 assert (root/'panel/VERSION').read_text().strip() == '1.0.3'
-assert (root/'agent/VERSION').read_text().strip() == '1.0.2'
+assert (root/'agent/VERSION').read_text().strip() == '1.0.3'
 meta=json.loads((root/'release.json').read_text())
 assert meta['release_version']=='1.0.3'
 assert meta['panel_version']=='1.0.3'
-assert meta['agent_version']=='1.0.2'
+assert meta['agent_version']=='1.0.3'
 assert str(meta['agent_api_version'])=='2'
 assert str(meta['mobile_api_version'])=='1'
 host=(root/'scripts/install-host.sh').read_text()
@@ -639,3 +639,18 @@ panel=Path('panel/app/main.py').read_text()
 assert panel.count('disk_gb < 3') >= 3
 print('v1.0.3 Host Agent disk-policy regression guard: ok')
 PYAGENTDISK
+
+
+# v1.0.3 Host Agent rollback-safe reinstall fallback guard
+python3 - <<'PYREINSTALLSAFE'
+from pathlib import Path
+agent=Path('agent/natvps_agent/main.py').read_text()
+assert 'def _prepare_reinstall_backup' in agent
+assert 'def _restore_reinstall_backup' in agent
+assert '["incus", "copy", instance_id, backup_name, "--instance-only"]' in agent
+assert '["incus", "copy", backup_name, instance_id, "--instance-only"]' in agent
+assert '原实例已保留或已尝试恢复' in agent
+assert 'backup_cleanup_pending' in agent
+assert '[:63]' in agent, 'temporary instance name must stay within DNS/Incus-safe length'
+print('v1.0.3 rollback-safe reinstall fallback guard: ok')
+PYREINSTALLSAFE
