@@ -29,12 +29,14 @@ jobs:
           python tools/v104_panel_include.py
           python tools/v104_upgrade_path.py
           python tools/v104_checks.py
+          rm -rf tools
       - name: Check
         run: bash scripts/check.sh
       - name: Build release assets
         run: bash scripts/build-release.sh
       - name: Persist verified candidate
         run: |
+          git add -A tools
           git add VERSION panel/VERSION agent/VERSION release.json README.md CHANGELOG.md docs panel/app agent/natvps_agent scripts
           if git diff --cached --quiet; then
             echo "No generated changes to persist"
