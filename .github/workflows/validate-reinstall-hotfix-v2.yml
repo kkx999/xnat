@@ -1,0 +1,117 @@
+name: Validate Host Agent reinstall hotfix v2
+
+on:
+  push:
+    branches:
+      - fix/v1.0.3-reinstall-backup
+    paths:
+      - .github/workflows/validate-reinstall-hotfix-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/v1.0.3-reinstall-backup
+          fetch-depth: 0
+
+      - name: Apply hotfix and align release baseline
+        run: |
+          python3 tools/prepare-reinstall-hotfix.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/check.sh')
+          s=p.read_text()
+          old="assert (root/'agent/VERSION').read_text().strip() == '1.0.2'"
+          new="assert (root/'agent/VERSION').read_text().strip() == '1.0.3'"
+          if s.count(old) != 1:
+              raise SystemExit(f'agent VERSION baseline count={s.count(old)}')
+          s=s.replace(old,new,1)
+          old="assert meta['agent_version']=='1.0.2'"
+          new="assert meta['agent_version']=='1.0.3'"
+          if s.count(old) != 1:
+              raise SystemExit(f'agent metadata baseline count={s.count(old)}')
+          s=s.replace(old,new,1)
+          p.write_text(s)
+          PY
+
+      - name: Install check dependencies
+        run: python3 -m pip install --disable-pip-version-check -q -r panel/requirements.txt -r agent/requirements.txt
+
+      - name: Full regression check
+        run: |
+          git diff --check
+          bash scripts/check.sh
+
+      - name: Exercise reinstall move/copy fallback state machine
+        env:
+          AGENT_TOKEN: test-token
+        run: |
+          python3 - <<'PY'
+          import subprocess
+          from agent.natvps_agent import main as m
+
+          source = 'nat-test'
+          backup = 'nat-test-xnat-old-deadbeef'
+          state = {source: True, backup: False}
+          calls = []
+
+          def fake_exists(name):
+              return bool(state.get(name, False))
+
+          def fake_run(args, *, input_text=None, timeout=None, check=True):
+              args = list(args)
+              calls.append(tuple(args))
+              if args[:2] in (['incus', 'stop'], ['incus', 'start']):
+                  return subprocess.CompletedProcess(args, 0, '', '')
+              if args[:2] == ['incus', 'move']:
+                  raise RuntimeError('simulated local rename backend failure')
+              if args[:2] == ['incus', 'copy']:
+                  src, dst = args[2], args[3]
+                  if not state.get(src):
+                      raise RuntimeError('copy source missing')
+                  state[dst] = True
+                  return subprocess.CompletedProcess(args, 0, '', '')
+              if args[:2] == ['incus', 'delete']:
+                  state[args[2]] = False
+                  return subprocess.CompletedProcess(args, 0, '', '')
+              return subprocess.CompletedProcess(args, 0, '', '')
+
+          m.instance_exists = fake_exists
+          m.run = fake_run
+
+          method = m._prepare_reinstall_backup(source, backup, 'running')
+          assert method == 'copy'
+          assert state[source] is False and state[backup] is True
+          assert ('incus', 'copy', source, backup, '--instance-only') in calls
+
+          restored, detail = m._restore_reinstall_backup(backup, source, 'running')
+          assert restored, detail
+          assert state[source] is True and state[backup] is False
+          assert ('incus', 'copy', backup, source, '--instance-only') in calls
+          assert ('incus', 'start', source) in calls
+          print('reinstall fallback state-machine test: ok')
+          PY
+
+      - name: Build and verify formal assets
+        run: |
+          bash scripts/build-release.sh
+          test -s dist/xnat-panel-v1.0.3.zip
+          test -s dist/xnat-host-agent-v1.0.3.zip
+          grep -q '"release_version": "1.0.3"' dist/release.json
+          grep -q '"panel_version": "1.0.3"' dist/release.json
+          grep -q '"agent_version": "1.0.3"' dist/release.json
+          (cd dist && sha256sum -c SHA256SUMS.txt)
+
+      - name: Commit verified hotfix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/validate-reinstall-hotfix.yml .github/workflows/validate-reinstall-hotfix-v2.yml tools/prepare-reinstall-hotfix.py
+          git add agent/VERSION agent/natvps_agent/__init__.py agent/natvps_agent/main.py release.json README.md docs/INTRODUCTION.md CHANGELOG.md scripts/build-release.sh scripts/check.sh
+          git commit -m 'fix(host): harden rollback-safe reinstall backup'
+          git push origin HEAD:fix/v1.0.3-reinstall-backup
