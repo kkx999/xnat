@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.0.4 - 2026-09-14
+
+- XNAT Release 1.0.4 / Panel 1.0.4 / Host Agent 1.0.4；Agent API 保持 v2，Mobile API 保持 v1。
+- 服务器详情新增一个整体实时资源监控区域，以 2×2 对称布局显示 CPU、内存、硬盘与实时下载 / 上传速率。
+- CPU、内存、硬盘使用全圆角胶囊进度条；网络速率单独显示。
+- Web 每 5 秒刷新，页面不可见时停止轮询。
+- Host Agent 只使用内存短缓存和相邻采样，不写监控数据库、不保存历史。
+- v1.0.3 → v1.0.4 为正式验证的直接 Panel 升级路径。
+
+**由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**
+
 ## v1.0.3 - 2026-09-14
 
 - XNAT Release 1.0.3 / Panel 1.0.3；Host Agent 1.0.3，Agent API 保持 v2，Mobile API 保持 v1。

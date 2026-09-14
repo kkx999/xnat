@@ -18,23 +18,23 @@ cp release.json "$DIST/release.json"
 cat > "$DIST/RELEASE_NOTES.md" <<EOF_NOTES
 # XNAT v${RELEASE_VERSION}
 
-系统镜像最低磁盘策略与后台配置能力更新。
+服务器实时资源监控更新。
 
 - XNAT Release：v${RELEASE_VERSION}
 - Panel：v${PANEL_VERSION}
 - Host Agent：v${AGENT_VERSION}
 - Agent API：v${AGENT_API_VERSION}
 - Mobile API：v1
-- 系统镜像最低系统盘改为 Panel 后台逐镜像配置，不再按 Debian / Ubuntu 家族写死
-- 默认 Debian 12 / 13 为 1 GiB、Ubuntu 22.04 / 24.04 为 2 GiB、Alpine 3.24 为 1 GiB
-- LXC 直接使用后台配置；KVM 使用 max(镜像配置, 3 GiB)
-- 管理后台系统镜像页面支持直接修改最低系统盘，新建镜像时也可指定
-- 旧数据库仅执行一次兼容迁移，不会在后续启动中覆盖管理员自定义值
-- Mobile API v1 的 /api/v1/system-images 新增 min_disk_gb 字段，现有客户端保持兼容
-- v1.0.2 → v1.0.3 已作为正式验证的直接 Panel 升级路径
-- Host Agent v1.0.3 保留镜像磁盘策略修复，并增强安全重装的 rename/copy 备份与回滚兜底；Agent API、Panel 整体 UI 与主要业务交互保持不变
+- 服务器详情页在原有概览下方新增一个整体实时监控区域，以 2×2 对称布局展示 CPU、内存、硬盘和实时下载 / 上传速率
+- CPU、内存、硬盘使用全圆角胶囊进度条；网络速率单独展示，不与套餐带宽上限混淆
+- Web 前端每 5 秒刷新一次，页面进入后台后停止轮询
+- Host Agent 使用约 3 秒内存短缓存；不保存历史、不写监控数据库，磁盘必要时才低频兜底采样
+- 高频实时监控接口过滤普通 access log，避免轮询持续增加无意义日志
+- Mobile API v1 的服务器详情支持 ?metrics=1 获取同一套实时指标，旧客户端保持兼容
+- 保留 v1.0.3 的镜像磁盘策略、安全重装 rename/copy 备份与回滚兜底修复
+- v1.0.3 → v1.0.4 为正式验证的直接 Panel 升级路径
 
-> Android v1.0.2 已直接读取 Panel 下发的 min_disk_gb。
+> Android v1.0.2 无需强制升级；后续 Android v1.0.3 可直接接入本次新增的实时指标。
 
 **由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**
 EOF_NOTES

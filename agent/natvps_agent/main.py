@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import secrets
@@ -18,9 +19,10 @@ from pathlib import Path
 import psutil
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
+from .metrics import collect as collect_instance_metrics
 from fastapi.responses import JSONResponse
 
-AGENT_VERSION = "1.0.3"
+AGENT_VERSION = "1.0.4"
 AGENT_API_VERSION = "2"
 AGENT_TOKEN = os.getenv("AGENT_TOKEN", "")
 STORAGE_POOL = os.getenv("INCUS_STORAGE_POOL", "natpool")
@@ -39,6 +41,15 @@ if not AGENT_TOKEN:
     raise RuntimeError("AGENT_TOKEN 未配置")
 
 app = FastAPI(title="NAT VPS Host Agent", version=AGENT_VERSION)
+
+class _MetricsAccessFilter(logging.Filter):
+    def filter(self, record):
+        try:
+            return "/metrics HTTP/" not in record.getMessage()
+        except Exception:
+            return True
+
+logging.getLogger("uvicorn.access").addFilter(_MetricsAccessFilter())
 
 INSTANCE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 DEVICE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
@@ -1457,6 +1468,20 @@ def stats(instance_id: str):
     except Exception:
         return {"rx_bytes": 0, "tx_bytes": 0, "available": False}
 
+
+
+@app.get("/v1/instances/{instance_id}/metrics")
+def metrics(instance_id: str):
+    require_instance(instance_id)
+    try:
+        return collect_instance_metrics(
+            instance_id, run=run, instance_exists=instance_exists,
+            instance_status=instance_status, resource_snapshot=instance_resource_snapshot,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(503, f"实时资源暂不可用: {str(exc)[:500]}")
 
 
 @app.post("/v1/instances/{instance_id}/resources")

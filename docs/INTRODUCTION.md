@@ -8,14 +8,18 @@ XNAT 将用户、套餐、订单、Host、实例、NAT 端口、流量、生命�
 
 | 组件 | 版本 |
 | --- | --- |
-| XNAT Release | v1.0.3 |
-| XNAT Panel | v1.0.3 |
-| XNAT Host Agent | v1.0.3 |
+| XNAT Release | v1.0.4 |
+| XNAT Panel | v1.0.4 |
+| XNAT Host Agent | v1.0.4 |
 | Agent API | v2 |
 | Mobile API | v1 |
 | XNAT Android | v1.0.2 |
 
 ## 版本说明
+
+v1.0.4 新增服务器实时资源监控：服务器详情页在原有概览下方增加一个整体监控区域，以 2×2 对称布局展示 CPU、内存、硬盘和实时上下行网络速率。CPU / 内存 / 硬盘使用全圆角胶囊进度条。Web 每 5 秒刷新，页面进入后台后停止轮询；Host Agent 仅保留数秒内存采样，不写监控数据库、不保存历史。
+
+Agent API 继续保持 v2，Mobile API 继续保持 v1；Mobile API v1 可通过服务器详情接口的 `?metrics=1` 获取同一套实时指标，为后续 Android 接入保留兼容能力。
 
 v1.0.3 是镜像最低系统盘策略与后台配置能力更新。Panel 为 v1.0.3，Host Agent 为 v1.0.3，Agent API 保持 v2，Mobile API 保持 v1。
 
@@ -108,6 +112,16 @@ Ubuntu 26.04 LTS Resolute
 内部容量规划中，LXC 会为 Host 保留约 **4GiB 总空间预算**，KVM / 混合模式约 **6GiB**。LXC 套餐最低可配置到 **1C / 64MB / 128MB**；KVM Guest 保留 **512MB / 3GB** 技术下限。系统镜像自身还可能有更高的最低系统盘要求。
 
 ## 更新记录
+
+### v1.0.4
+
+- 服务器详情新增 CPU / 内存 / 硬盘 / 实时下载与上传速率。
+- 一个整体监控容器，内部 2×2 对称布局；CPU、内存、硬盘使用全圆角胶囊进度条。
+- 页面每 5 秒刷新，不可见时停止请求。
+- Host Agent 使用约 3 秒内存短缓存；CPU 与网速通过相邻采样计算，磁盘必要时低频兜底采样。
+- 不写监控数据库、不保存历史曲线。
+- Panel Web 与 Mobile API v1 共用同一套实时指标来源。
+- v1.0.3 → v1.0.4 为正式验证的直接 Panel 升级路径。
 
 ### v1.0.3
 

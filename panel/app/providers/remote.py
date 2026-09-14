@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import threading
+import time
+
 from sqlalchemy import or_, select
 
 from ..db import SessionLocal
 from ..models import HostNode, Server
 from ..nodes import HostAPIError, host_request
 from .base import NetworkStats, Provider, ProviderState, ProvisionResult
+
+_METRICS_LOCK = threading.Lock()
+_METRICS_CACHE: dict[str, tuple[float, dict]] = {}
 
 
 class RemoteHostProvider(Provider):
@@ -122,6 +128,19 @@ class RemoteHostProvider(Provider):
             return NetworkStats(int(data.get("rx_bytes") or 0), int(data.get("tx_bytes") or 0), bool(data.get("available", True)))
         except Exception:
             return NetworkStats()
+
+    def instance_metrics(self, instance_id: str) -> dict:
+        now = time.monotonic()
+        with _METRICS_LOCK:
+            cached = _METRICS_CACHE.get(instance_id)
+            if cached and now - cached[0] < 3.0:
+                return dict(cached[1])
+        host = self._host_for_instance(instance_id)
+        data = host_request(host, "GET", f"/v1/instances/{instance_id}/metrics", timeout=18)
+        payload = dict(data or {})
+        with _METRICS_LOCK:
+            _METRICS_CACHE[instance_id] = (now, payload)
+        return dict(payload)
 
     def resize_resources(self, instance_id: str, cpu: int, memory_mb: int, disk_gb: float) -> dict:
         host = self._host_for_instance(instance_id)
