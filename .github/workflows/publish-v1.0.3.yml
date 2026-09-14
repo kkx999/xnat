@@ -49,6 +49,14 @@ jobs:
           replace_once('scripts/upgrade-panel.sh', '  1.0.2) UPGRADE_PATH="legacy-v1.0.2"; warn "当前为 v1.0.2；建议按正式版本链先升级到 v1.1.1，再升级到 v${COMPONENT_VERSION}。此升级器仍保留 additive schema 兼容检查。" ;;', '  1.0.2) UPGRADE_PATH="verified-v1.0.2" ;;')
           replace_once('scripts/check.sh', "assert '当前正式版本：v1.0.2' in readme", "assert '当前正式版本：v1.0.3' in readme")
 
+          p = Path('scripts/check.sh')
+          s = p.read_text()
+          old_guard = "if grep -RInE 'v1\\.0\\.3|v1\\.0\\.4|testing-v|(^|[^A-Za-z])RC[0-9]+|(^|[^A-Za-z])rc[0-9]+|候选版本' \\\n"
+          new_guard = "if grep -RInE 'v1\\.0\\.4|testing-v|(^|[^A-Za-z])RC[0-9]+|(^|[^A-Za-z])rc[0-9]+|候选版本' \\\n"
+          if old_guard not in s:
+              raise SystemExit('scripts/check.sh formal-version guard not found')
+          p.write_text(s.replace(old_guard, new_guard, 1))
+
           p = Path('README.md')
           s = p.read_text()
           for old, new in [
