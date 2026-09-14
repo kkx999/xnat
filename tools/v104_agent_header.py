@@ -7,6 +7,15 @@ if old in s:
     s=s.replace(old,new,1)
 elif new not in s:
     raise SystemExit('agent version anchor missing')
+if 'import logging\n' not in s:
+    s=s.replace('import json\n','import json\nimport logging\n',1)
+marker='class _MetricsAccessFilter(logging.Filter):'
+if marker not in s:
+    anchor='app = FastAPI(title="NAT VPS Host Agent", version=AGENT_VERSION)\n'
+    block='''app = FastAPI(title="NAT VPS Host Agent", version=AGENT_VERSION)\n\nclass _MetricsAccessFilter(logging.Filter):\n    def filter(self, record):\n        try:\n            return "/metrics HTTP/" not in record.getMessage()\n        except Exception:\n            return True\n\nlogging.getLogger("uvicorn.access").addFilter(_MetricsAccessFilter())\n'''
+    if s.count(anchor)!=1:
+        raise SystemExit('agent app anchor missing')
+    s=s.replace(anchor,block,1)
 p.write_text(s)
 (R/'agent/VERSION').write_text('1.0.4\n')
 q=R/'agent/natvps_agent/__init__.py'; t=q.read_text()
