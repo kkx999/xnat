@@ -3,7 +3,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
-p = Path(__file__).resolve().parent / "apply-release-1.0.2-panel.py"
+base = Path(__file__).resolve().parent
+
+# re.sub replacement strings interpret backslashes (for example \n). Generated
+# Python source must keep those escapes literally, so force function-based
+# replacement in both one-off release patchers.
+for patcher_name in ("apply-release-1.0.2-panel.py", "apply-release-1.0.2-agent.py"):
+    patcher = base / patcher_name
+    patcher_text = patcher.read_text(encoding="utf-8")
+    old = "result, count = re.subn(pattern, replacement, text, count=1, flags=flags)"
+    new = "result, count = re.subn(pattern, lambda _match: replacement, text, count=1, flags=flags)"
+    if old in patcher_text:
+        patcher_text = patcher_text.replace(old, new)
+        patcher.write_text(patcher_text, encoding="utf-8")
+        print(f"[repair] literal regex replacement: {patcher_name}")
+
+p = base / "apply-release-1.0.2-panel.py"
 s = p.read_text(encoding="utf-8")
 start_marker = "nodes = regex_once(\n    nodes,\n    r'''def _signature"
 end_marker = "nodes = regex_once(\n    nodes,\n    r'''def host_request"
