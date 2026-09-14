@@ -13,6 +13,119 @@
 <p>{% if server_region(server) %}{{ server_region(server) }} · {% endif %}{{ server.plan.name }} · {{ server_status_label(server_ui_status) }}</p>
 {% endblock %}
 {% block content %}
+<style id="server-detail-theme-polish-v105">
+/* v1.0.5 server detail dual-theme polish. Layout and metrics behavior stay unchanged. */
+body.client-body .server-live-panel{
+  border-color:#2a394a;
+  background:linear-gradient(180deg,#121c28 0%,#101923 100%);
+  box-shadow:0 10px 28px rgba(0,0,0,.12),inset 0 1px 0 rgba(255,255,255,.016);
+}
+body.client-body .server-live-head{border-bottom-color:#2a394a}
+body.client-body .server-live-head>div:first-child span{color:#edf3fb}
+body.client-body .server-live-head>div:first-child small,
+body.client-body .server-live-status,
+body.client-body .server-live-value>span,
+body.client-body .server-live-network-rates span{color:#91a0b3}
+body.client-body .server-live-item:nth-child(odd),
+body.client-body .server-live-item:nth-child(-n+2){border-color:#2a394a}
+body.client-body .server-live-value>strong{color:#eef4fb}
+body.client-body .server-live-item>small{color:#7f90a5}
+body.client-body .server-live-network-rates strong{color:#dce7f3}
+body.client-body .server-live-progress{
+  border-radius:999px;
+  background:#1b2734;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.20);
+}
+body.client-body .server-live-progress>span{
+  border-radius:999px;
+  background:linear-gradient(90deg,#537fae,#6f9bc8);
+}
+body.client-body .client-detail-section{
+  border-color:#293745;
+  background:linear-gradient(180deg,#121a24 0%,#101821 100%);
+  box-shadow:0 8px 24px rgba(0,0,0,.10),inset 0 1px 0 rgba(255,255,255,.014);
+}
+body.client-body .client-detail-section[open]>summary{border-bottom:0!important}
+body.client-body .client-detail-body{border-top:0!important;background:#0f1720}
+body.client-body .client-detail-section>summary .detail-summary-main strong{color:#edf2f8}
+body.client-body .client-detail-section>summary .detail-summary-main span{color:#8f9daf}
+body.client-body .detail-summary-main::before{background:#638db8;box-shadow:none}
+body.client-body .detail-summary-action{
+  background:#151f2a;
+  border-color:#334454;
+  color:#9eafc1!important;
+}
+body.client-body .client-detail-section[open] .detail-summary-action{
+  background:#182430;
+  border-color:#3b5064;
+  color:#c9d6e3!important;
+}
+body.client-body .client-password-display code{border-color:#334351;background:#121b24;color:#edf3f8}
+body.client-body .client-port-row{border-bottom-color:#293745}
+body.client-body .client-port-add,
+body.client-body .client-danger-grid form{background:#111922;border-color:#2c3945}
+
+html[data-client-theme="light"] body.client-body .server-live-panel{
+  border-color:#d9e1e9;
+  background:linear-gradient(180deg,#ffffff 0%,#fafbfd 100%);
+  box-shadow:0 7px 22px rgba(39,61,86,.045);
+}
+html[data-client-theme="light"] body.client-body .server-live-head{border-bottom-color:#e3e8ee}
+html[data-client-theme="light"] body.client-body .server-live-head>div:first-child span{color:#263b52!important}
+html[data-client-theme="light"] body.client-body .server-live-head>div:first-child small{color:#6f8195!important}
+html[data-client-theme="light"] body.client-body .server-live-status{color:#667a90!important}
+html[data-client-theme="light"] body.client-body .server-live-value>span,
+html[data-client-theme="light"] body.client-body .server-live-network-rates span{color:#64788f!important}
+html[data-client-theme="light"] body.client-body .server-live-value>strong{color:#1f344b!important}
+html[data-client-theme="light"] body.client-body .server-live-item>small{color:#71849a!important}
+html[data-client-theme="light"] body.client-body .server-live-network-rates strong{color:#28415a!important}
+html[data-client-theme="light"] body.client-body .server-live-item:nth-child(odd),
+html[data-client-theme="light"] body.client-body .server-live-item:nth-child(-n+2){border-color:#e3e8ee}
+html[data-client-theme="light"] body.client-body .server-live-progress{
+  border-radius:999px;
+  background:#e9eef3;
+  box-shadow:inset 0 1px 2px rgba(45,67,91,.08);
+}
+html[data-client-theme="light"] body.client-body .server-live-progress>span{
+  border-radius:999px;
+  background:linear-gradient(90deg,#5588bd,#72a1d0);
+}
+html[data-client-theme="light"] body.client-body .client-detail-section{
+  border-color:#dce3ea;
+  background:linear-gradient(180deg,#ffffff 0%,#fbfcfd 100%);
+  box-shadow:0 6px 18px rgba(42,62,84,.035);
+}
+html[data-client-theme="light"] body.client-body .client-detail-section[open]>summary{border-bottom:0!important}
+html[data-client-theme="light"] body.client-body .client-detail-body{border-top:0!important;background:#fafbfc}
+html[data-client-theme="light"] body.client-body .client-detail-section>summary .detail-summary-main strong{color:#263a4f!important}
+html[data-client-theme="light"] body.client-body .client-detail-section>summary .detail-summary-main span{color:#74869a!important}
+html[data-client-theme="light"] body.client-body .detail-summary-main::before{background:#5c86ae;box-shadow:none}
+html[data-client-theme="light"] body.client-body .detail-summary-action{
+  background:#f6f8fa;
+  border-color:#d4dce4;
+  color:#657b91!important;
+}
+html[data-client-theme="light"] body.client-body .client-detail-section[open] .detail-summary-action{
+  background:#f2f5f8;
+  border-color:#cbd6df;
+  color:#456985!important;
+}
+html[data-client-theme="light"] body.client-body .client-password-display,
+html[data-client-theme="light"] body.client-body .client-port-add,
+html[data-client-theme="light"] body.client-body .client-danger-grid form{background:#fbfcfd;border-color:#e0e6ec}
+html[data-client-theme="light"] body.client-body .client-password-display code{
+  color:#263b52;
+  background:#fff;
+  border-color:#d8e0e8;
+}
+html[data-client-theme="light"] body.client-body .client-port-row{background:transparent;border-color:#e4e9ee}
+html[data-client-theme="light"] body.client-body .client-help-text,
+html[data-client-theme="light"] body.client-body .client-port-row em{color:#74869a}
+@media(max-width:620px){
+  body.client-body .server-live-item:nth-child(-n+3){border-bottom-color:#2a394a}
+  html[data-client-theme="light"] body.client-body .server-live-item:nth-child(-n+3){border-bottom-color:#e3e8ee}
+}
+</style>
 <div class="server-detail-page" data-server-ui-status="{{ server_ui_status }}">
 {% if server_ui_status in ["provisioning", "reinstalling", "deleting"] %}<div class="client-operation-state {{ server_ui_status }}"><strong>{{ server_status_label(server_ui_status) }}</strong><span>{% if server_ui_status == "reinstalling" %}系统正在重新安装，完成后状态会自动恢复为运行中。{% elif server_ui_status == "deleting" %}实例正在删除，请稍候。{% else %}实例正在开通，请稍候。{% endif %}</span></div>{% endif %}
 <div class="server-detail-overview">
