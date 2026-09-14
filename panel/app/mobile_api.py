@@ -1011,6 +1011,10 @@ async def api_purchase(request: Request):
         if not system_image or not system_image.is_active or system_image.family not in {"apt", "alpine"}:
             raise HTTPException(409, "系统镜像不存在、已停用或暂不支持")
         try:
+            validate_image_resources(system_image, plan.disk_gb, plan.virtualization_type or "lxc")
+        except ImagePolicyError as exc:
+            raise HTTPException(409, str(exc))
+        try:
             coupon, discount = _calculate_coupon_discount(db, user, coupon_code, int(plan.monthly_price_cents or 0))
         except ValueError as exc:
             raise HTTPException(409, str(exc))

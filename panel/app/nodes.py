@@ -12,11 +12,12 @@ from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 import httpx
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from . import __version__ as PANEL_VERSION
 from .crypto import decrypt_secret
+from .db import SessionLocal
 from .models import HostNode, HostPortLease, Plan, PlanHost, PortMapping, Server, SiteSetting
 from .notifications import queue_admin_notification
 
@@ -61,17 +62,58 @@ def _peer_certificate_fingerprint(base_url: str, timeout: float = 8.0) -> str:
     return hashlib.sha256(cert).hexdigest()
 
 
+def _normalized_fingerprint(value: str | None) -> str:
+    return str(value or "").strip().lower().replace(":", "")
+
+
+def _persist_or_validate_tofu_fingerprint(host: HostNode, observed: str) -> str:
+    observed = _normalized_fingerprint(observed)
+    pinned = _normalized_fingerprint(host.tls_fingerprint)
+    if pinned:
+        if not hmac.compare_digest(pinned, observed):
+            raise HostAPIError(
+                f"Host Agent TLS 证书指纹不匹配：期望 {pinned[:16]}…，实际 {observed[:16]}…"
+            )
+        return pinned
+
+    host_id = int(getattr(host, "id", 0) or 0)
+    if not host_id:
+        host.tls_fingerprint = observed
+        return observed
+
+    with SessionLocal() as db:
+        row = db.get(HostNode, host_id)
+        if not row:
+            raise HostAPIError("宿主机记录不存在，无法保存 TLS 证书指纹")
+        current = _normalized_fingerprint(row.tls_fingerprint)
+        if not current:
+            db.execute(
+                update(HostNode)
+                .where(
+                    HostNode.id == host_id,
+                    or_(HostNode.tls_fingerprint.is_(None), HostNode.tls_fingerprint == ""),
+                )
+                .values(tls_fingerprint=observed)
+            )
+            db.commit()
+            row = db.get(HostNode, host_id)
+            current = _normalized_fingerprint(row.tls_fingerprint if row else None)
+        if not current:
+            raise HostAPIError("Host Agent TLS 证书指纹保存失败")
+        if not hmac.compare_digest(current, observed):
+            raise HostAPIError(
+                f"Host Agent TLS 证书指纹不匹配：期望 {current[:16]}…，实际 {observed[:16]}…"
+            )
+
+    host.tls_fingerprint = current
+    return current
+
+
 def _verify_or_pin_certificate(host: HostNode, base_url: str) -> None:
     if not base_url.lower().startswith("https://"):
         return
     observed = _peer_certificate_fingerprint(base_url)
-    pinned = str(host.tls_fingerprint or "").strip().lower().replace(":", "")
-    if pinned and not hmac.compare_digest(pinned, observed):
-        raise HostAPIError(
-            f"Host Agent TLS 证书指纹不匹配：期望 {pinned[:16]}…，实际 {observed[:16]}…"
-        )
-    if not pinned:
-        host.tls_fingerprint = observed
+    _persist_or_validate_tofu_fingerprint(host, observed)
 
 
 def host_request(host: HostNode, method: str, path: str, *, payload=None, timeout: float = 25.0):

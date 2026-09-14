@@ -219,6 +219,61 @@ def _claim_next_job_id(db, now: datetime) -> int | None:
     return None
 
 
+def _defer_uncertain_provision(db, provider, server: Server, job: Job, message: str) -> bool:
+    """Keep funds/state pending until Host confirms absence or idempotent recovery succeeds."""
+    recover = getattr(provider, "recover_instance", None)
+    if not callable(recover):
+        return False
+    try:
+        probe = recover(server.id, server.name) or {}
+    except Exception as exc:
+        job.status = "pending"
+        job.attempts = max(0, int(job.max_attempts or 1) - 1)
+        job.available_at = datetime.utcnow() + timedelta(minutes=5)
+        job.finished_at = None
+        server.status = "provisioning"
+        server.reconcile_status = "warning"
+        server.reconcile_message = f"开通结果暂无法确认，等待 Host 恢复后重试：{str(exc)[:600]}"
+        queue_admin_notification(
+            db,
+            title="VPS 开通结果待确认",
+            body=f"{server.name} 在达到常规重试上限后仍无法确认 Host 状态。为避免实例已创建却自动退款，任务将在 5 分钟后继续确认。",
+            kind="system",
+            severity="warning",
+            event_key=f"provision-uncertain:{server.id}:{job.id}",
+        )
+        return True
+
+    if bool(probe.get("exists")) and bool(probe.get("matches")):
+        job.status = "pending"
+        job.attempts = max(0, int(job.max_attempts or 1) - 1)
+        job.available_at = datetime.utcnow() + timedelta(seconds=5)
+        job.finished_at = None
+        server.status = "provisioning"
+        server.reconcile_status = "warning"
+        server.reconcile_message = "Host 已找到匹配实例，等待幂等开通重试回收连接信息。"
+        return True
+
+    if bool(probe.get("exists")) and not bool(probe.get("matches")):
+        job.status = "failed"
+        job.finished_at = datetime.utcnow()
+        server.status = "provision_unknown"
+        server.reconcile_status = "error"
+        server.reconcile_message = "Host 存在同名实例，但 XNAT server_id 不匹配；已停止自动退款并要求人工检查。"
+        queue_admin_notification(
+            db,
+            title="VPS 开通身份冲突",
+            body=f"{server.name} 在 Host 上存在同名实例，但 server_id 不匹配。系统未自动退款，请人工核对后处理。",
+            kind="system",
+            severity="error",
+            event_key=f"provision-identity-conflict:{server.id}:{job.id}",
+        )
+        return True
+
+    # Host explicitly confirmed that no instance exists; normal final-failure refund is safe.
+    return False
+
+
 def run_one_job(provider, provider_name: str) -> bool:
     now = datetime.utcnow()
     with SessionLocal() as db:
@@ -261,6 +316,9 @@ def run_one_job(provider, provider_name: str) -> bool:
                     job.status = "pending"
                     job.available_at = datetime.utcnow() + timedelta(seconds=min(60, 5 * (2 ** max(0, job.attempts - 1))))
                 else:
+                    if job.job_type == "provision_server" and server and _defer_uncertain_provision(db, provider, server, job, message):
+                        db.commit()
+                        return True
                     job.status = "failed"
                     job.finished_at = datetime.utcnow()
                     if job.job_type == "provision_server" and server:

@@ -981,6 +981,7 @@ class PowerBody(BaseModel):
 
 
 class ReinstallBody(BaseModel):
+    server_id: int | None = None
     image_alias: str
     memory_mb: int
     disk_gb: float
@@ -1201,6 +1202,10 @@ def reinstall(instance_id: str, body: ReinstallBody):
 
     old_status = instance_status(instance_id)
     stored_server_id = instance_xnat_server_id(instance_id)
+    requested_server_id = int(body.server_id) if body.server_id is not None else None
+    if stored_server_id is not None and requested_server_id is not None and stored_server_id != requested_server_id:
+        raise HTTPException(409, "实例 XNAT server_id 与 Panel 请求不一致，拒绝重装")
+    effective_server_id = stored_server_id if stored_server_id is not None else requested_server_id
     backup_name = (instance_id[:58] + "-xnat-old-" + secrets.token_hex(4))[:79]
 
     # Keep the old instance until the replacement is fully ready. If anything
@@ -1218,7 +1223,7 @@ def reinstall(instance_id: str, body: ReinstallBody):
     try:
         launch(
             instance_id, body.image_alias, body.memory_mb, body.disk_gb,
-            body.cpu, body.bandwidth_mbps, mode, server_id=stored_server_id,
+            body.cpu, body.bandwidth_mbps, mode, server_id=effective_server_id,
         )
         private_ip = wait_ipv4(instance_id, mode)
         prepare_ssh(instance_id, password)

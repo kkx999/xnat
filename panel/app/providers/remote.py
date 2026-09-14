@@ -38,6 +38,16 @@ class RemoteHostProvider(Provider):
             db.expunge(host)
             return host
 
+    def _server_id_for_instance(self, instance_id: str) -> int:
+        with SessionLocal() as db:
+            server = db.scalar(select(Server).where(
+                or_(Server.provider_instance_id == instance_id, Server.name == instance_id),
+                Server.deleted_at.is_(None),
+            ))
+            if not server:
+                raise HostAPIError(f"找不到实例 {instance_id} 对应的服务器记录")
+            return int(server.id)
+
     def provision(self, server_id, instance_name, image_alias, memory_mb, disk_gb, cpu, bandwidth_mbps, ssh_port, virtualization_type="lxc"):
         host = self._host_for_server_id(server_id)
         data = host_request(host, "POST", "/v1/provision", payload={
@@ -77,7 +87,9 @@ class RemoteHostProvider(Provider):
 
     def reinstall(self, instance_id: str, image_alias: str, memory_mb: int, disk_gb: float, cpu: int, bandwidth_mbps: int, ssh_port: int, virtualization_type: str = "lxc") -> ProvisionResult:
         host = self._host_for_instance(instance_id)
+        server_id = self._server_id_for_instance(instance_id)
         data = host_request(host, "POST", f"/v1/instances/{instance_id}/reinstall", payload={
+            "server_id": server_id,
             "image_alias": image_alias,
             "memory_mb": memory_mb,
             "disk_gb": disk_gb,
