@@ -27,16 +27,16 @@ grep -q 'network_rx_bps' agent/natvps_agent/metrics.py
 grep -q 'network_tx_bps' agent/natvps_agent/metrics.py
 grep -q 'def instance_metrics' panel/app/providers/base.py
 grep -q 'def instance_metrics' panel/app/providers/remote.py
-grep -q 'request.query_params.get("metrics") == "1"' panel/app/main.py
+grep -q '@router.get("/servers/{server_id}/metrics")' panel/app/live_metrics.py
 grep -q 'request.query_params.get("metrics") == "1"' panel/app/mobile_api.py
 grep -q 'data-server-live-metrics' panel/app/templates/server_detail.html
-grep -q 'data-metrics-url="/servers/{{ server.id }}?metrics=1"' panel/app/templates/server_detail.html
+grep -q 'data-metrics-url="/servers/{{ server.id }}/metrics"' panel/app/templates/server_detail.html
 grep -q 'server-live-grid' panel/app/static/style.css
 grep -q 'border-radius:999px' panel/app/static/style.css
 grep -q 'setTimeout(load,5000)' panel/app/static/client.js
 grep -q 'visibilitychange' panel/app/static/client.js
-grep -q 'metrics=1' panel/app/main.py
-grep -q '"/metrics" not in record.getMessage()' agent/natvps_agent/main.py
+grep -q '"/metrics HTTP/" not in record.getMessage()' agent/natvps_agent/main.py
+grep -q '"/metrics HTTP/" not in record.getMessage()' panel/app/live_metrics.py
 grep -q '1.0.3) UPGRADE_PATH="verified-v1.0.3"' scripts/upgrade-panel.sh
 python3 - <<'PYV104METRICS'
 from pathlib import Path
@@ -58,6 +58,9 @@ assert 'write_text' not in agent_metrics and 'sqlite' not in agent_metrics.lower
 assert '_CACHE_SECONDS = 3.0' in agent_metrics
 js=(root/'panel/app/static/client.js').read_text()
 assert 'document.hidden' in js and 'pagehide' in js
+web=(root/'panel/app/live_metrics.py').read_text()
+assert 'login_required(request, db)' in web
+assert 'server.user_id != user.id' in web
 print('v1.0.4 live server metrics contract: ok')
 PYV104METRICS
 '''
