@@ -36,6 +36,7 @@ jobs:
           Path('release.json').write_text(json.dumps(m,ensure_ascii=False,indent=2)+'\n')
           p=Path('panel/app/main.py'); x=p.read_text(); x=x.replace('"version": "1.0.1"','"version": "1.0.2"'); p.write_text(x)
           p=Path('panel/app/templates/base.html'); x=p.read_text(); x=x.replace('XNAT v1.0.1 Multi-Node','XNAT v1.0.2 Multi-Node'); p.write_text(x)
+          p=Path('docs/MOBILE_API.md'); x=p.read_text(); x=x.replace('XNAT Panel `v1.0.1` 保持','XNAT Panel `v1.0.2` 保持'); p.write_text(x)
           p=Path('README.md'); s=p.read_text()
           a=s.find('## v1.0.3 热修复'); b=s.find('## v1.0.2 更新')
           if a!=-1 and b!=-1 and a<b: s=s[:a]+s[b:]
@@ -54,7 +55,17 @@ jobs:
           if 'AGENT_API_VERSION=' not in z: z=z.replace('AGENT_VERSION="$(tr -d \'[:space:]\' < agent/VERSION)"\n','AGENT_VERSION="$(tr -d \'[:space:]\' < agent/VERSION)"\nAGENT_API_VERSION="$(tr -d \'[:space:]\' < agent/API_VERSION)"\n',1)
           z=z.replace('- Host：v${AGENT_VERSION}\n- Agent API：v1','- Host Agent：v${AGENT_VERSION}\n- Agent API：v${AGENT_API_VERSION}')
           p.write_text(z)
-          p=Path('scripts/check.sh'); q=p.read_text(); q=q.replace("assert '当前正式版本：v1.0.1' in readme","assert '当前正式版本：v1.0.2' in readme"); p.write_text(q)
+          p=Path('scripts/check.sh'); q=p.read_text()
+          q=q.replace("assert '当前正式版本：v1.0.1' in readme","assert '当前正式版本：v1.0.2' in readme")
+          q=q.replace("assert (root/'VERSION').read_text().strip() == '1.0.1'","assert (root/'VERSION').read_text().strip() == '1.0.2'")
+          q=q.replace("assert (root/'panel/VERSION').read_text().strip() == '1.0.1'","assert (root/'panel/VERSION').read_text().strip() == '1.0.2'")
+          q=q.replace("assert (root/'agent/VERSION').read_text().strip() == '1.0.0'","assert (root/'agent/VERSION').read_text().strip() == '1.0.1'")
+          q=q.replace("assert meta['release_version']=='1.0.1'","assert meta['release_version']=='1.0.2'")
+          q=q.replace("assert meta['panel_version']=='1.0.1'","assert meta['panel_version']=='1.0.2'")
+          q=q.replace("assert meta['agent_version']=='1.0.0'","assert meta['agent_version']=='1.0.1'")
+          q=q.replace("assert str(meta['agent_api_version'])=='1'","assert str(meta['agent_api_version'])=='2'")
+          q=q.replace("print('v1.0.1 baseline contracts: ok')","print('v1.0.2 baseline contracts: ok')")
+          p.write_text(q)
           PY
 
       - name: Validate
@@ -73,8 +84,9 @@ jobs:
           grep -Fq 'AGENT_API_VERSION = "2"' agent/natvps_agent/main.py
           grep -Fq '"version": "1.0.2"' panel/app/main.py
           grep -Fq 'XNAT v1.0.2 Multi-Node' panel/app/templates/base.html
+          grep -Fq 'XNAT Panel `v1.0.2` 保持' docs/MOBILE_API.md
           grep -Fq "assert '当前正式版本：v1.0.2' in readme" scripts/check.sh
-          if grep -R 'v1.0.3' README.md CHANGELOG.md VERSION release.json; then exit 1; fi
+          if grep -R 'v1.0.3' README.md CHANGELOG.md VERSION release.json docs/MOBILE_API.md; then exit 1; fi
           python3 -m compileall -q panel/app agent/natvps_agent
           bash -x scripts/check.sh
 
@@ -84,7 +96,7 @@ jobs:
           set -euo pipefail
           git config user.name github-actions
           git config user.email actions@github.com
-          git add VERSION release.json panel/VERSION agent/VERSION agent/API_VERSION agent/natvps_agent/__init__.py panel/app/main.py panel/app/templates/base.html README.md CHANGELOG.md scripts/build-release.sh scripts/check.sh
+          git add VERSION release.json panel/VERSION agent/VERSION agent/API_VERSION agent/natvps_agent/__init__.py panel/app/main.py panel/app/templates/base.html docs/MOBILE_API.md README.md CHANGELOG.md scripts/build-release.sh scripts/check.sh
           if ! git diff --cached --quiet; then
             git commit -m 'release: finalize clean XNAT v1.0.2'
             git push origin HEAD:main
