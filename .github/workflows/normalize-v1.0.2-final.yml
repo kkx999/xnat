@@ -54,6 +54,7 @@ jobs:
           if 'AGENT_API_VERSION=' not in z: z=z.replace('AGENT_VERSION="$(tr -d \'[:space:]\' < agent/VERSION)"\n','AGENT_VERSION="$(tr -d \'[:space:]\' < agent/VERSION)"\nAGENT_API_VERSION="$(tr -d \'[:space:]\' < agent/API_VERSION)"\n',1)
           z=z.replace('- Host：v${AGENT_VERSION}\n- Agent API：v1','- Host Agent：v${AGENT_VERSION}\n- Agent API：v${AGENT_API_VERSION}')
           p.write_text(z)
+          p=Path('scripts/check.sh'); q=p.read_text(); q=q.replace("assert '当前正式版本：v1.0.1' in readme","assert '当前正式版本：v1.0.2' in readme"); p.write_text(q)
           PY
 
       - name: Validate
@@ -72,6 +73,7 @@ jobs:
           grep -Fq 'AGENT_API_VERSION = "2"' agent/natvps_agent/main.py
           grep -Fq '"version": "1.0.2"' panel/app/main.py
           grep -Fq 'XNAT v1.0.2 Multi-Node' panel/app/templates/base.html
+          grep -Fq "assert '当前正式版本：v1.0.2' in readme" scripts/check.sh
           if grep -R 'v1.0.3' README.md CHANGELOG.md VERSION release.json; then exit 1; fi
           python3 -m compileall -q panel/app agent/natvps_agent
           bash -x scripts/check.sh
@@ -82,7 +84,7 @@ jobs:
           set -euo pipefail
           git config user.name github-actions
           git config user.email actions@github.com
-          git add VERSION release.json panel/VERSION agent/VERSION agent/API_VERSION agent/natvps_agent/__init__.py panel/app/main.py panel/app/templates/base.html README.md CHANGELOG.md scripts/build-release.sh
+          git add VERSION release.json panel/VERSION agent/VERSION agent/API_VERSION agent/natvps_agent/__init__.py panel/app/main.py panel/app/templates/base.html README.md CHANGELOG.md scripts/build-release.sh scripts/check.sh
           if ! git diff --cached --quiet; then
             git commit -m 'release: finalize clean XNAT v1.0.2'
             git push origin HEAD:main
