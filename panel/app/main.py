@@ -47,6 +47,7 @@ from .models import (
 )
 from .mobile_api import router as mobile_api_router
 from .service_actions import ServiceActionError, enqueue_server_delete, reset_server_traffic
+from .services.image_policy import ImagePolicyError, minimum_disk_for_alias, validate_image_resources
 from .traffic import (
     THROTTLE_MBPS, apply_sample, collect_all as collect_traffic_all, configured_bandwidth_mbps,
     effective_bandwidth_mbps, enforce_traffic_policy, ensure_cycle, reset_cycle, traffic_bonus_gb,
@@ -481,6 +482,7 @@ def provision_service(db, request, user, plan, system_image, *, order_amount_cen
 
 
 def queue_service_provision(db, user, plan, system_image, *, order_amount_cents: int, order_kind: str, coupon=None, discount_cents: int = 0):
+    validate_image_resources(system_image, plan.disk_gb, plan.virtualization_type or "lxc")
     inventory = plan_stock(db, plan)
     if inventory["sold_out"]:
         raise ValueError("该套餐已经售罄")
@@ -666,17 +668,17 @@ def seed():
 
         if not (db.scalar(select(func.count()).select_from(SystemImage)) or 0):
             db.add_all([
-                SystemImage(name="Debian 12", alias="images:debian/12", family="apt", sort_order=10),
-                SystemImage(name="Debian 13", alias="images:debian/13", family="apt", sort_order=20),
-                SystemImage(name="Ubuntu 22.04 LTS", alias="images:ubuntu/22.04", family="apt", sort_order=30),
-                SystemImage(name="Ubuntu 24.04 LTS", alias="images:ubuntu/24.04", family="apt", sort_order=40),
-                SystemImage(name="Alpine 3.24", alias="images:alpine/3.24", family="alpine", sort_order=50),
+                SystemImage(name="Debian 12", alias="images:debian/12", family="apt", min_disk_gb=2.0, sort_order=10),
+                SystemImage(name="Debian 13", alias="images:debian/13", family="apt", min_disk_gb=2.0, sort_order=20),
+                SystemImage(name="Ubuntu 22.04 LTS", alias="images:ubuntu/22.04", family="apt", min_disk_gb=2.0, sort_order=30),
+                SystemImage(name="Ubuntu 24.04 LTS", alias="images:ubuntu/24.04", family="apt", min_disk_gb=2.0, sort_order=40),
+                SystemImage(name="Alpine 3.24", alias="images:alpine/3.24", family="alpine", min_disk_gb=1.0, sort_order=50),
             ])
             db.flush()
 
         # Preserve existing/custom images and add Alpine only when missing.
         if not db.scalar(select(SystemImage).where(SystemImage.alias == "images:alpine/3.24")):
-            db.add(SystemImage(name="Alpine 3.24", alias="images:alpine/3.24", family="alpine", sort_order=50))
+            db.add(SystemImage(name="Alpine 3.24", alias="images:alpine/3.24", family="alpine", min_disk_gb=1.0, sort_order=50))
             db.flush()
 
         default_settings = {
@@ -1998,6 +2000,11 @@ def buy_plan(
         system_image = db.get(SystemImage, os_image_id)
         if not system_image or not system_image.is_active or system_image.family not in {"apt", "alpine"}:
             raise HTTPException(400, "系统镜像不存在、已停用或暂不支持")
+        try:
+            validate_image_resources(system_image, plan.disk_gb, plan.virtualization_type or "lxc")
+        except ImagePolicyError as exc:
+            flash(request, str(exc), "error")
+            return RedirectResponse("/plans", status_code=303)
 
         try:
             coupon, discount_cents = calculate_coupon_discount(db, user, coupon_code, plan.monthly_price_cents)
@@ -2145,6 +2152,11 @@ def reinstall_server(
         system_image = db.get(SystemImage, os_image_id)
         if not system_image or not system_image.is_active or system_image.family not in {"apt", "alpine"}:
             flash(request, "所选系统镜像不可用。", "error")
+            return RedirectResponse(f"/servers/{server.id}", status_code=303)
+        try:
+            validate_image_resources(system_image, server.disk_gb, server.virtualization_type or "lxc")
+        except ImagePolicyError as exc:
+            flash(request, str(exc), "error")
             return RedirectResponse(f"/servers/{server.id}", status_code=303)
         active_job = db.scalar(select(Job).where(Job.server_id == server.id, Job.status.in_(["pending","running"]), Job.job_type.in_(["reinstall_server","delete_server"])))
         if active_job:
@@ -3741,7 +3753,7 @@ def admin_add_system_image(request:Request,name:str=Form(...),alias:str=Form(...
     with db_session() as db:
         admin=admin_required(request,db)
         if db.scalar(select(SystemImage).where(or_(SystemImage.name==name,SystemImage.alias==alias))): flash(request,"系统名称或镜像别名已经存在。","error"); return RedirectResponse("/admin?section=images",status_code=303)
-        row=SystemImage(name=name,alias=alias,family=("alpine" if alias.lower().startswith("images:alpine/") else "apt"),is_active=True,sort_order=100); db.add(row); db.flush(); write_audit(db,actor=admin,request=request,action="admin.image.create",target_type="system_image",target_id=row.id,target_name=row.name,detail={"alias":row.alias}); db.commit(); flash(request,f"系统镜像 {name} 已添加。","success")
+        row=SystemImage(name=name,alias=alias,family=("alpine" if alias.lower().startswith("images:alpine/") else "apt"),min_disk_gb=minimum_disk_for_alias(alias, ("alpine" if alias.lower().startswith("images:alpine/") else "apt")).min_disk_gb,is_active=True,sort_order=100); db.add(row); db.flush(); write_audit(db,actor=admin,request=request,action="admin.image.create",target_type="system_image",target_id=row.id,target_name=row.name,detail={"alias":row.alias}); db.commit(); flash(request,f"系统镜像 {name} 已添加。","success")
     return RedirectResponse("/admin?section=images",status_code=303)
 
 

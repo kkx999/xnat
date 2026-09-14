@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from .audit import write_audit
 from .crypto import encrypt_secret
@@ -12,15 +12,19 @@ from .models import BalanceLedger, Job, Order, PortMapping, Server, SystemImage,
 from .geo import server_display_id
 from .notifications import queue_notification, queue_admin_notification
 from .traffic import apply_sample, ensure_cycle
+from .services.image_policy import validate_image_resources
 
 
 def enqueue_job(db, job_type: str, *, user_id: int | None = None, server_id: int | None = None, payload: dict | None = None, max_attempts: int = 3) -> Job:
+    payload_data = dict(payload or {})
+    if server_id and job_type in {"provision_server", "reinstall_server", "delete_server"}:
+        payload_data.setdefault("operation_id", f"{job_type}:{server_id}")
     row = Job(
         job_type=job_type,
         user_id=user_id,
         server_id=server_id,
         status="pending",
-        payload_json=json.dumps(payload or {}, ensure_ascii=False, separators=(",", ":")),
+        payload_json=json.dumps(payload_data, ensure_ascii=False, separators=(",", ":")),
         max_attempts=max(1, max_attempts),
     )
     db.add(row)
@@ -66,6 +70,9 @@ def _run_provision(db, provider, server: Server, job: Job):
         return {"noop": "already_provisioned"}
     if not server.ssh_port:
         raise RuntimeError("服务器没有预分配 SSH 端口")
+    image = db.get(SystemImage, int(server.os_image_id or 0)) if server.os_image_id else None
+    if image:
+        validate_image_resources(image, server.disk_gb, server.virtualization_type or "lxc")
 
     result = provider.provision(
         server.id,
@@ -122,6 +129,7 @@ def _run_reinstall(db, provider, server: Server, job: Job):
         raise RuntimeError("目标系统镜像不可用")
     if not server.provider_instance_id:
         raise RuntimeError("服务器没有 provider 实例 ID")
+    validate_image_resources(image, server.disk_gb, server.virtualization_type or "lxc")
 
     result = provider.reinstall(
         server.provider_instance_id,
@@ -188,23 +196,35 @@ def _run_delete(db, provider, server: Server, job: Job):
     return {"deleted": True}
 
 
-def run_one_job(provider, provider_name: str) -> bool:
-    now = datetime.utcnow()
-    with SessionLocal() as db:
-        job = db.scalar(
-            select(Job)
+def _claim_next_job_id(db, now: datetime) -> int | None:
+    """Atomically transition one due job from pending to running."""
+    for _ in range(8):
+        candidate_id = db.scalar(
+            select(Job.id)
             .where(Job.status == "pending", Job.available_at <= now)
             .order_by(Job.id)
             .limit(1)
         )
-        if not job:
-            return False
+        if not candidate_id:
+            return None
+        result = db.execute(
+            update(Job)
+            .where(Job.id == candidate_id, Job.status == "pending", Job.available_at <= now)
+            .values(status="running", started_at=now, attempts=Job.attempts + 1)
+        )
+        if int(result.rowcount or 0) == 1:
+            db.commit()
+            return int(candidate_id)
+        db.rollback()
+    return None
 
-        job.status = "running"
-        job.started_at = now
-        job.attempts = int(job.attempts or 0) + 1
-        db.commit()
-        job_id = job.id
+
+def run_one_job(provider, provider_name: str) -> bool:
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        job_id = _claim_next_job_id(db, now)
+        if not job_id:
+            return False
 
     with SessionLocal() as db:
         job = db.get(Job, job_id)

@@ -18,7 +18,7 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 
 
 def regex_once(text: str, pattern: str, replacement: str, label: str, flags: int = 0) -> str:
-    result, count = re.subn(pattern, replacement, text, count=1, flags=flags)
+    result, count = re.subn(pattern, lambda _match: replacement, text, count=1, flags=flags)
     if count != 1:
         raise RuntimeError(f"regex marker count={count}: {label}")
     return result

@@ -1,10 +1,11 @@
 {
-  "release_version": "1.0.1",
-  "panel_version": "1.0.1",
-  "agent_version": "1.0.0",
-  "agent_api_version": "1",
+  "release_version": "1.0.2",
+  "panel_version": "1.0.2",
+  "agent_version": "1.0.1",
+  "agent_api_version": "2",
   "supported_agent_api_versions": [
-    "1"
+    "1",
+    "2"
   ],
   "mobile_api_version": "1"
 }

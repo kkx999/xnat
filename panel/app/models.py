@@ -75,6 +75,8 @@ class SystemImage(Base):
     name: Mapped[str] = mapped_column(String(80), unique=True)
     alias: Mapped[str] = mapped_column(String(255), unique=True)
     family: Mapped[str] = mapped_column(String(32), default="apt")
+    # Minimum root disk accepted by this image. Web/Mobile/worker share this policy.
+    min_disk_gb: Mapped[float] = mapped_column(Float, default=2.0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=100)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -100,6 +102,8 @@ class HostNode(Base):
     max_vps: Mapped[int] = mapped_column(Integer, default=0)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     verify_tls: Mapped[bool] = mapped_column(Boolean, default=False)
+    # TOFU SHA-256 fingerprint for the Host Agent HTTPS certificate.
+    tls_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # Host Agent reports configured modes (lxc / kvm / lxc,kvm) and live KVM capability.
     virtualization_modes: Mapped[str] = mapped_column(String(32), default="lxc")
     kvm_available: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -253,6 +257,22 @@ class PortMapping(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     server: Mapped["Server"] = relationship(back_populates="ports")
+
+
+class HostPortLease(Base):
+    """Short-lived reservation that closes the allocate-then-use race window."""
+
+    __tablename__ = "host_port_leases"
+    __table_args__ = (
+        UniqueConstraint("host_id", "protocol", "public_port", name="uq_host_port_lease"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    host_id: Mapped[int] = mapped_column(ForeignKey("host_nodes.id", ondelete="CASCADE"), index=True)
+    protocol: Mapped[str] = mapped_column(String(8))
+    public_port: Mapped[int] = mapped_column(Integer)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class SiteSetting(Base):

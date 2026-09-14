@@ -17,6 +17,9 @@ SCHEMA_EXTENSIONS: dict[str, dict[str, str]] = {
         "region_code": "VARCHAR(16) NOT NULL DEFAULT ''",
         "network_line": "VARCHAR(160) NOT NULL DEFAULT ''",
     },
+    "system_images": {
+        "min_disk_gb": "FLOAT NOT NULL DEFAULT 2.0",
+    },
     "users": {
         "announcement_seen_key": "VARCHAR(64)",
     },
@@ -28,6 +31,7 @@ SCHEMA_EXTENSIONS: dict[str, dict[str, str]] = {
         "schedule_storage_max_percent": "INTEGER NOT NULL DEFAULT 90",
         "virtualization_modes": "VARCHAR(32) NOT NULL DEFAULT 'lxc'",
         "kvm_available": "BOOLEAN NOT NULL DEFAULT 0",
+        "tls_fingerprint": "VARCHAR(64)",
         "country_code": "VARCHAR(2) NOT NULL DEFAULT ''",
         "server_region": "VARCHAR(120) NOT NULL DEFAULT ''",
         "region_code": "VARCHAR(16) NOT NULL DEFAULT ''",
@@ -94,7 +98,19 @@ def ensure_schema_extensions() -> list[str]:
                 if (result.rowcount or 0) > 0:
                     changed.append(f"servers.network_line_snapshot.backfill={result.rowcount}")
 
-        # Paid traffic reset was introduced after v1.1.1. For existing plans,
+        if "system_images" in existing_tables:
+            image_columns = {row["name"] for row in inspect(conn).get_columns("system_images")}
+            if "min_disk_gb" in image_columns:
+                conn.execute(text(
+                    'UPDATE "system_images" SET "min_disk_gb" = 1.0 '
+                    "WHERE LOWER(\"alias\") LIKE 'images:alpine/%'"
+                ))
+                conn.execute(text(
+                    'UPDATE "system_images" SET "min_disk_gb" = 2.0 '
+                    "WHERE LOWER(\"alias\") LIKE 'images:ubuntu/%' OR LOWER(\"alias\") LIKE 'images:debian/%'"
+                ))
+
+        # Existing traffic-reset migration behavior.
         # use the monthly plan price as a safe non-zero default so upgrading
         # never accidentally exposes a free traffic reset. Admins can change
         # the dedicated reset price per plan afterwards.

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from ..db import SessionLocal
 from ..models import HostNode, Server
@@ -26,7 +26,10 @@ class RemoteHostProvider(Provider):
 
     def _host_for_instance(self, instance_id: str) -> HostNode:
         with SessionLocal() as db:
-            server = db.scalar(select(Server).where(Server.provider_instance_id == instance_id, Server.deleted_at.is_(None)))
+            server = db.scalar(select(Server).where(
+                or_(Server.provider_instance_id == instance_id, Server.name == instance_id),
+                Server.deleted_at.is_(None),
+            ))
             if not server or not server.host_id:
                 raise HostAPIError(f"找不到实例 {instance_id} 对应的宿主机")
             host = db.get(HostNode, server.host_id)
@@ -51,6 +54,15 @@ class RemoteHostProvider(Provider):
         return ProvisionResult(
             str(data["instance_id"]), str(data.get("private_ip") or ""), int(data["ssh_port"]),
             str(data.get("status") or "running"), data.get("root_password")
+        )
+
+    def recover_instance(self, server_id: int, instance_name: str) -> dict:
+        host = self._host_for_server_id(server_id)
+        return host_request(
+            host,
+            "GET",
+            f"/v1/servers/{int(server_id)}/instances/{instance_name}",
+            timeout=25,
         )
 
     def power_action(self, instance_id: str, action: str) -> str:

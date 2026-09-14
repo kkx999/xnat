@@ -31,7 +31,7 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 
 
 def regex_once(text: str, pattern: str, replacement: str, label: str, flags: int = 0) -> str:
-    result, count = re.subn(pattern, replacement, text, count=1, flags=flags)
+    result, count = re.subn(pattern, lambda _match: replacement, text, count=1, flags=flags)
     if count != 1:
         raise RuntimeError(f"regex marker count={count}: {label}")
     return result
@@ -224,9 +224,15 @@ nodes = replace_once(nodes, "from sqlalchemy import func, select\n", "from sqlal
 nodes = replace_once(nodes, "from .crypto import decrypt_secret\n", "from . import __version__ as PANEL_VERSION\nfrom .crypto import decrypt_secret\n", "nodes version import")
 nodes = replace_once(nodes, "from .models import HostNode, Plan, PlanHost, PortMapping, Server, SiteSetting\n", "from .models import HostNode, HostPortLease, Plan, PlanHost, PortMapping, Server, SiteSetting\n", "nodes lease import")
 nodes = nodes.replace('SUPPORTED_AGENT_API_VERSIONS = {"1"}', 'SUPPORTED_AGENT_API_VERSIONS = {"1", "2"}')
-nodes = regex_once(
+old_signature = (
+    'def _signature(token: str, timestamp: str, method: str, path: str, body: bytes) -> str:\n'
+    '    digest = hashlib.sha256(body).hexdigest()\n'
+    '    message = f"{timestamp}\\n{method.upper()}\\n{path}\\n{digest}".encode("utf-8")\n'
+    '    return hmac.new(token.encode("utf-8"), message, hashlib.sha256).hexdigest()\n'
+)
+nodes = replace_once(
     nodes,
-    r'''def _signature\(token: str, timestamp: str, method: str, path: str, body: bytes\) -> str:\n    digest = hashlib\.sha256\(body\)\.hexdigest\(\)\n    message = f"\{timestamp\}\\\\n\{method\.upper\(\)\}\\\\n\{path\}\\\\n\{digest\}"\.encode\("utf-8"\)\n    return hmac\.new\(token\.encode\("utf-8"\), message, hashlib\.sha256\)\.hexdigest\(\)\n''',
+    old_signature,
     '''def _signature(token: str, timestamp: str, method: str, path: str, body: bytes, nonce: str = "") -> str:
     digest = hashlib.sha256(body).hexdigest()
     if nonce:
@@ -268,7 +274,6 @@ def _verify_or_pin_certificate(host: HostNode, base_url: str) -> None:
         host.tls_fingerprint = observed
 ''',
     "signature and certificate pinning",
-    flags=re.M,
 )
 nodes = regex_once(
     nodes,
