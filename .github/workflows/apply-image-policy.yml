@@ -1,0 +1,42 @@
+name: Apply image disk policy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/apply-image-policy.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Apply patch
+        run: python3 scripts/apply-image-disk-policy.py
+      - name: Validate
+        run: |
+          python3 -m pip install --disable-pip-version-check -r panel/requirements.txt
+          python3 -m compileall -q panel/app
+          bash scripts/check.sh
+          python3 - <<'PY'
+          from types import SimpleNamespace
+          from panel.app.services.image_policy import image_min_disk_gb
+          assert image_min_disk_gb(SimpleNamespace(min_disk_gb=1.0), 'lxc') == 1.0
+          assert image_min_disk_gb(SimpleNamespace(min_disk_gb=2.0), 'lxc') == 2.0
+          assert image_min_disk_gb(SimpleNamespace(min_disk_gb=1.0), 'kvm') == 3.0
+          assert image_min_disk_gb(SimpleNamespace(min_disk_gb=4.0), 'kvm') == 4.0
+          print('image policy checks passed')
+          PY
+      - name: Commit
+        run: |
+          git config user.name github-actions
+          git config user.email actions@github.com
+          git add panel/app/services/image_policy.py panel/app/models.py panel/app/schema.py panel/app/main.py panel/app/templates/admin.html panel/app/mobile_api.py docs/MOBILE_API.md
+          git commit -m 'fix: make image disk limits configurable'
+          git push origin HEAD:main
