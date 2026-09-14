@@ -1,0 +1,38 @@
+name: Normalize XNAT v1.0.5 contracts
+on:
+  push:
+    branches: [release/v1.0.5]
+permissions:
+  contents: write
+jobs:
+  normalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Normalize version and upgrade contracts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, count=1):
+              p=Path(path); s=p.read_text()
+              if old not in s:
+                  raise SystemExit(f'missing marker in {path}: {old!r}')
+              p.write_text(s.replace(old,new,count))
+
+          replace('panel/app/main.py', '"version": "1.0.4"', '"version": "1.0.5"')
+          replace('panel/app/templates/base.html', 'XNAT v1.0.4 Multi-Node', 'XNAT v1.0.5 Multi-Node')
+          p=Path('scripts/upgrade-panel.sh'); s=p.read_text()
+          marker='  1.0.3) UPGRADE_PATH="verified-v1.0.3" ;;'
+          if '1.0.4) UPGRADE_PATH="verified-v1.0.4"' not in s:
+              if marker not in s: raise SystemExit('upgrade marker missing')
+              s=s.replace(marker,'  1.0.4) UPGRADE_PATH="verified-v1.0.4" ;;\n'+marker,1)
+          p.write_text(s)
+          PY
+          git add panel/app/main.py panel/app/templates/base.html scripts/upgrade-panel.sh
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "release: normalize v1.0.5 version contracts"
+          git push origin HEAD:release/v1.0.5
