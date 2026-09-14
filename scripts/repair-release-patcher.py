@@ -14,7 +14,8 @@ if start < 0 or end < 0:
         print("[skip] signature patcher already repaired")
         raise SystemExit(0)
     raise SystemExit("cannot locate signature transformation block")
-replacement = r'''old_signature = (
+
+replacement = r"""old_signature = (
     'def _signature(token: str, timestamp: str, method: str, path: str, body: bytes) -> str:\n'
     '    digest = hashlib.sha256(body).hexdigest()\n'
     '    message = f"{timestamp}\\n{method.upper()}\\n{path}\\n{digest}".encode("utf-8")\n'
@@ -65,7 +66,7 @@ def _verify_or_pin_certificate(host: HostNode, base_url: str) -> None:
 ''',
     "signature and certificate pinning",
 )
-'''
+"""
 s = s[:start] + replacement + s[end:]
 p.write_text(s, encoding="utf-8")
 print("[repair] release patcher signature transform")
