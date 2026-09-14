@@ -1,16 +1,3 @@
-## v1.0.3 - 2026-09-14
-
-Host Agent 发布元数据热修复。
-
-- 修复 v1.0.2 发布包中 `agent/VERSION`、`agent/API_VERSION` 与 `agent/natvps_agent/__init__.py` 未同步的问题。
-- Host Agent 实际运行代码保持 v1.0.1 / Agent API v2，不修改 VPS、Incus、NAT、Panel UI 或现有业务逻辑。
-- 修复 `xnat` 更新成功后仍把 Host Agent 显示为 v1.0.0 / Agent API v1 的问题。
-- Panel 继续为 v1.0.2；Host Agent 继续为 v1.0.1；Agent API 继续为 v2；Mobile API 继续为 v1。
-- 已经执行过 v1.0.2 Host 更新但仍显示 v1.0.0 的节点，可在 Panel 已升级到 v1.0.2 后再次执行 `XNAT_ALLOW_AGENT_API_CHANGE=1 xnat`，重新进入 Host Agent 更新完成元数据同步。
-- 本次为发布与版本识别热修复，不改变 Web UI、页面布局、视觉风格和主要交互。
-
-**由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**
-
 ## v1.0.2 - 2026-09-14
 
 - Panel 1.0.2 / Host Agent 1.0.1 / Agent API 2；Mobile API 保持 v1。
@@ -23,6 +10,7 @@ Host Agent 发布元数据热修复。
 - 重装采用失败可恢复流程，替换实例完全就绪前保留旧实例。
 - 跨 Web / Mobile / Job 的共享校验逻辑向 `panel/app/services` 收敛；模板、静态资源、页面布局和现有交互保持不变。
 - 清理旧开发阶段升级脚本并统一版本标识。
+- 修正正式发布元数据，确保 Panel v1.0.2、Host Agent v1.0.1、Agent API v2 与 `xnat` 显示保持一致。
 
 # Changelog
 

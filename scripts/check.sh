@@ -255,7 +255,7 @@ assert 'cap.get("remaining_disk_gb")' not in fn, 'physical/min storage must not 
 admin=Path('panel/app/templates/admin.html').read_text()
 assert '实际存储继续水位保护' in admin, 'physical storage watermark explanation missing'
 readme=Path('README.md').read_text()
-assert '当前正式版本：v1.0.1' in readme
+assert '当前正式版本：v1.0.2' in readme
 assert '指定 v1.4.3 安装' not in readme, 'legacy upgrade manual returned to project landing page'
 print('v1.6.2 logical quota capacity contract: ok')
 PYV162
@@ -588,14 +588,14 @@ python3 - <<'PYV100'
 from pathlib import Path
 import json
 root=Path('.')
-assert (root/'VERSION').read_text().strip() == '1.0.1'
-assert (root/'panel/VERSION').read_text().strip() == '1.0.1'
-assert (root/'agent/VERSION').read_text().strip() == '1.0.0'
+assert (root/'VERSION').read_text().strip() == '1.0.2'
+assert (root/'panel/VERSION').read_text().strip() == '1.0.2'
+assert (root/'agent/VERSION').read_text().strip() == '1.0.1'
 meta=json.loads((root/'release.json').read_text())
-assert meta['release_version']=='1.0.1'
-assert meta['panel_version']=='1.0.1'
-assert meta['agent_version']=='1.0.0'
-assert str(meta['agent_api_version'])=='1'
+assert meta['release_version']=='1.0.2'
+assert meta['panel_version']=='1.0.2'
+assert meta['agent_version']=='1.0.1'
+assert str(meta['agent_api_version'])=='2'
 assert str(meta['mobile_api_version'])=='1'
 host=(root/'scripts/install-host.sh').read_text()
 assert '最低配置：1C / 1GB / 8GiB 总硬盘' in host
@@ -611,5 +611,5 @@ assert '当前 XNAT Release' not in xnat
 assert '最新 XNAT Release' not in xnat
 assert 'Release 组件版本' not in xnat
 assert '当前组件已是最新；有新的管理组件可同步' in xnat
-print('v1.0.1 baseline contracts: ok')
+print('v1.0.2 baseline contracts: ok')
 PYV100

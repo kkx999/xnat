@@ -6,7 +6,7 @@ XNAT 把用户、套餐、订单、Host、实例、NAT 端口、流量、生命�
 
 如果你希望自己搭建一套可持续维护的 NAT VPS 平台，而不是依赖大量手工命令分别管理每台宿主机，XNAT 就是为这个场景设计的。
 
-**当前正式版本：v1.0.3**
+**当前正式版本：v1.0.2**
 
 | 组件 | 版本 |
 | --- | --- |
@@ -16,7 +16,7 @@ XNAT 把用户、套餐、订单、Host、实例、NAT 端口、流量、生命�
 | Mobile API | v1 |
 | XNAT Android | v1.0.1 |
 
-> v1.0.3 是版本元数据热修复：Panel 仍为 v1.0.2、Host Agent 仍为 v1.0.1、Agent API 仍为 v2、Mobile API 仍为 v1。本次只修正 v1.0.2 发布包中的 Host Agent 版本标识和 `xnat` 更新识别，不修改 VPS、Incus、NAT、Panel UI 或业务逻辑。
+> v1.0.2 是版本元数据热修复：Panel 仍为 v1.0.2、Host Agent 仍为 v1.0.1、Agent API 仍为 v2、Mobile API 仍为 v1。本次只修正 v1.0.2 发布包中的 Host Agent 版本标识和 `xnat` 更新识别，不修改 VPS、Incus、NAT、Panel UI 或业务逻辑。
 
 > v1.0.2 是一次稳定性、安全性与一致性更新。重点完善了开通幂等、任务原子抢占、Host 端口租约、Agent API 2 防重放、TLS 指纹校验、重装失败保护、镜像最低磁盘校验和最小化系统 SSH 兼容性，同时保持现有 Web UI 与主要交互不变。
 
@@ -162,7 +162,7 @@ xnat
 XNAT_ALLOW_AGENT_API_CHANGE=1 xnat
 ```
 
-然后重新进入 Host Agent 更新，v1.0.3 会同步正确的版本元数据。
+然后重新进入 Host Agent 更新，v1.0.2 会同步正确的版本元数据。
 
 导出自动脱敏诊断报告：
 
@@ -175,18 +175,6 @@ xnat doctor report
 ```text
 /root/xnat-diagnostics/
 ```
-
----
-
-## v1.0.3 热修复
-
-v1.0.3 仅修正 v1.0.2 的 Host Agent 发布元数据，不改变组件业务版本：
-
-- Panel 保持 v1.0.2；Host Agent 保持 v1.0.1；Agent API 保持 v2；Mobile API 保持 v1。
-- 修正 `agent/VERSION`、`agent/API_VERSION` 与 `agent/natvps_agent/__init__.py`，与实际运行的 Agent v1.0.1 / API v2 保持一致。
-- 修复 Host 更新成功后 `xnat` 仍显示 v1.0.0 / Agent API v1 的问题。
-- 已执行过 v1.0.2 Host 更新但仍显示旧版本的节点，在 Panel 已为 v1.0.2 的前提下，再执行一次 `XNAT_ALLOW_AGENT_API_CHANGE=1 xnat` 并进入 Host Agent 更新即可同步正确元数据。
-- 不修改 Web UI、页面布局、视觉风格、VPS、Incus、NAT 或现有业务交互。
 
 ---
 
