@@ -46,6 +46,7 @@ from .models import (
     SystemImage, Ticket, TicketMessage, User,
 )
 from .mobile_api import router as mobile_api_router
+from .live_metrics import router as live_metrics_router
 from .service_actions import ServiceActionError, enqueue_server_delete, reset_server_traffic
 from .services.image_policy import ImagePolicyError, validate_image_resources
 from .traffic import (
@@ -904,6 +905,7 @@ app.add_middleware(
 )
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 app.include_router(mobile_api_router)
+app.include_router(live_metrics_router)
 
 def db_session():
     return SessionLocal()
@@ -4685,7 +4687,7 @@ def admin_backup_download(request:Request,backup_name:str):
 def health():
     return {
         "status": "ok",
-        "version": "1.0.3",
+        "version": "1.0.4",
         "provider": PROVIDER_NAME,
         "timezone": APP_TIMEZONE,
     }

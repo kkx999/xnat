@@ -677,6 +677,16 @@ def api_server_detail(request: Request, server_id: int):
         server = db.get(Server, server_id)
         if not server or server.user_id != user.id or server.deleted_at is not None:
             raise HTTPException(404, "服务器不存在")
+        if request.query_params.get("metrics") == "1":
+            if not server.provider_instance_id:
+                return {"available": False, "status": server.status or "provisioning"}
+            try:
+                data = _provider().instance_metrics(server.provider_instance_id)
+            except Exception:
+                return {"available": False, "status": "unavailable"}
+            allowed = {"available", "status", "cpu_percent", "memory_used_bytes", "memory_total_bytes", "memory_percent", "disk_used_bytes", "disk_total_bytes", "disk_percent", "network_rx_bps", "network_tx_bps", "sampled_at", "sampling"}
+            db.commit()
+            return {key: value for key, value in dict(data or {}).items() if key in allowed}
         status = _server_ui_status_map(db, [server]).get(server.id, server.status)
         payload = _server_payload(db, server, status, user)
         db.commit()

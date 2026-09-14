@@ -63,6 +63,7 @@ case "$CURRENT_VERSION" in
   "$COMPONENT_VERSION") UPGRADE_PATH="reapply" ;;
   1.1.0) UPGRADE_PATH="legacy-v1.1.0"; warn "当前为 v1.1.0；v${COMPONENT_VERSION} 的正式升级验收基线包含 v1.3.2 / v1.3.1 / v1.3.0 / v1.2.0，建议先执行 xnat update 1.1.1。" ;;
   1.1.*) UPGRADE_PATH="compatible-v1.1.x"; warn "当前为 v${CURRENT_VERSION}；v${COMPONENT_VERSION} 的正式升级验收基线包含 v1.3.2 / v1.3.1 / v1.3.0 / v1.2.0。" ;;
+  1.0.3) UPGRADE_PATH="verified-v1.0.3" ;;
   1.0.2) UPGRADE_PATH="verified-v1.0.2" ;;
   1.0.*) UPGRADE_PATH="legacy-v1.0.x"; warn "当前为 v${CURRENT_VERSION}；v${COMPONENT_VERSION} 正式升级验收基线包含 v1.3.2 / v1.3.1 / v1.3.0 / v1.2.0，建议先升级到 v1.1.1。" ;;
   *) die "不支持从 v${CURRENT_VERSION} 直接使用此脚本升级到 v${COMPONENT_VERSION}" ;;

@@ -255,7 +255,7 @@ assert 'cap.get("remaining_disk_gb")' not in fn, 'physical/min storage must not 
 admin=Path('panel/app/templates/admin.html').read_text()
 assert '实际存储继续水位保护' in admin, 'physical storage watermark explanation missing'
 readme=Path('README.md').read_text()
-assert '当前正式版本：v1.0.3' in readme
+assert '当前正式版本：v1.0.4' in readme
 assert '指定 v1.4.3 安装' not in readme, 'legacy upgrade manual returned to project landing page'
 print('v1.6.2 logical quota capacity contract: ok')
 PYV162
@@ -539,7 +539,7 @@ if find . -maxdepth 3 -type f | grep -Ei '(testing|preview-[0-9]|rc[0-9]|patch-p
   cat /tmp/xnat-clean-guard.txt
   exit 1
 fi
-if grep -RInE 'v1\.0\.4|testing-v|(^|[^A-Za-z])RC[0-9]+|(^|[^A-Za-z])rc[0-9]+|候选版本' \
+if grep -RInE 'v1\.0\.5|testing-v|(^|[^A-Za-z])RC[0-9]+|(^|[^A-Za-z])rc[0-9]+|候选版本' \
   --exclude-dir=.git --exclude-dir=.github --exclude-dir=__pycache__ --exclude='check.sh' . >/tmp/xnat-old-version.txt; then
   echo "[ERROR] Found old/test version references:"
   cat /tmp/xnat-old-version.txt
@@ -588,13 +588,13 @@ python3 - <<'PYV100'
 from pathlib import Path
 import json
 root=Path('.')
-assert (root/'VERSION').read_text().strip() == '1.0.3'
-assert (root/'panel/VERSION').read_text().strip() == '1.0.3'
-assert (root/'agent/VERSION').read_text().strip() == '1.0.3'
+assert (root/'VERSION').read_text().strip() == '1.0.4'
+assert (root/'panel/VERSION').read_text().strip() == '1.0.4'
+assert (root/'agent/VERSION').read_text().strip() == '1.0.4'
 meta=json.loads((root/'release.json').read_text())
-assert meta['release_version']=='1.0.3'
-assert meta['panel_version']=='1.0.3'
-assert meta['agent_version']=='1.0.3'
+assert meta['release_version']=='1.0.4'
+assert meta['panel_version']=='1.0.4'
+assert meta['agent_version']=='1.0.4'
 assert str(meta['agent_api_version'])=='2'
 assert str(meta['mobile_api_version'])=='1'
 host=(root/'scripts/install-host.sh').read_text()
@@ -611,7 +611,7 @@ assert '当前 XNAT Release' not in xnat
 assert '最新 XNAT Release' not in xnat
 assert 'Release 组件版本' not in xnat
 assert '当前组件已是最新；有新的管理组件可同步' in xnat
-print('v1.0.3 baseline contracts: ok')
+print('v1.0.4 baseline contracts: ok')
 PYV100
 
 
@@ -654,3 +654,51 @@ assert 'backup_cleanup_pending' in agent
 assert '[:63]' in agent, 'temporary instance name must stay within DNS/Incus-safe length'
 print('v1.0.3 rollback-safe reinstall fallback guard: ok')
 PYREINSTALLSAFE
+
+# v1.0.4 live server metrics contract
+grep -q 'AGENT_VERSION = "1.0.4"' agent/natvps_agent/main.py
+grep -q 'from .metrics import collect as collect_instance_metrics' agent/natvps_agent/main.py
+grep -q '@app.get("/v1/instances/{instance_id}/metrics")' agent/natvps_agent/main.py
+grep -q '_CACHE_SECONDS = 3.0' agent/natvps_agent/metrics.py
+grep -q '_DISK_FALLBACK_SECONDS = 30.0' agent/natvps_agent/metrics.py
+grep -q 'network_rx_bps' agent/natvps_agent/metrics.py
+grep -q 'network_tx_bps' agent/natvps_agent/metrics.py
+grep -q 'def instance_metrics' panel/app/providers/base.py
+grep -q 'def instance_metrics' panel/app/providers/remote.py
+grep -q '@router.get("/servers/{server_id}/metrics")' panel/app/live_metrics.py
+grep -q 'request.query_params.get("metrics") == "1"' panel/app/mobile_api.py
+grep -q 'data-server-live-metrics' panel/app/templates/server_detail.html
+grep -q 'data-metrics-url="/servers/{{ server.id }}/metrics"' panel/app/templates/server_detail.html
+grep -q 'server-live-grid' panel/app/static/style.css
+grep -q 'border-radius:999px' panel/app/static/style.css
+grep -q 'setTimeout(load,5000)' panel/app/static/client.js
+grep -q 'visibilitychange' panel/app/static/client.js
+grep -q '"/metrics HTTP/" not in record.getMessage()' agent/natvps_agent/main.py
+grep -q '"/metrics HTTP/" not in record.getMessage()' panel/app/live_metrics.py
+grep -q '1.0.3) UPGRADE_PATH="verified-v1.0.3"' scripts/upgrade-panel.sh
+python3 - <<'PYV104METRICS'
+from pathlib import Path
+import json
+root=Path('.')
+meta=json.loads((root/'release.json').read_text())
+assert meta['release_version'] == meta['panel_version'] == '1.0.4'
+assert meta['agent_version'] == '1.0.4'
+assert str(meta['agent_api_version']) == '2'
+assert str(meta['mobile_api_version']) == '1'
+tpl=(root/'panel/app/templates/server_detail.html').read_text()
+assert tpl.index('data-server-live-metrics') < tpl.index('traffic-usage-panel')
+css=(root/'panel/app/static/style.css').read_text().split('v1.0.4 server live metrics',1)[1]
+assert 'grid-template-columns:repeat(2,minmax(0,1fr))' in css
+assert '.server-live-progress{height:8px' in css
+assert 'border-radius:999px' in css
+agent_metrics=(root/'agent/natvps_agent/metrics.py').read_text()
+assert 'write_text' not in agent_metrics and 'sqlite' not in agent_metrics.lower()
+assert '_CACHE_SECONDS = 3.0' in agent_metrics
+js=(root/'panel/app/static/client.js').read_text()
+assert 'document.hidden' in js and 'pagehide' in js
+web=(root/'panel/app/live_metrics.py').read_text()
+assert 'login_required(request, db)' in web
+assert 'server.user_id != user.id' in web
+print('v1.0.4 live server metrics contract: ok')
+PYV104METRICS
+

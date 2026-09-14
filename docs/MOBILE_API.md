@@ -110,3 +110,8 @@ Base prefix: `/api/v1`
 - Agent API：v1
 
 本轮不改变 Mobile API / Agent API 代际；旧开发阶段 Panel / Host 版本不提供原地升级兼容，切换 v1.0.0 请全新重装。
+
+
+## 实时资源监控（v1.0.4）
+
+`GET /api/v1/servers/{server_id}?metrics=1` 返回当前 CPU、内存、硬盘和上下行网络速率。该能力属于 Mobile API v1 的向后兼容扩展，服务端不保存监控历史。
