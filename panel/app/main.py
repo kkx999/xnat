@@ -47,7 +47,7 @@ from .models import (
 )
 from .mobile_api import router as mobile_api_router
 from .service_actions import ServiceActionError, enqueue_server_delete, reset_server_traffic
-from .services.image_policy import ImagePolicyError, minimum_disk_for_alias, validate_image_resources
+from .services.image_policy import ImagePolicyError, validate_image_resources
 from .traffic import (
     THROTTLE_MBPS, apply_sample, collect_all as collect_traffic_all, configured_bandwidth_mbps,
     effective_bandwidth_mbps, enforce_traffic_policy, ensure_cycle, reset_cycle, traffic_bonus_gb,
@@ -668,8 +668,8 @@ def seed():
 
         if not (db.scalar(select(func.count()).select_from(SystemImage)) or 0):
             db.add_all([
-                SystemImage(name="Debian 12", alias="images:debian/12", family="apt", min_disk_gb=2.0, sort_order=10),
-                SystemImage(name="Debian 13", alias="images:debian/13", family="apt", min_disk_gb=2.0, sort_order=20),
+                SystemImage(name="Debian 12", alias="images:debian/12", family="apt", min_disk_gb=1.0, sort_order=10),
+                SystemImage(name="Debian 13", alias="images:debian/13", family="apt", min_disk_gb=1.0, sort_order=20),
                 SystemImage(name="Ubuntu 22.04 LTS", alias="images:ubuntu/22.04", family="apt", min_disk_gb=2.0, sort_order=30),
                 SystemImage(name="Ubuntu 24.04 LTS", alias="images:ubuntu/24.04", family="apt", min_disk_gb=2.0, sort_order=40),
                 SystemImage(name="Alpine 3.24", alias="images:alpine/3.24", family="alpine", min_disk_gb=1.0, sort_order=50),
@@ -3747,15 +3747,31 @@ def admin_reconcile_all(request:Request,csrf_token:str=Form(...)):
 
 
 @app.post("/admin/system-images")
-def admin_add_system_image(request:Request,name:str=Form(...),alias:str=Form(...),csrf_token:str=Form(...)):
+def admin_add_system_image(request:Request,name:str=Form(...),alias:str=Form(...),min_disk_gb:float=Form(1.0),csrf_token:str=Form(...)):
     validate_csrf(request,csrf_token); name=name.strip(); alias=alias.strip()
-    if not name or not alias.startswith("images:"): flash(request,"名称不能为空，镜像别名必须以 images: 开头。","error"); return RedirectResponse("/admin?section=images",status_code=303)
+    if not name or not alias.startswith("images:"):
+        flash(request,"名称不能为空，镜像别名必须以 images: 开头。","error"); return RedirectResponse("/admin?section=images",status_code=303)
+    if min_disk_gb < 0.125 or min_disk_gb > 1024:
+        flash(request,"最低系统盘必须在 0.125 GiB 到 1024 GiB 之间。","error"); return RedirectResponse("/admin?section=images",status_code=303)
     with db_session() as db:
         admin=admin_required(request,db)
-        if db.scalar(select(SystemImage).where(or_(SystemImage.name==name,SystemImage.alias==alias))): flash(request,"系统名称或镜像别名已经存在。","error"); return RedirectResponse("/admin?section=images",status_code=303)
-        row=SystemImage(name=name,alias=alias,family=("alpine" if alias.lower().startswith("images:alpine/") else "apt"),min_disk_gb=minimum_disk_for_alias(alias, ("alpine" if alias.lower().startswith("images:alpine/") else "apt")).min_disk_gb,is_active=True,sort_order=100); db.add(row); db.flush(); write_audit(db,actor=admin,request=request,action="admin.image.create",target_type="system_image",target_id=row.id,target_name=row.name,detail={"alias":row.alias}); db.commit(); flash(request,f"系统镜像 {name} 已添加。","success")
+        if db.scalar(select(SystemImage).where(or_(SystemImage.name==name,SystemImage.alias==alias))):
+            flash(request,"系统名称或镜像别名已经存在。","error"); return RedirectResponse("/admin?section=images",status_code=303)
+        family="alpine" if alias.lower().startswith("images:alpine/") else "apt"
+        row=SystemImage(name=name,alias=alias,family=family,min_disk_gb=float(min_disk_gb),is_active=True,sort_order=100)
+        db.add(row); db.flush(); write_audit(db,actor=admin,request=request,action="admin.image.create",target_type="system_image",target_id=row.id,target_name=row.name,detail={"alias":row.alias,"min_disk_gb":row.min_disk_gb}); db.commit(); flash(request,f"系统镜像 {name} 已添加。","success")
     return RedirectResponse("/admin?section=images",status_code=303)
 
+@app.post("/admin/system-images/{image_id}/disk")
+def admin_update_system_image_disk(request:Request,image_id:int,min_disk_gb:float=Form(...),csrf_token:str=Form(...)):
+    validate_csrf(request,csrf_token)
+    if min_disk_gb < 0.125 or min_disk_gb > 1024:
+        flash(request,"最低系统盘必须在 0.125 GiB 到 1024 GiB 之间。","error"); return RedirectResponse("/admin?section=images",status_code=303)
+    with db_session() as db:
+        admin=admin_required(request,db); row=db.get(SystemImage,image_id)
+        if not row: raise HTTPException(404,"系统镜像不存在")
+        before=float(row.min_disk_gb or 0); row.min_disk_gb=float(min_disk_gb); write_audit(db,actor=admin,request=request,action="admin.image.disk.update",target_type="system_image",target_id=row.id,target_name=row.name,detail={"before":before,"after":row.min_disk_gb}); db.commit(); flash(request,f"{row.name} 最低系统盘已更新为 {row.min_disk_gb:g} GiB。","success")
+    return RedirectResponse("/admin?section=images",status_code=303)
 
 @app.post("/admin/system-images/{image_id}/toggle")
 def admin_toggle_system_image(request:Request,image_id:int,csrf_token:str=Form(...)):

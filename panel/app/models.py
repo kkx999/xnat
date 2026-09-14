@@ -76,7 +76,7 @@ class SystemImage(Base):
     alias: Mapped[str] = mapped_column(String(255), unique=True)
     family: Mapped[str] = mapped_column(String(32), default="apt")
     # Minimum root disk accepted by this image. Web/Mobile/worker share this policy.
-    min_disk_gb: Mapped[float] = mapped_column(Float, default=2.0)
+    min_disk_gb: Mapped[float] = mapped_column(Float, default=1.0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=100)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

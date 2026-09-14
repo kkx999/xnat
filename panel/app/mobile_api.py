@@ -726,7 +726,7 @@ def api_system_images(request: Request):
         db.commit()
         return {
             "items": [
-                {"id": row.id, "name": row.name, "alias": row.alias, "family": row.family}
+                {"id": row.id, "name": row.name, "alias": row.alias, "family": row.family, "min_disk_gb": float(row.min_disk_gb or 1.0)}
                 for row in rows
             ]
         }

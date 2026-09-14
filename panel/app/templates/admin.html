@@ -312,13 +312,14 @@
     {% elif section == "images" %}
       <div class="table-wrap">
       <table>
-        <thead><tr><th>ID</th><th>名称</th><th>Incus 镜像</th><th>状态</th><th>操作</th></tr></thead>
+        <thead><tr><th>ID</th><th>名称</th><th>Incus 镜像</th><th>最低系统盘</th><th>状态</th><th>操作</th></tr></thead>
         <tbody>
         {% for image in system_images %}
         <tr>
           <td>{{ image.id }}</td>
           <td>{{ image.name }}</td>
           <td><code>{{ image.alias }}</code></td>
+          <td><form method="post" action="/admin/system-images/{{ image.id }}/disk" class="inline-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="number" name="min_disk_gb" min="0.125" max="1024" step="0.125" value="{{ image.min_disk_gb }}" style="width:92px" required><button type="submit">保存</button></form></td>
           <td>{{ "启用" if image.is_active else "停用" }}</td>
           <td>
             <form method="post" action="/admin/system-images/{{ image.id }}/toggle">
@@ -336,6 +337,7 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label>系统名称<input name="name" placeholder="例如 Debian 14" required></label>
         <label>Incus 镜像别名<input name="alias" placeholder="images:debian/14" required></label>
+        <label>最低系统盘 (GiB)<input type="number" name="min_disk_gb" min="0.125" max="1024" step="0.125" value="1" required></label>
         <button type="submit">添加系统</button>
       </form>
 

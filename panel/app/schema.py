@@ -18,7 +18,7 @@ SCHEMA_EXTENSIONS: dict[str, dict[str, str]] = {
         "network_line": "VARCHAR(160) NOT NULL DEFAULT ''",
     },
     "system_images": {
-        "min_disk_gb": "FLOAT NOT NULL DEFAULT 2.0",
+        "min_disk_gb": "FLOAT NOT NULL DEFAULT 1.0",
     },
     "users": {
         "announcement_seen_key": "VARCHAR(64)",
@@ -101,14 +101,18 @@ def ensure_schema_extensions() -> list[str]:
         if "system_images" in existing_tables:
             image_columns = {row["name"] for row in inspect(conn).get_columns("system_images")}
             if "min_disk_gb" in image_columns:
-                conn.execute(text(
-                    'UPDATE "system_images" SET "min_disk_gb" = 1.0 '
-                    "WHERE LOWER(\"alias\") LIKE 'images:alpine/%'"
-                ))
-                conn.execute(text(
-                    'UPDATE "system_images" SET "min_disk_gb" = 2.0 '
-                    "WHERE LOWER(\"alias\") LIKE 'images:ubuntu/%' OR LOWER(\"alias\") LIKE 'images:debian/%'"
-                ))
+                conn.execute(text('UPDATE "system_images" SET "min_disk_gb" = 1.0 WHERE COALESCE("min_disk_gb", 0) <= 0'))
+                if "site_settings" in existing_tables:
+                    marker = conn.execute(text("SELECT value FROM site_settings WHERE key='image_disk_policy_configurable_v1'")).scalar_one_or_none()
+                    if marker is None:
+                        result = conn.execute(text(
+                            "UPDATE \"system_images\" SET \"min_disk_gb\" = 1.0 "
+                            "WHERE LOWER(\"alias\") LIKE 'images:debian/%' "
+                            "AND ABS(COALESCE(\"min_disk_gb\", 0) - 2.0) < 0.000001"
+                        ))
+                        conn.execute(text("INSERT INTO site_settings (key, value) VALUES ('image_disk_policy_configurable_v1', 'done')"))
+                        if (result.rowcount or 0) > 0:
+                            changed.append(f"system_images.min_disk_gb.debian_backfill={result.rowcount}")
 
         # Existing traffic-reset migration behavior.
         # use the monthly plan price as a safe non-zero default so upgrading

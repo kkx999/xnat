@@ -22,6 +22,8 @@ Base prefix: `/api/v1`
 - `GET /api/v1/servers/{server_id}`
 - `POST /api/v1/servers/{server_id}/action` — `start | stop | reboot`
 - `GET /api/v1/system-images`
+
+系统镜像 payload 包含 `min_disk_gb`，表示 Panel 后台为该镜像配置的最低系统盘（GiB）。LXC 直接使用该值；KVM 还会应用服务端 3 GiB 全局底线。
 - `POST /api/v1/servers/{server_id}/reinstall`
 - `POST /api/v1/servers/{server_id}/delete`
 - `POST /api/v1/servers/{server_id}/traffic/reset`
