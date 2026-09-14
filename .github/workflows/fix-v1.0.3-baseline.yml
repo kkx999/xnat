@@ -17,7 +17,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      - name: Fix baseline and retrigger publisher
+      - name: Fix baseline assertions
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -35,12 +35,9 @@ jobs:
                   raise SystemExit(f'missing baseline token: {old}')
               s=s.replace(old,new,1)
           p.write_text(s)
-          pub=Path('.github/workflows/publish-v1.0.3.yml')
-          pub.write_text(pub.read_text()+'\n# retrigger after baseline fix\n')
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git rm .github/workflows/fix-v1.0.3-baseline.yml
-          git add scripts/check.sh .github/workflows/publish-v1.0.3.yml
+          git add scripts/check.sh
           git commit -m 'ci: align v1.0.3 baseline checks'
           git push origin HEAD:main
