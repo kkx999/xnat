@@ -15,8 +15,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install check dependency
-        run: python -m pip install -q 'jinja2>=3.1,<4'
+      - name: Install verification dependencies
+        run: python -m pip install -q -r panel/requirements.txt -r agent/requirements.txt
       - name: Apply release candidate transforms
         run: |
           python tools/v104_release_meta.py
