@@ -27,6 +27,7 @@ from .crypto import decrypt_secret
 from .traffic import ensure_cycle, traffic_percent, traffic_quota_gb, traffic_remaining_bytes, traffic_used_bytes
 from .payments import cancel_recharge_order, create_recharge_order, normalize_tx_hash, payment_config, rate_text, usdt_units_to_text
 from .service_actions import ServiceActionError, enqueue_server_delete, reset_server_traffic, traffic_reset_state
+from .services.image_policy import ImagePolicyError, validate_image_resources
 from .notifications import queue_notification
 from .geo import assign_server_display_id, confirmation_matches, country_name, server_country_code, server_display_id, server_network_line, server_region, server_region_code
 
@@ -423,6 +424,7 @@ def _allocate_purchase_port(db, protocol: str, host=None) -> int:
 
 
 def _queue_purchase_service(db, user: User, plan: Plan, system_image: SystemImage, *, final_price: int, coupon=None, discount_cents: int = 0, client_request_id: str = ""):
+    validate_image_resources(system_image, plan.disk_gb, plan.virtualization_type or "lxc")
     if _plan_stock(db, plan)["sold_out"]:
         raise ValueError("该套餐已经售罄")
     host = select_host_for_plan(db, plan) if PROVIDER_NAME == "remote" else None
@@ -828,6 +830,10 @@ async def api_reinstall_server(request: Request, server_id: int):
         system_image = db.get(SystemImage, os_image_id)
         if not system_image or not system_image.is_active or system_image.family not in {"apt", "alpine"}:
             raise HTTPException(409, "所选系统镜像不可用")
+        try:
+            validate_image_resources(system_image, server.disk_gb, server.virtualization_type or "lxc")
+        except ImagePolicyError as exc:
+            raise HTTPException(409, str(exc))
         active_job = db.scalar(
             select(Job).where(
                 Job.server_id == server.id,
@@ -1004,6 +1010,10 @@ async def api_purchase(request: Request):
         system_image = db.get(SystemImage, os_image_id)
         if not system_image or not system_image.is_active or system_image.family not in {"apt", "alpine"}:
             raise HTTPException(409, "系统镜像不存在、已停用或暂不支持")
+        try:
+            validate_image_resources(system_image, plan.disk_gb, plan.virtualization_type or "lxc")
+        except ImagePolicyError as exc:
+            raise HTTPException(409, str(exc))
         try:
             coupon, discount = _calculate_coupon_discount(db, user, coupon_code, int(plan.monthly_price_cents or 0))
         except ValueError as exc:

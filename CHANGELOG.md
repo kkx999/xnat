@@ -1,3 +1,16 @@
+## v1.0.2 - 2026-09-14
+
+- Panel 1.0.2 / Host Agent 1.0.1 / Agent API 2; Mobile API remains v1.
+- Added image/disk preflight on Web, Mobile, background jobs and Host Agent. Alpine keeps 1 GiB support; Debian/Ubuntu require 2 GiB; KVM requires at least 4 GiB disk.
+- Fixed Alpine minimal-image SSH readiness by installing `iproute2` and using a fallback listener check.
+- Provisioning is idempotent by XNAT server identity and reconciliation can recover matching orphaned instances.
+- Job claiming now uses an atomic conditional update; NAT/SSH allocation uses short-lived unique Host port leases.
+- Agent API 2 signs a nonce and rejects replayed mutations. Panel supports API 1 and 2 for staged upgrades.
+- HTTPS Host connections pin the SHA-256 certificate fingerprint on first trusted contact and reject later certificate changes.
+- Reinstall uses a rollback-safe blue/green flow: the old instance is retained until the replacement is fully ready.
+- Cross-surface validation now lives in `panel/app/services`; templates, static assets, page layout and existing interaction flow are unchanged.
+- Removed obsolete development-line Panel upgrade scripts and normalized release/version strings.
+
 # Changelog
 
 ## v1.0.1 - 2026-09-13

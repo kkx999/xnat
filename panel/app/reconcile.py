@@ -11,14 +11,30 @@ from .traffic import effective_bandwidth_mbps
 
 def reconcile_server(db, provider, server: Server, *, repair: bool = True) -> dict:
     now = datetime.utcnow()
-    if server.deleted_at is not None or not server.provider_instance_id:
+    if server.deleted_at is not None:
         server.reconcile_status = "ignored"
         server.reconcile_message = None
         server.reconciled_at = now
         return {"status": "ignored", "changes": []}
 
-    state = provider.inspect(server.provider_instance_id)
     changes: list[str] = []
+    if not server.provider_instance_id:
+        recover = getattr(provider, "recover_instance", None)
+        if not callable(recover):
+            server.reconcile_status = "ignored"
+            server.reconcile_message = None
+            server.reconciled_at = now
+            return {"status": "ignored", "changes": []}
+        recovered = recover(server.id, server.name)
+        if not recovered or not recovered.get("exists") or not recovered.get("matches"):
+            server.reconcile_status = "error"
+            server.reconcile_message = "Panel 未记录 provider_instance_id，Host 上也未找到匹配的 XNAT 实例。"
+            server.reconciled_at = now
+            return {"status": "error", "changes": [], "errors": [server.reconcile_message]}
+        server.provider_instance_id = server.name
+        changes.append("恢复 provider 实例关联")
+
+    state = provider.inspect(server.provider_instance_id)
     errors: list[str] = []
 
     if not state.exists:
@@ -116,7 +132,6 @@ def reconcile_all(provider, provider_name: str, *, repair: bool = True) -> tuple
         servers = db.scalars(select(Server).where(
             Server.deleted_at.is_(None),
             Server.provider == provider_name,
-            Server.provider_instance_id.is_not(None),
         )).all()
         for server in servers:
             try:

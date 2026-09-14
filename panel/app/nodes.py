@@ -5,17 +5,23 @@ import hmac
 import json
 import math
 import time
+import secrets
+import socket
+import ssl
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 
+from . import __version__ as PANEL_VERSION
 from .crypto import decrypt_secret
-from .models import HostNode, Plan, PlanHost, PortMapping, Server, SiteSetting
+from .db import SessionLocal
+from .models import HostNode, HostPortLease, Plan, PlanHost, PortMapping, Server, SiteSetting
 from .notifications import queue_admin_notification
 
-SUPPORTED_AGENT_API_VERSIONS = {"1"}
+SUPPORTED_AGENT_API_VERSIONS = {"1", "2"}
 
 
 class HostAPIError(RuntimeError):
@@ -28,10 +34,86 @@ def _body_bytes(payload) -> bytes:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
 
 
-def _signature(token: str, timestamp: str, method: str, path: str, body: bytes) -> str:
+def _signature(token: str, timestamp: str, method: str, path: str, body: bytes, nonce: str = "") -> str:
     digest = hashlib.sha256(body).hexdigest()
-    message = f"{timestamp}\n{method.upper()}\n{path}\n{digest}".encode("utf-8")
+    if nonce:
+        message = f"{timestamp}\n{nonce}\n{method.upper()}\n{path}\n{digest}".encode("utf-8")
+    else:
+        message = f"{timestamp}\n{method.upper()}\n{path}\n{digest}".encode("utf-8")
     return hmac.new(token.encode("utf-8"), message, hashlib.sha256).hexdigest()
+
+
+def _peer_certificate_fingerprint(base_url: str, timeout: float = 8.0) -> str:
+    parsed = urlparse(base_url)
+    if parsed.scheme.lower() != "https":
+        return ""
+    hostname = parsed.hostname
+    if not hostname:
+        raise HostAPIError("宿主机 HTTPS URL 缺少主机名")
+    port = int(parsed.port or 443)
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    with socket.create_connection((hostname, port), timeout=timeout) as raw:
+        with context.wrap_socket(raw, server_hostname=hostname) as tls:
+            cert = tls.getpeercert(binary_form=True)
+    if not cert:
+        raise HostAPIError("无法读取 Host Agent TLS 证书")
+    return hashlib.sha256(cert).hexdigest()
+
+
+def _normalized_fingerprint(value: str | None) -> str:
+    return str(value or "").strip().lower().replace(":", "")
+
+
+def _persist_or_validate_tofu_fingerprint(host: HostNode, observed: str) -> str:
+    observed = _normalized_fingerprint(observed)
+    pinned = _normalized_fingerprint(host.tls_fingerprint)
+    if pinned:
+        if not hmac.compare_digest(pinned, observed):
+            raise HostAPIError(
+                f"Host Agent TLS 证书指纹不匹配：期望 {pinned[:16]}…，实际 {observed[:16]}…"
+            )
+        return pinned
+
+    host_id = int(getattr(host, "id", 0) or 0)
+    if not host_id:
+        host.tls_fingerprint = observed
+        return observed
+
+    with SessionLocal() as db:
+        row = db.get(HostNode, host_id)
+        if not row:
+            raise HostAPIError("宿主机记录不存在，无法保存 TLS 证书指纹")
+        current = _normalized_fingerprint(row.tls_fingerprint)
+        if not current:
+            db.execute(
+                update(HostNode)
+                .where(
+                    HostNode.id == host_id,
+                    or_(HostNode.tls_fingerprint.is_(None), HostNode.tls_fingerprint == ""),
+                )
+                .values(tls_fingerprint=observed)
+            )
+            db.commit()
+            row = db.get(HostNode, host_id)
+            current = _normalized_fingerprint(row.tls_fingerprint if row else None)
+        if not current:
+            raise HostAPIError("Host Agent TLS 证书指纹保存失败")
+        if not hmac.compare_digest(current, observed):
+            raise HostAPIError(
+                f"Host Agent TLS 证书指纹不匹配：期望 {current[:16]}…，实际 {observed[:16]}…"
+            )
+
+    host.tls_fingerprint = current
+    return current
+
+
+def _verify_or_pin_certificate(host: HostNode, base_url: str) -> None:
+    if not base_url.lower().startswith("https://"):
+        return
+    observed = _peer_certificate_fingerprint(base_url)
+    _persist_or_validate_tofu_fingerprint(host, observed)
 
 
 def host_request(host: HostNode, method: str, path: str, *, payload=None, timeout: float = 25.0):
@@ -43,19 +125,43 @@ def host_request(host: HostNode, method: str, path: str, *, payload=None, timeou
         raise HostAPIError("宿主机 Agent URL 无效")
     if not path.startswith("/"):
         path = "/" + path
+
+    _verify_or_pin_certificate(host, base)
     body = _body_bytes(payload)
-    ts = str(int(time.time()))
-    headers = {
-        "X-NAT-Timestamp": ts,
-        "X-NAT-Signature": _signature(token, ts, method, path, body),
-        "Content-Type": "application/json",
-        "User-Agent": "XNAT-Panel/1.6.3",
-    }
-    try:
+
+    def do_request(api_version: str):
+        ts = str(int(time.time()))
+        nonce = secrets.token_hex(16) if str(api_version) == "2" else ""
+        headers = {
+            "X-NAT-Timestamp": ts,
+            "X-NAT-Signature": _signature(token, ts, method, path, body, nonce),
+            "Content-Type": "application/json",
+            "User-Agent": f"XNAT-Panel/{PANEL_VERSION}",
+        }
+        if nonce:
+            headers["X-NAT-Nonce"] = nonce
         with httpx.Client(verify=bool(host.verify_tls), timeout=timeout) as client:
-            response = client.request(method.upper(), base + path, content=body if payload is not None else None, headers=headers)
+            return client.request(
+                method.upper(), base + path,
+                content=body if payload is not None else None,
+                headers=headers,
+            )
+
+    api_version = "2" if str(host.agent_api_version or "") == "2" else "1"
+    try:
+        response = do_request(api_version)
+        if response.status_code in {401, 426} and api_version != "2":
+            try:
+                with httpx.Client(verify=bool(host.verify_tls), timeout=min(timeout, 10.0)) as client:
+                    health = client.get(base + "/health")
+                if health.status_code < 400 and str(health.json().get("api_version") or "") == "2":
+                    host.agent_api_version = "2"
+                    response = do_request("2")
+            except Exception:
+                pass
     except Exception as exc:
         raise HostAPIError(f"连接宿主机失败: {exc}") from exc
+
     if response.status_code >= 400:
         try:
             detail = response.json().get("detail") or response.text
@@ -473,7 +579,7 @@ def host_plan_capacity_estimates(db, host: HostNode, plans) -> list[dict]:
         disk_gb = max(0.001, float(plan.disk_gb or 0))
         limits = {
             "内存": max(0, int(float(cap.get("remaining_memory_mb") or 0) // memory_mb)),
-            # v1.6.3: logical quota already includes the narrow LVM alignment
+            # current: logical quota already includes the narrow LVM alignment
             # normalization; raw physical natpool usage still gates scheduling.
             "存储": max(0, int(float(cap.get("logical_remaining_disk_gb") or 0) // disk_gb)),
             "NAT端口": max(0, port_remaining),
@@ -515,6 +621,23 @@ def select_host_for_plan(db, plan: Plan) -> HostNode:
     return candidates[0][2]
 
 
+def _lease_port(db, host: HostNode, protocol: str, port: int, ttl_seconds: int = 180) -> bool:
+    now = datetime.utcnow()
+    db.execute(delete(HostPortLease).where(HostPortLease.expires_at <= now))
+    try:
+        with db.begin_nested():
+            db.add(HostPortLease(
+                host_id=host.id,
+                protocol=protocol,
+                public_port=port,
+                expires_at=now + timedelta(seconds=max(30, ttl_seconds)),
+            ))
+            db.flush()
+        return True
+    except IntegrityError:
+        return False
+
+
 def public_port_in_use_on_host(db, host_id: int, port: int, protocol: str) -> bool:
     if db.scalar(
         select(PortMapping).join(Server, PortMapping.server_id == Server.id).where(
@@ -533,6 +656,14 @@ def public_port_in_use_on_host(db, host_id: int, port: int, protocol: str) -> bo
         )
     ):
         return True
+    now = datetime.utcnow()
+    if db.scalar(select(HostPortLease).where(
+        HostPortLease.host_id == host_id,
+        HostPortLease.protocol == protocol,
+        HostPortLease.public_port == port,
+        HostPortLease.expires_at > now,
+    )):
+        return True
     return False
 
 
@@ -547,7 +678,9 @@ def allocate_host_port(db, host: HostNode, protocol: str, blocked: set[int] | No
     for port in range(start, end + 1):
         if port in blocked:
             continue
-        if not public_port_in_use_on_host(db, host.id, port, protocol):
+        if public_port_in_use_on_host(db, host.id, port, protocol):
+            continue
+        if _lease_port(db, host, protocol, port):
             return port
     raise HostAPIError(f"宿主机 {host.name} 的 {protocol.upper()} 公网端口池已经耗尽")
 

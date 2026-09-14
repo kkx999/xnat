@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from .audit import write_audit
 from .crypto import encrypt_secret
@@ -12,15 +12,19 @@ from .models import BalanceLedger, Job, Order, PortMapping, Server, SystemImage,
 from .geo import server_display_id
 from .notifications import queue_notification, queue_admin_notification
 from .traffic import apply_sample, ensure_cycle
+from .services.image_policy import validate_image_resources
 
 
 def enqueue_job(db, job_type: str, *, user_id: int | None = None, server_id: int | None = None, payload: dict | None = None, max_attempts: int = 3) -> Job:
+    payload_data = dict(payload or {})
+    if server_id and job_type in {"provision_server", "reinstall_server", "delete_server"}:
+        payload_data.setdefault("operation_id", f"{job_type}:{server_id}")
     row = Job(
         job_type=job_type,
         user_id=user_id,
         server_id=server_id,
         status="pending",
-        payload_json=json.dumps(payload or {}, ensure_ascii=False, separators=(",", ":")),
+        payload_json=json.dumps(payload_data, ensure_ascii=False, separators=(",", ":")),
         max_attempts=max(1, max_attempts),
     )
     db.add(row)
@@ -66,6 +70,9 @@ def _run_provision(db, provider, server: Server, job: Job):
         return {"noop": "already_provisioned"}
     if not server.ssh_port:
         raise RuntimeError("服务器没有预分配 SSH 端口")
+    image = db.get(SystemImage, int(server.os_image_id or 0)) if server.os_image_id else None
+    if image:
+        validate_image_resources(image, server.disk_gb, server.virtualization_type or "lxc")
 
     result = provider.provision(
         server.id,
@@ -122,6 +129,7 @@ def _run_reinstall(db, provider, server: Server, job: Job):
         raise RuntimeError("目标系统镜像不可用")
     if not server.provider_instance_id:
         raise RuntimeError("服务器没有 provider 实例 ID")
+    validate_image_resources(image, server.disk_gb, server.virtualization_type or "lxc")
 
     result = provider.reinstall(
         server.provider_instance_id,
@@ -188,23 +196,90 @@ def _run_delete(db, provider, server: Server, job: Job):
     return {"deleted": True}
 
 
-def run_one_job(provider, provider_name: str) -> bool:
-    now = datetime.utcnow()
-    with SessionLocal() as db:
-        job = db.scalar(
-            select(Job)
+def _claim_next_job_id(db, now: datetime) -> int | None:
+    """Atomically transition one due job from pending to running."""
+    for _ in range(8):
+        candidate_id = db.scalar(
+            select(Job.id)
             .where(Job.status == "pending", Job.available_at <= now)
             .order_by(Job.id)
             .limit(1)
         )
-        if not job:
-            return False
+        if not candidate_id:
+            return None
+        result = db.execute(
+            update(Job)
+            .where(Job.id == candidate_id, Job.status == "pending", Job.available_at <= now)
+            .values(status="running", started_at=now, attempts=Job.attempts + 1)
+        )
+        if int(result.rowcount or 0) == 1:
+            db.commit()
+            return int(candidate_id)
+        db.rollback()
+    return None
 
-        job.status = "running"
-        job.started_at = now
-        job.attempts = int(job.attempts or 0) + 1
-        db.commit()
-        job_id = job.id
+
+def _defer_uncertain_provision(db, provider, server: Server, job: Job, message: str) -> bool:
+    """Keep funds/state pending until Host confirms absence or idempotent recovery succeeds."""
+    recover = getattr(provider, "recover_instance", None)
+    if not callable(recover):
+        return False
+    try:
+        probe = recover(server.id, server.name) or {}
+    except Exception as exc:
+        job.status = "pending"
+        job.attempts = max(0, int(job.max_attempts or 1) - 1)
+        job.available_at = datetime.utcnow() + timedelta(minutes=5)
+        job.finished_at = None
+        server.status = "provisioning"
+        server.reconcile_status = "warning"
+        server.reconcile_message = f"开通结果暂无法确认，等待 Host 恢复后重试：{str(exc)[:600]}"
+        queue_admin_notification(
+            db,
+            title="VPS 开通结果待确认",
+            body=f"{server.name} 在达到常规重试上限后仍无法确认 Host 状态。为避免实例已创建却自动退款，任务将在 5 分钟后继续确认。",
+            kind="system",
+            severity="warning",
+            event_key=f"provision-uncertain:{server.id}:{job.id}",
+        )
+        return True
+
+    if bool(probe.get("exists")) and bool(probe.get("matches")):
+        job.status = "pending"
+        job.attempts = max(0, int(job.max_attempts or 1) - 1)
+        job.available_at = datetime.utcnow() + timedelta(seconds=5)
+        job.finished_at = None
+        server.status = "provisioning"
+        server.reconcile_status = "warning"
+        server.reconcile_message = "Host 已找到匹配实例，等待幂等开通重试回收连接信息。"
+        return True
+
+    if bool(probe.get("exists")) and not bool(probe.get("matches")):
+        job.status = "failed"
+        job.finished_at = datetime.utcnow()
+        server.status = "provision_unknown"
+        server.reconcile_status = "error"
+        server.reconcile_message = "Host 存在同名实例，但 XNAT server_id 不匹配；已停止自动退款并要求人工检查。"
+        queue_admin_notification(
+            db,
+            title="VPS 开通身份冲突",
+            body=f"{server.name} 在 Host 上存在同名实例，但 server_id 不匹配。系统未自动退款，请人工核对后处理。",
+            kind="system",
+            severity="error",
+            event_key=f"provision-identity-conflict:{server.id}:{job.id}",
+        )
+        return True
+
+    # Host explicitly confirmed that no instance exists; normal final-failure refund is safe.
+    return False
+
+
+def run_one_job(provider, provider_name: str) -> bool:
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        job_id = _claim_next_job_id(db, now)
+        if not job_id:
+            return False
 
     with SessionLocal() as db:
         job = db.get(Job, job_id)
@@ -241,6 +316,9 @@ def run_one_job(provider, provider_name: str) -> bool:
                     job.status = "pending"
                     job.available_at = datetime.utcnow() + timedelta(seconds=min(60, 5 * (2 ** max(0, job.attempts - 1))))
                 else:
+                    if job.job_type == "provision_server" and server and _defer_uncertain_provision(db, provider, server, job, message):
+                        db.commit()
+                        return True
                     job.status = "failed"
                     job.finished_at = datetime.utcnow()
                     if job.job_type == "provision_server" and server:
