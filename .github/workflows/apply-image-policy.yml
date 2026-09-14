@@ -18,19 +18,51 @@ jobs:
           ref: main
           fetch-depth: 0
       - name: Apply patch
-        run: python3 scripts/apply-image-disk-policy.py
+        run: |
+          python3 scripts/apply-image-disk-policy.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('panel/app/schema.py')
+          lines=[]
+          fixed=False
+          for line in p.read_text().splitlines():
+              if 'result = conn.execute(text(' in line and 'images:debian/%' in line:
+                  indent=line[:len(line)-len(line.lstrip())]
+                  lines.extend([
+                      indent + 'result = conn.execute(text(',
+                      indent + '    "UPDATE \\"system_images\\" SET \\"min_disk_gb\\" = 1.0 "',
+                      indent + '    "WHERE LOWER(\\"alias\\") LIKE \'images:debian/%\' "',
+                      indent + '    "AND ABS(COALESCE(\\"min_disk_gb\\", 0) - 2.0) < 0.000001"',
+                      indent + '))',
+                  ])
+                  fixed=True
+              else:
+                  lines.append(line)
+          assert fixed, 'Debian migration SQL line not found'
+          p.write_text('\n'.join(lines) + '\n')
+          PY
       - name: Validate
         run: |
           python3 -m pip install --disable-pip-version-check -r panel/requirements.txt
           python3 -m compileall -q panel/app
           bash scripts/check.sh
           python3 - <<'PY'
+          from pathlib import Path
           from types import SimpleNamespace
           from panel.app.services.image_policy import image_min_disk_gb
           assert image_min_disk_gb(SimpleNamespace(min_disk_gb=1.0), 'lxc') == 1.0
           assert image_min_disk_gb(SimpleNamespace(min_disk_gb=2.0), 'lxc') == 2.0
           assert image_min_disk_gb(SimpleNamespace(min_disk_gb=1.0), 'kvm') == 3.0
           assert image_min_disk_gb(SimpleNamespace(min_disk_gb=4.0), 'kvm') == 4.0
+          main=Path('panel/app/main.py').read_text()
+          assert 'min_disk_gb=1.0, sort_order=10' in main
+          assert 'min_disk_gb=1.0, sort_order=20' in main
+          assert 'min_disk_gb=2.0, sort_order=30' in main
+          assert 'min_disk_gb=2.0, sort_order=40' in main
+          assert '/admin/system-images/{image_id}/disk' in main
+          assert '"min_disk_gb": float(row.min_disk_gb or 1.0)' in Path('panel/app/mobile_api.py').read_text()
+          schema=Path('panel/app/schema.py').read_text()
+          assert 'image_disk_policy_configurable_v1' in schema
           print('image policy checks passed')
           PY
       - name: Commit
