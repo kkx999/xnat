@@ -1,0 +1,72 @@
+name: 更新 XNAT v1.0.2 Release 说明
+
+on:
+  push:
+    branches:
+      - release/1.0.2
+    paths:
+      - .github/workflows/update-v1.0.2-release-notes.yml
+
+permissions:
+  contents: write
+
+jobs:
+  update-release-notes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 更新 v1.0.2 Release 说明
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/notes.md <<'EOF'
+          # XNAT v1.0.2
+
+          稳定性、安全性与跨层一致性更新。
+
+          - Panel：v1.0.2
+          - Host Agent：v1.0.1
+          - Agent API：v2
+          - Mobile API：v1
+          - 完善开通幂等与孤儿实例恢复，降低 Panel 超时后重复开通或错误退款风险
+          - Job 抢占改为原子状态切换，降低多 Worker 重复执行同一任务的风险
+          - NAT / SSH 公网端口加入 Host 级租约与唯一约束，降低并发端口冲突
+          - Panel ↔ Host 加入 TLS 证书指纹固定与持久化
+          - Agent API v2 加入 nonce / request-id 防重放机制
+          - 重装流程增加破坏性操作前预检、失败状态与恢复保护，并为旧实例补齐 XNAT 身份元数据
+          - 系统镜像增加最低磁盘策略，Web、Mobile、Worker 与 Agent 多层校验
+          - 修复最小化 Alpine / Debian / Ubuntu 环境中 SSH readiness 对 `ss` / `iproute2` 的兼容问题
+          - 清理旧开发版本残留与错误版本标识，统一正式版本体系
+          - Panel UI、页面布局、视觉风格和主要业务交互保持不变
+
+          ## 升级说明
+
+          建议按以下顺序升级：
+
+          1. 先在 Panel 服务器执行 `xnat`，升级 Panel 到 v1.0.2。
+          2. 再逐台 Host 升级 Host Agent 到 v1.0.1。
+          3. Host Agent 从 API v1 升级到 API v2 时，安全预检会默认阻止跨 API 版本更新。确认 Panel 已升级到 v1.0.2 后，在该 Host 上执行：
+
+          ```bash
+          XNAT_ALLOW_AGENT_API_CHANGE=1 xnat
+          ```
+
+          然后重新进入 **更新 → Host Agent 更新** 即可完成本次一次性 API v1 → v2 升级。
+
+          > `XNAT_ALLOW_AGENT_API_CHANGE=1` 只用于这次跨 API 版本升级，不需要写入 `.env`，也不需要永久设置。升级完成后继续正常使用 `xnat` 即可。
+
+          Panel v1.0.2 兼容 Agent API v1 / v2，便于多 Host 分批升级；完整的新安全与幂等能力需要 Host Agent v1.0.1 / Agent API v2。
+
+          **由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**
+          EOF
+
+          gh release edit v1.0.2 \
+            --repo "$GITHUB_REPOSITORY" \
+            --title 'XNAT v1.0.2' \
+            --notes-file /tmp/notes.md
+
+          BODY="$(gh release view v1.0.2 --repo "$GITHUB_REPOSITORY" --json body --jq .body)"
+          grep -q 'XNAT_ALLOW_AGENT_API_CHANGE=1 xnat' <<< "$BODY"
+          grep -q 'Panel：v1.0.2' <<< "$BODY"
+          grep -q 'Host Agent：v1.0.1' <<< "$BODY"
