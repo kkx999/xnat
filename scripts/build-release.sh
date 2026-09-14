@@ -9,7 +9,7 @@ AGENT_API_VERSION="$(tr -d '[:space:]' < agent/API_VERSION)"
 DIST="$ROOT/dist"
 mkdir -p "$DIST"
 find "$DIST" -maxdepth 1 -type f -delete
-bash "$ROOT/scripts/check.sh"
+bash "$ROOT/scripts/check-v105.sh"
 (cd panel && zip -Dqr "$DIST/xnat-panel-v${PANEL_VERSION}.zip" . -x '.env' '.venv/*' 'data/*' '__pycache__/*' '*.pyc')
 (cd agent && zip -Dqr "$DIST/xnat-host-agent-v${AGENT_VERSION}.zip" . -x '.env' '.venv/*' 'tls/*' '__pycache__/*' '*.pyc')
 cp scripts/bootstrap-panel.sh "$DIST/xnat-bootstrap-panel-v${RELEASE_VERSION}.sh"
@@ -18,23 +18,22 @@ cp release.json "$DIST/release.json"
 cat > "$DIST/RELEASE_NOTES.md" <<EOF_NOTES
 # XNAT v${RELEASE_VERSION}
 
-服务器实时资源监控更新。
+服务器详情双主题视觉修复。
 
 - XNAT Release：v${RELEASE_VERSION}
 - Panel：v${PANEL_VERSION}
-- Host Agent：v${AGENT_VERSION}
+- Host Agent：v${AGENT_VERSION}（本版未修改 Host Agent）
 - Agent API：v${AGENT_API_VERSION}
 - Mobile API：v1
-- 服务器详情页在原有概览下方新增一个整体实时监控区域，以 2×2 对称布局展示 CPU、内存、硬盘和实时下载 / 上传速率
-- CPU、内存、硬盘使用全圆角胶囊进度条；网络速率单独展示，不与套餐带宽上限混淆
-- Web 前端每 5 秒刷新一次，页面进入后台后停止轮询
-- Host Agent 使用约 3 秒内存短缓存；不保存历史、不写监控数据库，磁盘必要时才低频兜底采样
-- 高频实时监控接口过滤普通 access log，避免轮询持续增加无意义日志
-- Mobile API v1 的服务器详情支持 ?metrics=1 获取同一套实时指标，旧客户端保持兼容
-- 保留 v1.0.3 的镜像磁盘策略、安全重装 rename/copy 备份与回滚兜底修复
-- v1.0.3 → v1.0.4 为正式验证的直接 Panel 升级路径
+- 修复浅色主题下“服务器实时监控”标题、副标题、状态与指标辅助文字对比度不足
+- 去除 Root 密码、NAT 端口、系统重装与删除实例展开区域突兀的深色细分割线
+- 降低详情区域偏蓝底色饱和度，使容器、展开区、操作按钮和进度条轨道更贴合整体主题
+- 深色主题同步调整实时监控、详情容器、展开区与操作按钮，不做单边主题修复
+- CPU / 内存 / 硬盘继续使用全圆角胶囊进度条；网络实时速率和采样逻辑保持不变
+- Web 继续每 5 秒刷新、页面不可见时停止轮询；Host Agent 继续使用约 3 秒内存缓存且不保存历史
+- v1.0.4 → v1.0.5 为 Panel UI 小版本更新；已是 Host Agent v1.0.4 的节点无需重复更新
 
-> Android v1.0.2 无需强制升级；后续 Android v1.0.3 可直接接入本次新增的实时指标。
+> Android v1.0.2 无需升级，本次不修改 Mobile API。
 
 **由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**
 EOF_NOTES
