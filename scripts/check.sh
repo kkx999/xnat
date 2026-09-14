@@ -588,12 +588,12 @@ python3 - <<'PYV100'
 from pathlib import Path
 import json
 root=Path('.')
-assert (root/'VERSION').read_text().strip() == '1.0.2'
-assert (root/'panel/VERSION').read_text().strip() == '1.0.2'
+assert (root/'VERSION').read_text().strip() == '1.0.3'
+assert (root/'panel/VERSION').read_text().strip() == '1.0.3'
 assert (root/'agent/VERSION').read_text().strip() == '1.0.1'
 meta=json.loads((root/'release.json').read_text())
-assert meta['release_version']=='1.0.2'
-assert meta['panel_version']=='1.0.2'
+assert meta['release_version']=='1.0.3'
+assert meta['panel_version']=='1.0.3'
 assert meta['agent_version']=='1.0.1'
 assert str(meta['agent_api_version'])=='2'
 assert str(meta['mobile_api_version'])=='1'
@@ -611,5 +611,5 @@ assert '当前 XNAT Release' not in xnat
 assert '最新 XNAT Release' not in xnat
 assert 'Release 组件版本' not in xnat
 assert '当前组件已是最新；有新的管理组件可同步' in xnat
-print('v1.0.2 baseline contracts: ok')
+print('v1.0.3 baseline contracts: ok')
 PYV100
