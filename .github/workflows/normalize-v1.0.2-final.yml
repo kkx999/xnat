@@ -61,7 +61,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m pip install --disable-pip-version-check jinja2
+          python3 -m pip install --disable-pip-version-check -r panel/requirements.txt
           test "$(cat VERSION)" = 1.0.2
           test "$(cat panel/VERSION)" = 1.0.2
           test "$(cat agent/VERSION)" = 1.0.1
