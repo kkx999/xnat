@@ -19,7 +19,9 @@ jobs:
           fetch-depth: 0
 
       - name: Prepare v1.0.3
-        run: python3 scripts/prepare-v1.0.3.py
+        run: |
+          python3 scripts/prepare-v1.0.3.py
+          rm scripts/prepare-v1.0.3.py
 
       - name: Validate and build release assets
         run: |
@@ -47,8 +49,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git rm scripts/prepare-v1.0.3.py
-          git add VERSION panel/VERSION panel/app/__init__.py release.json panel/app/main.py panel/app/templates/base.html scripts/upgrade-panel.sh scripts/check.sh README.md docs/MOBILE_API.md docs/INTRODUCTION.md CHANGELOG.md scripts/build-release.sh
+          git add -A
           git commit -m 'release: XNAT v1.0.3'
           git push origin HEAD:main
 
