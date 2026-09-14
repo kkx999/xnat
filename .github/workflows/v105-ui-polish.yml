@@ -1,0 +1,113 @@
+name: Verify v1.0.5 UI polish
+on:
+  push:
+    branches: [release/v1.0.5]
+permissions:
+  contents: write
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependencies
+        run: python -m pip install -q -r panel/requirements.txt -r agent/requirements.txt
+      - name: Apply v1.0.5 theme polish
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+
+          def read(path): return Path(path).read_text(encoding='utf-8')
+          def write(path, text): Path(path).write_text(text, encoding='utf-8')
+          def replace(path, old, new, *, count=None):
+              text=read(path)
+              if old not in text:
+                  raise SystemExit(f'missing expected text in {path}: {old[:120]!r}')
+              text=text.replace(old,new) if count is None else text.replace(old,new,count)
+              write(path,text)
+
+          write('VERSION','1.0.5\n')
+          write('panel/VERSION','1.0.5\n')
+          replace('panel/app/__init__.py','__version__ = "1.0.4"','__version__ = "1.0.5"')
+          replace('panel/app/main.py','"version": "1.0.4"','"version": "1.0.5"')
+          replace('panel/app/templates/base.html','XNAT v1.0.4 Multi-Node','XNAT v1.0.5 Multi-Node')
+
+          meta=json.loads(read('release.json'))
+          meta['release_version']='1.0.5'
+          meta['panel_version']='1.0.5'
+          meta['agent_version']='1.0.4'
+          write('release.json',json.dumps(meta,ensure_ascii=False,indent=2)+'\n')
+
+          readme=read('README.md')
+          readme=readme.replace('**当前正式版本：v1.0.4**','**当前正式版本：v1.0.5**')
+          readme=readme.replace('1. 先通过 `xnat` 更新 Panel 到 v1.0.4；\n2. 再逐台 Host 更新 Host Agent 到 v1.0.4；\n3. 在 Panel 中确认 Host 在线，并确认 Agent API 已切换到 v2。','1. 先通过 `xnat` 更新 Panel 到 v1.0.5；\n2. Host Agent 已是 v1.0.4 的节点无需更新；\n3. 在 Panel 中确认 Host 在线，并确认 Agent API 仍为 v2。')
+          readme=readme.replace('确认 Panel 已经是 v1.0.4 后','确认 Panel 已经是 v1.0.5 后')
+          write('README.md',readme)
+
+          changelog=read('CHANGELOG.md')
+          entry='''## v1.0.5 - 2026-09-14\n\n- XNAT Release / Panel 升级到 v1.0.5；Host Agent 保持 v1.0.4，Agent API v2、Mobile API v1 均不变。\n- 修复浅色主题下“服务器实时监控”标题、副标题和状态文字对比度过低的问题。\n- 去除服务器详情折叠模块展开时突兀的深色分割线，亮色 / 深色主题分别使用更柔和的层级与边框。\n- 降低详情模块大面积蓝色底的饱和度，让 Root 密码、NAT 端口、系统重装与删除实例区域更贴合当前主题。\n- 同步优化深色主题的详情容器、展开区、操作按钮与实时监控轨道，避免只修浅色造成主题回归。\n- 实时监控采样、5 秒前端刷新、3 秒 Agent 内存缓存及无历史存储逻辑保持不变。\n\n**由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**\n\n'''
+          if not changelog.startswith('# Changelog\n\n'):
+              raise SystemExit('unexpected CHANGELOG header')
+          changelog=changelog.replace('# Changelog\n\n','# Changelog\n\n'+entry,1)
+          write('CHANGELOG.md',changelog)
+
+          upgrade=read('scripts/upgrade-panel.sh')
+          marker='  1.0.3) UPGRADE_PATH="verified-v1.0.3" ;;'
+          if '1.0.4) UPGRADE_PATH="verified-v1.0.4"' not in upgrade:
+              if marker not in upgrade: raise SystemExit('upgrade marker missing')
+              upgrade=upgrade.replace(marker,'  1.0.4) UPGRADE_PATH="verified-v1.0.4" ;;\n'+marker,1)
+          write('scripts/upgrade-panel.sh',upgrade)
+
+          css=read('panel/app/static/style.css')
+          polish='''\n\n/* ==========================================================================\n   v1.0.5 server-detail dual-theme polish\n   Keep the v1.0.4 layout/metrics behavior; only normalize contrast, separators\n   and surface tinting for both client themes.\n   ========================================================================== */\n\n/* Dark theme: reduce the detached blue cast while preserving hierarchy. */\nbody.client-body .server-live-panel{\n  border-color:#2a394a;\n  background:linear-gradient(180deg,#121c28 0%,#101923 100%);\n  box-shadow:0 10px 28px rgba(0,0,0,.12),inset 0 1px 0 rgba(255,255,255,.016);\n}\nbody.client-body .server-live-head{border-bottom-color:#2a394a}\nbody.client-body .server-live-head>div:first-child span{color:#edf3fb}\nbody.client-body .server-live-head>div:first-child small,\nbody.client-body .server-live-status,\nbody.client-body .server-live-value>span,\nbody.client-body .server-live-network-rates span{color:#91a0b3}\nbody.client-body .server-live-item:nth-child(odd),\nbody.client-body .server-live-item:nth-child(-n+2){border-color:#2a394a}\nbody.client-body .server-live-value>strong{color:#eef4fb}\nbody.client-body .server-live-item>small{color:#7f90a5}\nbody.client-body .server-live-network-rates strong{color:#dce7f3}\nbody.client-body .server-live-progress{\n  background:#1b2734;\n  box-shadow:inset 0 1px 2px rgba(0,0,0,.20);\n}\nbody.client-body .server-live-progress>span{background:linear-gradient(90deg,#537fae,#6f9bc8)}\n\nbody.client-body .client-detail-section{\n  border-color:#293745;\n  background:linear-gradient(180deg,#121a24 0%,#101821 100%);\n  box-shadow:0 8px 24px rgba(0,0,0,.10),inset 0 1px 0 rgba(255,255,255,.014);\n}\nbody.client-body .client-detail-section[open]>summary{border-bottom:0}\nbody.client-body .client-detail-body{\n  border-top:0!important;\n  background:#0f1720;\n}\nbody.client-body .client-detail-section>summary .detail-summary-main strong{color:#edf2f8}\nbody.client-body .client-detail-section>summary .detail-summary-main span{color:#8f9daf}\nbody.client-body .detail-summary-main::before{background:#638db8;box-shadow:none}\nbody.client-body .detail-summary-action{\n  background:#151f2a;\n  border-color:#334454;\n  color:#9eafc1!important;\n}\nbody.client-body .client-detail-section[open] .detail-summary-action{\n  background:#182430;\n  border-color:#3b5064;\n  color:#c9d6e3!important;\n}\nbody.client-body .client-password-display code{\n  border-color:#334351;\n  background:#121b24;\n  color:#edf3f8;\n}\nbody.client-body .client-port-row{border-bottom-color:#293745}\nbody.client-body .client-port-add,\nbody.client-body .client-danger-grid form{background:#111922;border-color:#2c3945}\n\n/* Light theme: neutral surfaces, readable titles, no dark hairline separators. */\nhtml[data-client-theme="light"] body.client-body .server-live-panel{\n  border-color:#d9e1e9;\n  background:linear-gradient(180deg,#ffffff 0%,#fafbfd 100%);\n  box-shadow:0 7px 22px rgba(39,61,86,.045);\n}\nhtml[data-client-theme="light"] body.client-body .server-live-head{border-bottom-color:#e3e8ee}\nhtml[data-client-theme="light"] body.client-body .server-live-head>div:first-child span{color:#263b52!important}\nhtml[data-client-theme="light"] body.client-body .server-live-head>div:first-child small{color:#6f8195!important}\nhtml[data-client-theme="light"] body.client-body .server-live-status{color:#667a90!important}\nhtml[data-client-theme="light"] body.client-body .server-live-value>span,\nhtml[data-client-theme="light"] body.client-body .server-live-network-rates span{color:#64788f!important}\nhtml[data-client-theme="light"] body.client-body .server-live-value>strong{color:#1f344b!important}\nhtml[data-client-theme="light"] body.client-body .server-live-item>small{color:#71849a!important}\nhtml[data-client-theme="light"] body.client-body .server-live-network-rates strong{color:#28415a!important}\nhtml[data-client-theme="light"] body.client-body .server-live-item:nth-child(odd),\nhtml[data-client-theme="light"] body.client-body .server-live-item:nth-child(-n+2){border-color:#e3e8ee}\nhtml[data-client-theme="light"] body.client-body .server-live-progress{\n  background:#e9eef3;\n  box-shadow:inset 0 1px 2px rgba(45,67,91,.08);\n}\nhtml[data-client-theme="light"] body.client-body .server-live-progress>span{background:linear-gradient(90deg,#5588bd,#72a1d0)}\n\nhtml[data-client-theme="light"] body.client-body .client-detail-section{\n  border-color:#dce3ea;\n  background:linear-gradient(180deg,#ffffff 0%,#fbfcfd 100%);\n  box-shadow:0 6px 18px rgba(42,62,84,.035);\n}\nhtml[data-client-theme="light"] body.client-body .client-detail-section[open]>summary{border-bottom:0!important}\nhtml[data-client-theme="light"] body.client-body .client-detail-body{\n  border-top:0!important;\n  background:#fafbfc;\n}\nhtml[data-client-theme="light"] body.client-body .client-detail-section>summary .detail-summary-main strong{color:#263a4f!important}\nhtml[data-client-theme="light"] body.client-body .client-detail-section>summary .detail-summary-main span{color:#74869a!important}\nhtml[data-client-theme="light"] body.client-body .detail-summary-main::before{background:#5c86ae;box-shadow:none}\nhtml[data-client-theme="light"] body.client-body .detail-summary-action{\n  background:#f6f8fa;\n  border-color:#d4dce4;\n  color:#657b91!important;\n}\nhtml[data-client-theme="light"] body.client-body .client-detail-section[open] .detail-summary-action{\n  background:#f2f5f8;\n  border-color:#cbd6df;\n  color:#456985!important;\n}\nhtml[data-client-theme="light"] body.client-body .client-password-display,\nhtml[data-client-theme="light"] body.client-body .client-port-add,\nhtml[data-client-theme="light"] body.client-body .client-danger-grid form{\n  background:#fbfcfd;\n  border-color:#e0e6ec;\n}\nhtml[data-client-theme="light"] body.client-body .client-password-display code{\n  color:#263b52;\n  background:#ffffff;\n  border-color:#d8e0e8;\n}\nhtml[data-client-theme="light"] body.client-body .client-port-row{\n  background:transparent;\n  border-color:#e4e9ee;\n}\nhtml[data-client-theme="light"] body.client-body .client-help-text,\nhtml[data-client-theme="light"] body.client-body .client-port-row em{color:#74869a}\n\n@media(max-width:620px){\n  html[data-client-theme="light"] body.client-body .server-live-item:nth-child(-n+3){border-bottom-color:#e3e8ee}\n  body.client-body .server-live-item:nth-child(-n+3){border-bottom-color:#2a394a}\n}\n'''
+          if 'v1.0.5 server-detail dual-theme polish' not in css:
+              css += polish
+          write('panel/app/static/style.css',css)
+
+          build=read('scripts/build-release.sh')
+          start=build.index('cat > "$DIST/RELEASE_NOTES.md" <<EOF_NOTES')
+          end=build.index('EOF_NOTES',start)+len('EOF_NOTES')
+          notes='''cat > "$DIST/RELEASE_NOTES.md" <<EOF_NOTES\n# XNAT v${RELEASE_VERSION}\n\n服务器详情双主题视觉修复。\n\n- XNAT Release：v${RELEASE_VERSION}\n- Panel：v${PANEL_VERSION}\n- Host Agent：v${AGENT_VERSION}（本版未改 Host Agent）\n- Agent API：v${AGENT_API_VERSION}\n- Mobile API：v1\n- 修复浅色主题下实时监控标题、副标题、状态和指标辅助文字对比度不足\n- 去除 Root 密码、NAT 端口、系统重装与删除实例展开区域突兀的深色细分割线\n- 降低详情区域偏蓝底色饱和度，使容器、展开区和操作按钮更贴合整体主题\n- 深色主题同步调整容器、边框、文字、操作按钮和实时监控轨道，不做单边主题修复\n- CPU / 内存 / 硬盘胶囊进度条、网络实时速率及采样逻辑保持不变\n- v1.0.4 → v1.0.5 为正式验证的直接 Panel 升级路径；Host Agent v1.0.4 无需重复更新\n\n**由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**\nEOF_NOTES'''
+          build=build[:start]+notes+build[end:]
+          write('scripts/build-release.sh',build)
+
+          checks=read('scripts/check.sh')
+          checks=checks.replace("== '1.0.4'\nassert (root/'panel/VERSION').read_text().strip() == '1.0.4'\nassert (root/'agent/VERSION').read_text().strip() == '1.0.4'","== '1.0.5'\nassert (root/'panel/VERSION').read_text().strip() == '1.0.5'\nassert (root/'agent/VERSION').read_text().strip() == '1.0.4'",1)
+          checks=checks.replace("assert meta['release_version']=='1.0.4'\nassert meta['panel_version']=='1.0.4'\nassert meta['agent_version']=='1.0.4'","assert meta['release_version']=='1.0.5'\nassert meta['panel_version']=='1.0.5'\nassert meta['agent_version']=='1.0.4'",1)
+          checks=checks.replace("assert meta['release_version'] == meta['panel_version'] == '1.0.4'\nassert meta['agent_version'] == '1.0.4'","assert meta['release_version'] == meta['panel_version'] == '1.0.5'\nassert meta['agent_version'] == '1.0.4'",1)
+          checks=checks.replace("'v1\\.0\\.5|testing-v|","'v1\\.0\\.6|testing-v|",1)
+          guard='''\n\n# v1.0.5 dual-theme server-detail polish guard.\npython3 - <<'PYV105THEME'\nfrom pathlib import Path\nimport json\nroot=Path('.')\nmeta=json.loads((root/'release.json').read_text())\nassert meta['release_version'] == meta['panel_version'] == '1.0.5'\nassert meta['agent_version'] == '1.0.4'\nassert '1.0.4) UPGRADE_PATH="verified-v1.0.4"' in (root/'scripts/upgrade-panel.sh').read_text()\ncss=(root/'panel/app/static/style.css').read_text()\nblock=css.split('v1.0.5 server-detail dual-theme polish',1)[1]\nfor token in [\n    'body.client-body .server-live-head>div:first-child span{color:#edf3fb}',\n    'html[data-client-theme="light"] body.client-body .server-live-head>div:first-child span{color:#263b52!important}',\n    'body.client-body .client-detail-section[open]>summary{border-bottom:0}',\n    'html[data-client-theme="light"] body.client-body .client-detail-section[open]>summary{border-bottom:0!important}',\n    'background:#fafbfc',\n    'background:#0f1720',\n    'border-radius:999px',\n]:\n    assert token in block, token\nprint('v1.0.5 dual-theme server-detail polish: ok')\nPYV105THEME\n'''
+          if 'v1.0.5 dual-theme server-detail polish guard' not in checks:
+              checks += guard
+          write('scripts/check.sh',checks)
+
+          # Temporary release workflows are not part of the product tree.
+          for path in [
+              '.github/workflows/release-v1.0.4.yml',
+              '.github/workflows/v104-verify.yml',
+              '.github/workflows/v105-ui-polish.yml',
+          ]:
+              Path(path).unlink(missing_ok=True)
+          PY
+      - name: Full repository check
+        run: bash scripts/check.sh
+      - name: Build release assets
+        run: bash scripts/build-release.sh
+      - name: Persist verified candidate
+        run: |
+          git add -A
+          git diff --cached --quiet && { echo 'No changes'; exit 0; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "release: finalize v1.0.5 dual-theme polish [skip ci]"
+          git push origin HEAD:release/v1.0.5
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xnat-v1.0.5-release
+          path: dist/*
+          if-no-files-found: error
