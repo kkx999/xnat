@@ -4,30 +4,46 @@ on:
     branches: [release/v1.0.4]
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Apply release candidate transforms
         run: |
+          python tools/v104_release_meta.py
           python tools/v104_agent_header.py
           python tools/v104_agent_routes.py
-          python tools/v104_base.py
-          python tools/v104_remote.py
-          python tools/v104_remote_metrics.py
-          python tools/v104_main_metrics.py
           python tools/v104_mobile_metrics.py
           python tools/v104_ui_template.py
           python tools/v104_ui_css.py
           python tools/v104_ui_js.py
-          python tools/v104_panel_access_filter.py
-          python tools/v104_release_meta.py
+          python tools/v104_panel_include.py
           python tools/v104_upgrade_path.py
           python tools/v104_checks.py
       - name: Check
         run: bash scripts/check.sh
+      - name: Build release assets
+        run: bash scripts/build-release.sh
+      - name: Persist verified candidate
+        run: |
+          git add VERSION panel/VERSION agent/VERSION release.json README.md CHANGELOG.md docs panel/app agent/natvps_agent scripts
+          if git diff --cached --quiet; then
+            echo "No generated changes to persist"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "release: finalize v1.0.4 live metrics [skip ci]"
+          git push origin HEAD:release/v1.0.4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xnat-v1.0.4-release
+          path: dist/*
+          if-no-files-found: error
