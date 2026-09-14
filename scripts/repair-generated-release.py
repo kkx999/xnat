@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+# This helper is release-build-only and is removed before the final merge.
 root = Path(__file__).resolve().parents[1]
 schema_path = root / "panel/app/schema.py"
 s = schema_path.read_text(encoding="utf-8")
