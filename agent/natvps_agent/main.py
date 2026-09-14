@@ -20,7 +20,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse
 
-AGENT_VERSION = "1.0.2"
+AGENT_VERSION = "1.0.3"
 AGENT_API_VERSION = "2"
 AGENT_TOKEN = os.getenv("AGENT_TOKEN", "")
 STORAGE_POOL = os.getenv("INCUS_STORAGE_POOL", "natpool")
@@ -1183,6 +1183,137 @@ def reset_password(instance_id: str):
     return {"root_password": password}
 
 
+def _strict_delete_instance(name: str):
+    """Delete one instance and verify the destructive operation actually completed."""
+    if not instance_exists(name):
+        return
+    error = None
+    try:
+        run(["incus", "delete", name, "--force"], timeout=120)
+    except Exception as exc:
+        error = exc
+    if instance_exists(name):
+        detail = str(error)[:900] if error else "Incus 返回成功但实例仍然存在"
+        raise RuntimeError(f"删除实例 {name} 失败: {detail}")
+
+
+def _restart_original_if_needed(instance_id: str, old_status: str):
+    if old_status == "running" and instance_exists(instance_id):
+        run(["incus", "start", instance_id], check=False, timeout=65)
+
+
+def _prepare_reinstall_backup(instance_id: str, backup_name: str, old_status: str) -> str:
+    """Preserve the original instance without trusting a single `incus move` call.
+
+    Preferred path is a local rename (cheap and atomic on normal Incus storage).
+    Some storage/backend combinations can reject that rename, so a stopped local
+    copy is used as a fallback. The original is never deleted until the fallback
+    copy has been verified to exist.
+    """
+    if old_status == "running":
+        run(["incus", "stop", instance_id, "--timeout", "20", "--force"], timeout=45)
+
+    move_error = ""
+    try:
+        run(["incus", "move", instance_id, backup_name], timeout=120)
+    except Exception as exc:
+        move_error = str(exc)
+
+    source_exists = instance_exists(instance_id)
+    backup_exists = instance_exists(backup_name)
+    if backup_exists and not source_exists:
+        return "move"
+
+    if not source_exists and not backup_exists:
+        raise RuntimeError(
+            f"Incus move 后原实例和临时备份都不可见；move 错误: {move_error[:900] or '未知'}"
+        )
+
+    if source_exists and backup_exists:
+        _restart_original_if_needed(instance_id, old_status)
+        raise RuntimeError(
+            f"Incus move 后原实例与临时备份同时存在，为避免误删已停止继续；move 错误: {move_error[:900] or '未知'}"
+        )
+
+    # Source is still intact and no backup exists: fall back to a stopped copy.
+    try:
+        run(["incus", "copy", instance_id, backup_name, "--instance-only"], timeout=300)
+    except Exception as copy_exc:
+        _restart_original_if_needed(instance_id, old_status)
+        raise RuntimeError(
+            "Incus 无法为安全重装创建临时备份；"
+            f"move: {move_error[:700] or '失败但无输出'}；copy: {str(copy_exc)[:900]}"
+        ) from copy_exc
+
+    if not instance_exists(backup_name):
+        _restart_original_if_needed(instance_id, old_status)
+        raise RuntimeError("Incus copy 返回成功，但临时备份实例不存在；原实例已保留")
+
+    try:
+        _strict_delete_instance(instance_id)
+    except Exception as delete_exc:
+        cleanup_error = ""
+        try:
+            _strict_delete_instance(backup_name)
+        except Exception as cleanup_exc:
+            cleanup_error = f"；临时备份清理失败: {str(cleanup_exc)[:500]}"
+        _restart_original_if_needed(instance_id, old_status)
+        raise RuntimeError(
+            f"临时备份已建立，但原实例无法安全移出名称: {str(delete_exc)[:900]}{cleanup_error}"
+        ) from delete_exc
+
+    if instance_exists(instance_id) or not instance_exists(backup_name):
+        raise RuntimeError("安全重装备份状态校验失败；已拒绝继续部署新实例")
+    return "copy"
+
+
+def _restore_reinstall_backup(backup_name: str, instance_id: str, old_status: str) -> tuple[bool, str]:
+    """Restore the preserved instance, with copy fallback if rename is unavailable."""
+    if not instance_exists(backup_name):
+        return False, "临时备份不存在"
+    if instance_exists(instance_id):
+        try:
+            _strict_delete_instance(instance_id)
+        except Exception as exc:
+            return False, f"新实例清理失败，无法恢复原名称: {str(exc)[:800]}"
+
+    warnings = []
+    move_error = ""
+    try:
+        run(["incus", "move", backup_name, instance_id], timeout=120)
+    except Exception as exc:
+        move_error = str(exc)
+
+    restored_exists = instance_exists(instance_id)
+    backup_exists = instance_exists(backup_name)
+    if not restored_exists and backup_exists:
+        try:
+            run(["incus", "copy", backup_name, instance_id, "--instance-only"], timeout=300)
+        except Exception as copy_exc:
+            return False, (
+                f"恢复 rename 失败: {move_error[:650] or '无输出'}；"
+                f"恢复 copy 也失败: {str(copy_exc)[:800]}"
+            )
+        restored_exists = instance_exists(instance_id)
+        if not restored_exists:
+            return False, "恢复 copy 返回成功，但原实例名称仍不存在"
+        try:
+            _strict_delete_instance(backup_name)
+        except Exception as cleanup_exc:
+            warnings.append(f"恢复后临时备份未能清理: {str(cleanup_exc)[:500]}")
+    elif restored_exists and backup_exists:
+        warnings.append("恢复后临时备份仍存在，已保留副本供人工核查")
+    elif not restored_exists and not backup_exists:
+        return False, f"恢复 move 后原名称与临时备份都不可见: {move_error[:800] or '未知错误'}"
+
+    if old_status == "running":
+        try:
+            run(["incus", "start", instance_id], timeout=65)
+        except Exception as start_exc:
+            return False, f"原实例已恢复但重新开机失败: {str(start_exc)[:800]}"
+    return True, "；".join(warnings)
+
+
 @app.post("/v1/instances/{instance_id}/reinstall")
 def reinstall(instance_id: str, body: ReinstallBody):
     require_instance(instance_id)
@@ -1201,18 +1332,16 @@ def reinstall(instance_id: str, body: ReinstallBody):
     if stored_server_id is not None and requested_server_id is not None and stored_server_id != requested_server_id:
         raise HTTPException(409, "实例 XNAT server_id 与 Panel 请求不一致，拒绝重装")
     effective_server_id = stored_server_id if stored_server_id is not None else requested_server_id
-    backup_name = (instance_id[:58] + "-xnat-old-" + secrets.token_hex(4))[:79]
+    backup_name = (instance_id[:46] + "-xnat-old-" + secrets.token_hex(4))[:63]
 
-    # Keep the old instance until the replacement is fully ready. If anything
-    # fails, restore the old name and previous power state.
-    if old_status == "running":
-        run(["incus", "stop", instance_id, "--timeout", "20", "--force"], timeout=45)
     try:
-        run(["incus", "move", instance_id, backup_name], timeout=120)
-    except Exception:
-        if old_status == "running" and instance_exists(instance_id):
-            run(["incus", "start", instance_id], check=False, timeout=65)
-        raise HTTPException(500, "安全重装预备阶段失败，原实例未删除")
+        backup_method = _prepare_reinstall_backup(instance_id, backup_name, old_status)
+    except Exception as exc:
+        _restart_original_if_needed(instance_id, old_status)
+        raise HTTPException(
+            500,
+            f"安全重装预备阶段失败，原实例已保留或已尝试恢复: {str(exc)[:1400]}",
+        )
 
     password = random_password()
     try:
@@ -1223,7 +1352,16 @@ def reinstall(instance_id: str, body: ReinstallBody):
         private_ip = wait_ipv4(instance_id, mode)
         prepare_ssh(instance_id, password)
         add_ssh_proxy(instance_id, body.ssh_port)
-        delete_instance(backup_name)
+
+        backup_cleanup_pending = False
+        try:
+            _strict_delete_instance(backup_name)
+        except Exception as cleanup_exc:
+            backup_cleanup_pending = True
+            print(
+                f"[XNAT] 重装成功，但临时备份 {backup_name} 清理失败: {cleanup_exc}",
+                flush=True,
+            )
         return {
             "instance_id": instance_id,
             "private_ip": private_ip,
@@ -1232,25 +1370,39 @@ def reinstall(instance_id: str, body: ReinstallBody):
             "root_password": password,
             "virtualization_type": mode,
             "rollback_safe": True,
+            "backup_method": backup_method,
+            "backup_cleanup_pending": backup_cleanup_pending,
         }
     except Exception as exc:
-        delete_instance(instance_id)
-        rollback_error = ""
+        delete_error = ""
         try:
-            run(["incus", "move", backup_name, instance_id], timeout=120)
-            if old_status == "running":
-                run(["incus", "start", instance_id], timeout=65)
-        except Exception as rollback_exc:
-            rollback_error = f"；原实例自动恢复失败: {str(rollback_exc)[:500]}"
+            _strict_delete_instance(instance_id)
+        except Exception as delete_exc:
+            delete_error = f"新实例清理失败: {str(delete_exc)[:700]}"
+
+        restored = False
+        restore_detail = ""
+        if not delete_error:
+            restored, restore_detail = _restore_reinstall_backup(backup_name, instance_id, old_status)
+
         if isinstance(exc, HTTPException):
             detail = str(exc.detail)
             status_code = int(exc.status_code)
         else:
             detail = str(exc)
             status_code = 500
+
+        if delete_error:
+            rollback_text = f"；{delete_error}；原实例临时备份仍保留为 {backup_name}"
+        elif restored:
+            rollback_text = "；原实例已自动恢复"
+            if restore_detail:
+                rollback_text += f"（{restore_detail}）"
+        else:
+            rollback_text = f"；原实例自动恢复失败: {restore_detail[:900]}；临时备份名: {backup_name}"
         raise HTTPException(
             status_code,
-            f"新系统部署失败，已尝试恢复原实例: {detail[:1000]}{rollback_error}",
+            f"新系统部署失败: {detail[:1000]}{rollback_text}",
         )
 
 
