@@ -66,6 +66,9 @@ class Provider(ABC):
     def network_stats(self, instance_id: str) -> NetworkStats:
         raise NotImplementedError
 
+    def instance_metrics(self, instance_id: str) -> dict:
+        return {"available": False, "status": "unavailable"}
+
     @abstractmethod
     def resize_resources(self, instance_id: str, cpu: int, memory_mb: int, disk_gb: float) -> dict:
         raise NotImplementedError
