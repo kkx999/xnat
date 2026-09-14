@@ -30,7 +30,7 @@ while IFS= read -r -d '' script; do
   bash -n "$script"
 done < <(find scripts -type f \( -name '*.sh' -o -name 'xnat' -o -name 'xnat-firewall' \) -print0)
 
-echo "[4/5] Release matrix + dual-theme UI contracts"
+echo "[4/5] Release matrix + version + dual-theme UI contracts"
 "$PYTHON_BIN" - <<'PY'
 from pathlib import Path
 import json
@@ -49,6 +49,9 @@ assert '__version__ = "1.0.5"' in (root/'panel/app/__init__.py').read_text()
 assert '__version__ = "1.0.4"' in (root/'agent/natvps_agent/__init__.py').read_text()
 assert '__api_version__ = "2"' in (root/'agent/natvps_agent/__init__.py').read_text()
 assert '当前正式版本：v1.0.5' in (root/'README.md').read_text()
+assert '"version": "1.0.5"' in (root/'panel/app/main.py').read_text()
+assert 'XNAT v1.0.5 Multi-Node' in (root/'panel/app/templates/base.html').read_text()
+assert '1.0.4) UPGRADE_PATH="verified-v1.0.4"' in (root/'scripts/upgrade-panel.sh').read_text()
 
 tpl=(root/'panel/app/templates/server_detail.html').read_text()
 assert 'id="server-detail-theme-polish-v105"' in tpl
@@ -72,7 +75,7 @@ metrics=(root/'agent/natvps_agent/metrics.py').read_text()
 assert '_CACHE_SECONDS = 3.0' in metrics
 assert 'sqlite' not in metrics.lower()
 assert 'write_text' not in metrics
-print('v1.0.5 release matrix + dual-theme contracts: ok')
+print('v1.0.5 release matrix + version + dual-theme contracts: ok')
 PY
 
 echo "[5/5] v1.0.4 live-metrics behavior preserved"
