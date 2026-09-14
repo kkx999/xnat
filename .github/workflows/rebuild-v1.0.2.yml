@@ -1,0 +1,200 @@
+name: Rebuild XNAT v1.0.2
+
+on:
+  push:
+    branches:
+      - release/1.0.2
+    paths:
+      - .github/workflows/rebuild-v1.0.2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Normalize v1.0.2 metadata and docs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          Path('VERSION').write_text('1.0.2\n', encoding='utf-8')
+          Path('panel/VERSION').write_text('1.0.2\n', encoding='utf-8')
+          Path('agent/VERSION').write_text('1.0.1\n', encoding='utf-8')
+          Path('agent/API_VERSION').write_text('2\n', encoding='utf-8')
+          Path('agent/natvps_agent/__init__.py').write_text('__version__ = "1.0.1"\n__api_version__ = "2"\n', encoding='utf-8')
+
+          meta = json.loads(Path('release.json').read_text(encoding='utf-8'))
+          meta.update({
+              'release_version': '1.0.2',
+              'panel_version': '1.0.2',
+              'agent_version': '1.0.1',
+              'agent_api_version': '2',
+              'supported_agent_api_versions': ['1', '2'],
+              'mobile_api_version': '1',
+          })
+          Path('release.json').write_text(json.dumps(meta, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          readme = Path('README.md')
+          s = readme.read_text(encoding='utf-8')
+          s = s.replace('**当前正式版本：v1.0.3**', '**当前正式版本：v1.0.2**')
+          hotfix_note = '> v1.0.3 是版本元数据热修复：Panel 仍为 v1.0.2、Host Agent 仍为 v1.0.1、Agent API 仍为 v2、Mobile API 仍为 v1。本次只修正 v1.0.2 发布包中的 Host Agent 版本标识和 `xnat` 更新识别，不修改 VPS、Incus、NAT、Panel UI 或业务逻辑。\n\n'
+          s = s.replace(hotfix_note, '')
+          start = s.find('## v1.0.3 热修复')
+          end = s.find('## v1.0.2 更新')
+          if start != -1 and end != -1 and start < end:
+              s = s[:start] + s[end:]
+          upgrade_anchor = '3. 在 Panel 中确认 Host 在线，并确认 Agent API 已切换到 v2。\n'
+          upgrade_note = '''\n> Host Agent 从 API v1 升级到 API v2 时，安全预检会默认阻止跨 API 版本更新。确认 Panel 已升级到 v1.0.2 后，在 Host 执行 `XNAT_ALLOW_AGENT_API_CHANGE=1 xnat`，再进入 **更新 → Host Agent 更新**。该变量仅用于本次跨 API 升级，不需要写入 `.env` 或永久设置。\n'''
+          if 'XNAT_ALLOW_AGENT_API_CHANGE=1 xnat' not in s and upgrade_anchor in s:
+              s = s.replace(upgrade_anchor, upgrade_anchor + upgrade_note, 1)
+          readme.write_text(s, encoding='utf-8')
+
+          changelog = Path('CHANGELOG.md')
+          c = changelog.read_text(encoding='utf-8')
+          if c.startswith('## v1.0.3'):
+              p = c.find('## v1.0.2')
+              if p != -1:
+                  c = c[p:]
+          marker = '- 清理旧开发阶段升级脚本并统一版本标识。\n'
+          addition = '- 修正正式发布元数据，确保 Panel v1.0.2、Host Agent v1.0.1、Agent API v2 与 `xnat` 显示保持一致。\n'
+          if addition not in c and marker in c:
+              c = c.replace(marker, marker + addition, 1)
+          changelog.write_text(c, encoding='utf-8')
+
+          build = Path('scripts/build-release.sh')
+          b = build.read_text(encoding='utf-8')
+          if 'AGENT_API_VERSION=' not in b:
+              b = b.replace('AGENT_VERSION="$(tr -d \'[:space:]\' < agent/VERSION)"\n', 'AGENT_VERSION="$(tr -d \'[:space:]\' < agent/VERSION)"\nAGENT_API_VERSION="$(tr -d \'[:space:]\' < agent/API_VERSION)"\n', 1)
+          start_marker = 'cat > "$DIST/RELEASE_NOTES.md" <<EOF_NOTES\n'
+          end_marker = '\nEOF_NOTES\n'
+          i = b.index(start_marker) + len(start_marker)
+          j = b.index(end_marker, i)
+          notes = '''# XNAT v${RELEASE_VERSION}
+
+稳定性、安全性与跨层一致性更新。
+
+- Panel：v${PANEL_VERSION}
+- Host Agent：v${AGENT_VERSION}
+- Agent API：v${AGENT_API_VERSION}
+- Mobile API：v1
+- 完善开通幂等、孤儿实例恢复、原子 Job 抢占与 Host 端口租约
+- Panel ↔ Host 增加 TLS 指纹固定，Agent API v2 增加 nonce 防重放
+- 重装增加破坏性操作前预检、失败恢复保护与旧实例身份元数据补齐
+- Web、Mobile、Worker 与 Agent 增加系统镜像最低磁盘校验
+- 修复最小化 Alpine / Debian / Ubuntu 环境中的 SSH readiness 兼容问题
+- 统一正式发布元数据，确保 Host Agent v1.0.1 / Agent API v2 被 `xnat` 正确识别
+- Panel UI、页面布局、视觉风格和主要业务交互保持不变
+
+升级顺序：先将 Panel 更新到 v1.0.2，再逐台更新 Host Agent。Host 从 Agent API v1 升级到 v2 时，确认 Panel 已为 v1.0.2 后使用 `XNAT_ALLOW_AGENT_API_CHANGE=1 xnat` 放行本次跨 API 升级。
+
+**由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**'''
+          b = b[:i] + notes + b[j:]
+          build.write_text(b, encoding='utf-8')
+          PY
+
+      - name: Install check dependency
+        run: python3 -m pip install --disable-pip-version-check jinja2
+
+      - name: Validate source and versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(cat VERSION)" = '1.0.2'
+          test "$(cat panel/VERSION)" = '1.0.2'
+          test "$(cat agent/VERSION)" = '1.0.1'
+          test "$(cat agent/API_VERSION)" = '2'
+          grep -Fxq '__version__ = "1.0.2"' panel/app/__init__.py
+          grep -Fxq '__version__ = "1.0.1"' agent/natvps_agent/__init__.py
+          grep -Fxq '__api_version__ = "2"' agent/natvps_agent/__init__.py
+          grep -Fq 'AGENT_VERSION = "1.0.1"' agent/natvps_agent/main.py
+          grep -Fq 'AGENT_API_VERSION = "2"' agent/natvps_agent/main.py
+          ! grep -q 'v1.0.3' README.md CHANGELOG.md VERSION release.json
+          bash scripts/check.sh
+
+      - name: Commit normalized v1.0.2 source
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions'
+          git config user.email 'actions@github.com'
+          git add VERSION release.json panel/VERSION agent/VERSION agent/API_VERSION agent/natvps_agent/__init__.py README.md CHANGELOG.md scripts/build-release.sh
+          if ! git diff --cached --quiet; then
+            git commit -m 'release: normalize XNAT v1.0.2 metadata'
+            git push origin HEAD:main
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Create clean v1.0.2 tag and release
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin refs/tags/v1.0.2 >/dev/null 2>&1; then
+            echo 'v1.0.2 tag already exists' >&2
+            exit 1
+          fi
+          if gh release view v1.0.2 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'v1.0.2 release already exists' >&2
+            exit 1
+          fi
+          git tag -a v1.0.2 "$RELEASE_SHA" -m 'XNAT v1.0.2'
+          git push origin refs/tags/v1.0.2
+          cat > /tmp/notes.md <<'EOF'
+          # XNAT v1.0.2
+
+          稳定性、安全性与跨层一致性更新。
+
+          - Panel：v1.0.2
+          - Host Agent：v1.0.1
+          - Agent API：v2
+          - Mobile API：v1
+          - 完善开通幂等与孤儿实例恢复，降低 Panel 超时后重复开通或错误退款风险
+          - Job 抢占改为原子状态切换，NAT / SSH 公网端口加入 Host 级租约与唯一约束
+          - Panel ↔ Host 加入 TLS 证书指纹固定与持久化；Agent API v2 加入 nonce 防重放
+          - 重装增加破坏性操作前预检、失败恢复保护与旧实例身份元数据补齐
+          - Web、Mobile、Worker 与 Agent 增加系统镜像最低磁盘校验
+          - 修复最小化 Alpine / Debian / Ubuntu 环境中的 SSH readiness 兼容问题
+          - 修正正式发布元数据，确保 Host Agent v1.0.1 / Agent API v2 被 `xnat` 正确识别
+          - Panel UI、页面布局、视觉风格和主要业务交互保持不变
+
+          ## 升级说明
+
+          1. 先在 Panel 服务器执行 `xnat`，升级 Panel 到 v1.0.2。
+          2. 再逐台 Host 更新 Host Agent 到 v1.0.1。
+          3. Host Agent 从 API v1 升级到 API v2 时，确认 Panel 已为 v1.0.2 后，在该 Host 执行：
+
+          ```bash
+          XNAT_ALLOW_AGENT_API_CHANGE=1 xnat
+          ```
+
+          然后进入 **更新 → Host Agent 更新**。该变量只用于本次跨 API 升级，无需写入 `.env` 或永久设置。
+
+          **由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**
+          EOF
+          gh release create v1.0.2 --repo "$GITHUB_REPOSITORY" --verify-tag --title 'XNAT v1.0.2' --notes-file /tmp/notes.md
+
+      - name: Verify published tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)" = 'v1.0.2'
+          test "$(git show v1.0.2:VERSION | tr -d '[:space:]')" = '1.0.2'
+          test "$(git show v1.0.2:panel/VERSION | tr -d '[:space:]')" = '1.0.2'
+          test "$(git show v1.0.2:agent/VERSION | tr -d '[:space:]')" = '1.0.1'
+          test "$(git show v1.0.2:agent/API_VERSION | tr -d '[:space:]')" = '2'
