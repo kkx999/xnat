@@ -1,0 +1,27 @@
+name: Verify XNAT v1.0.5
+on:
+  push:
+    branches: [release/v1.0.5]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install verification dependencies
+        run: python -m pip install -q -r panel/requirements.txt -r agent/requirements.txt
+      - name: Verify v1.0.5
+        run: bash scripts/check-v105.sh
+      - name: Build release assets
+        run: bash scripts/build-release.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xnat-v1.0.5-release
+          path: dist/*
+          if-no-files-found: error
