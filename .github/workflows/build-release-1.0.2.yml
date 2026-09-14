@@ -4,62 +4,47 @@ on:
   push:
     branches:
       - release/1.0.2
-  pull_request:
-    branches:
-      - main
 
 permissions:
   contents: write
 
 jobs:
   build-release:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout release branch
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.head_ref || github.ref_name }}
+          ref: release/1.0.2
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Apply Panel 1.0.2 patch
-        run: python scripts/apply-release-1.0.2-panel.py
+      - name: Apply final hardening
+        run: python scripts/finalize-release-1.0.2.py
 
-      - name: Apply Host Agent 1.0.1 patch
-        run: python scripts/apply-release-1.0.2-agent.py
-
-      - name: Assert UI and interaction assets unchanged
-        shell: bash
+      - name: Assert UI unchanged
         run: |
-          set -euo pipefail
-          changed="$(git diff --name-only -- panel/app/templates panel/app/static)"
-          if [ -n "$changed" ]; then
-            echo "UI/static files were modified unexpectedly:"
-            echo "$changed"
-            exit 1
-          fi
+          changed="$(git diff --name-only origin/main...HEAD -- panel/app/templates panel/app/static)"
+          test -z "$changed"
 
       - name: Release self-check
         run: python scripts/check-release-1.0.2.py
 
-      - name: Diff sanity check
-        run: git diff --check
-
-      - name: Commit generated release code
-        shell: bash
+      - name: Compile final source
         run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          if git diff --cached --quiet; then
-            echo 'No generated changes to commit.'
-          else
-            git commit -m 'release: generate XNAT 1.0.2'
+          python -m compileall -q panel/app agent/natvps_agent
+          git diff --check
+
+      - name: Commit finalized source
+        run: |
+          git config user.name github-actions
+          git config user.email actions@github.com
+          git add panel/app agent/natvps_agent
+          if ! git diff --cached --quiet; then
+            git commit -m 'release: finalize XNAT 1.0.2 source'
             git push origin HEAD:release/1.0.2
           fi
