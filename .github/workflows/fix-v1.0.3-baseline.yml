@@ -1,0 +1,46 @@
+name: Fix v1.0.3 baseline
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/fix-v1.0.3-baseline.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Fix baseline and retrigger publisher
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/check.sh')
+          s=p.read_text()
+          pairs=[
+              ("assert (root/'VERSION').read_text().strip() == '1.0.2'", "assert (root/'VERSION').read_text().strip() == '1.0.3'"),
+              ("assert (root/'panel/VERSION').read_text().strip() == '1.0.2'", "assert (root/'panel/VERSION').read_text().strip() == '1.0.3'"),
+              ("assert meta['release_version']=='1.0.2'", "assert meta['release_version']=='1.0.3'"),
+              ("assert meta['panel_version']=='1.0.2'", "assert meta['panel_version']=='1.0.3'"),
+              ("print('v1.0.2 baseline contracts: ok')", "print('v1.0.3 baseline contracts: ok')"),
+          ]
+          for old,new in pairs:
+              if old not in s:
+                  raise SystemExit(f'missing baseline token: {old}')
+              s=s.replace(old,new,1)
+          p.write_text(s)
+          pub=Path('.github/workflows/publish-v1.0.3.yml')
+          pub.write_text(pub.read_text()+'\n# retrigger after baseline fix\n')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/fix-v1.0.3-baseline.yml
+          git add scripts/check.sh .github/workflows/publish-v1.0.3.yml
+          git commit -m 'ci: align v1.0.3 baseline checks'
+          git push origin HEAD:main
