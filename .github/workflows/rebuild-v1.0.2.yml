@@ -58,22 +58,40 @@ jobs:
           p.write_text(z,encoding='utf-8')
           PY
 
-      - name: Validate
+      - name: Validate versions
         shell: bash
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          vals={
+            'release':Path('VERSION').read_text().strip(),
+            'panel_file':Path('panel/VERSION').read_text().strip(),
+            'agent_file':Path('agent/VERSION').read_text().strip(),
+            'api_file':Path('agent/API_VERSION').read_text().strip(),
+            'panel_init':Path('panel/app/__init__.py').read_text().strip(),
+            'agent_init':Path('agent/natvps_agent/__init__.py').read_text().strip(),
+          }
+          print(vals)
+          assert vals['release']=='1.0.2'
+          assert vals['panel_file']=='1.0.2'
+          assert vals['agent_file']=='1.0.1'
+          assert vals['api_file']=='2'
+          assert '__version__ = "1.0.2"' in vals['panel_init']
+          assert '__version__ = "1.0.1"' in vals['agent_init']
+          assert '__api_version__ = "2"' in vals['agent_init']
+          meta=json.loads(Path('release.json').read_text())
+          assert meta['release_version']=='1.0.2' and meta['panel_version']=='1.0.2' and meta['agent_version']=='1.0.1' and str(meta['agent_api_version'])=='2'
+          for name in ('README.md','CHANGELOG.md'):
+              assert 'v1.0.3' not in Path(name).read_text(encoding='utf-8'), name
+          print('version and documentation assertions: OK')
+          PY
+          grep -F 'AGENT_VERSION = "1.0.1"' agent/natvps_agent/main.py
+          grep -F 'AGENT_API_VERSION = "2"' agent/natvps_agent/main.py
+          python3 -m compileall -q panel/app agent/natvps_agent
           python3 -m pip install --disable-pip-version-check jinja2
-          test "$(cat VERSION)" = 1.0.2
-          test "$(cat panel/VERSION)" = 1.0.2
-          test "$(cat agent/VERSION)" = 1.0.1
-          test "$(cat agent/API_VERSION)" = 2
-          grep -Fxq '__version__ = "1.0.2"' panel/app/__init__.py
-          grep -Fxq '__version__ = "1.0.1"' agent/natvps_agent/__init__.py
-          grep -Fxq '__api_version__ = "2"' agent/natvps_agent/__init__.py
-          grep -Fq 'AGENT_VERSION = "1.0.1"' agent/natvps_agent/main.py
-          grep -Fq 'AGENT_API_VERSION = "2"' agent/natvps_agent/main.py
-          if grep -q 'v1.0.3' README.md CHANGELOG.md VERSION release.json; then exit 1; fi
-          bash scripts/check.sh
+          bash -x scripts/check.sh
 
       - name: Commit to main
         shell: bash
