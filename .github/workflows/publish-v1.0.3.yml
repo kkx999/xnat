@@ -19,102 +19,7 @@ jobs:
           fetch-depth: 0
 
       - name: Prepare v1.0.3
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import json
-
-          def replace_once(path, old, new):
-              p = Path(path)
-              s = p.read_text()
-              n = s.count(old)
-              if n != 1:
-                  raise SystemExit(f"{path}: expected 1 occurrence, found {n}: {old}")
-              p.write_text(s.replace(old, new, 1))
-
-          Path('VERSION').write_text('1.0.3\n')
-          Path('panel/VERSION').write_text('1.0.3\n')
-          Path('panel/app/__init__.py').write_text('__version__ = "1.0.3"\n')
-
-          meta = json.loads(Path('release.json').read_text())
-          meta['release_version'] = '1.0.3'
-          meta['panel_version'] = '1.0.3'
-          assert meta['agent_version'] == '1.0.1'
-          assert str(meta['agent_api_version']) == '2'
-          assert str(meta['mobile_api_version']) == '1'
-          Path('release.json').write_text(json.dumps(meta, ensure_ascii=False, indent=2) + '\n')
-
-          replace_once('panel/app/main.py', '"version": "1.0.2"', '"version": "1.0.3"')
-          replace_once('panel/app/templates/base.html', 'XNAT v1.0.2 Multi-Node', 'XNAT v1.0.3 Multi-Node')
-          replace_once('scripts/upgrade-panel.sh', '  1.0.2) UPGRADE_PATH="legacy-v1.0.2"; warn "当前为 v1.0.2；建议按正式版本链先升级到 v1.1.1，再升级到 v${COMPONENT_VERSION}。此升级器仍保留 additive schema 兼容检查。" ;;', '  1.0.2) UPGRADE_PATH="verified-v1.0.2" ;;')
-          replace_once('scripts/check.sh', "assert '当前正式版本：v1.0.2' in readme", "assert '当前正式版本：v1.0.3' in readme")
-
-          p = Path('scripts/check.sh')
-          s = p.read_text()
-          old_guard = "if grep -RInE 'v1\\.0\\.3|v1\\.0\\.4|testing-v|(^|[^A-Za-z])RC[0-9]+|(^|[^A-Za-z])rc[0-9]+|候选版本' \\\n"
-          new_guard = "if grep -RInE 'v1\\.0\\.4|testing-v|(^|[^A-Za-z])RC[0-9]+|(^|[^A-Za-z])rc[0-9]+|候选版本' \\\n"
-          if old_guard not in s:
-              raise SystemExit('scripts/check.sh formal-version guard not found')
-          p.write_text(s.replace(old_guard, new_guard, 1))
-
-          p = Path('README.md')
-          s = p.read_text()
-          for old, new in [
-              ('**当前正式版本：v1.0.2**', '**当前正式版本：v1.0.3**'),
-              ('更新 Panel 到 v1.0.2', '更新 Panel 到 v1.0.3'),
-              ('Panel 已经是 v1.0.2', 'Panel 已经是 v1.0.3'),
-          ]:
-              if old not in s:
-                  raise SystemExit(f'README missing: {old}')
-              s = s.replace(old, new, 1)
-          p.write_text(s)
-
-          replace_once('docs/MOBILE_API.md', 'XNAT Panel `v1.0.2`', 'XNAT Panel `v1.0.3`')
-
-          p = Path('docs/INTRODUCTION.md')
-          s = p.read_text()
-          for old, new in [
-              ('| XNAT Release | v1.0.2 |', '| XNAT Release | v1.0.3 |'),
-              ('| XNAT Panel | v1.0.2 |', '| XNAT Panel | v1.0.3 |'),
-          ]:
-              if old not in s:
-                  raise SystemExit(f'INTRODUCTION missing: {old}')
-              s = s.replace(old, new, 1)
-          start = s.index('## 版本说明')
-          end = s.index('## XNAT 能做什么')
-          version_block = '''## 版本说明\n\nv1.0.3 是镜像最低系统盘策略与后台配置能力更新。Panel 为 v1.0.3，Host Agent 保持 v1.0.1，Agent API 保持 v2，Mobile API 保持 v1。\n\n系统镜像的最低系统盘现在由 Panel 后台每个镜像自己的 `min_disk_gb` 决定，不再按 Debian / Ubuntu 家族写死。默认 Debian 为 1 GiB、Ubuntu 为 2 GiB、Alpine 为 1 GiB；LXC 直接使用后台配置值，KVM 仅保留 3 GiB 全局技术底线。\n\nMobile API v1 的 `/api/v1/system-images` 新增 `min_disk_gb` 字段，属于向后兼容的字段扩展。Panel v1.0.3 继续兼容 Agent API v1 / v2。\n\n如果 Host Agent 从 API v1 升级到 API v2，请先确认 Panel 已升级到 v1.0.3，再在对应 Host 执行：\n\n```bash\nXNAT_ALLOW_AGENT_API_CHANGE=1 xnat\n```\n\n随后进入 **更新 → Host Agent 更新**。该变量只用于本次跨 API 升级，无需写入 `.env` 或永久设置。\n\n'''
-          s = s[:start] + version_block + s[end:]
-          marker = '## 更新记录\n\n### v1.0.2'
-          entry = '''## 更新记录\n\n### v1.0.3\n\n- 系统镜像最低系统盘改为 Panel 后台逐镜像配置。\n- 默认 Debian 12 / 13 为 1 GiB、Ubuntu 22.04 / 24.04 为 2 GiB、Alpine 3.24 为 1 GiB。\n- LXC 直接使用后台配置；KVM 使用 `max(镜像配置, 3 GiB)`。\n- 系统镜像后台支持编辑最低系统盘，新建镜像时也可指定。\n- 旧数据库只执行一次安全迁移，不会持续覆盖管理员自定义值。\n- Mobile API v1 系统镜像响应新增 `min_disk_gb`。\n- v1.0.2 → v1.0.3 标记为正式验证的直接升级路径。\n- Host Agent、Agent API 与 Panel 整体 UI 保持不变。\n\n### v1.0.2'''
-          if marker not in s:
-              raise SystemExit('INTRODUCTION update marker missing')
-          p.write_text(s.replace(marker, entry, 1))
-
-          p = Path('CHANGELOG.md')
-          s = p.read_text()
-          old_head = '## v1.0.2 - 2026-09-14\n'
-          if not s.startswith(old_head):
-              raise SystemExit('CHANGELOG unexpected header')
-          new_head = '''# Changelog\n\n## v1.0.3 - 2026-09-14\n\n- XNAT Release 1.0.3 / Panel 1.0.3；Host Agent 保持 1.0.1，Agent API 保持 v2，Mobile API 保持 v1。\n- 系统镜像最低系统盘改为 Panel 后台逐镜像配置，不再按 Debian / Ubuntu 家族写死。\n- 默认 Debian 12 / 13 为 1 GiB、Ubuntu 22.04 / 24.04 为 2 GiB、Alpine 3.24 为 1 GiB。\n- LXC 直接使用镜像 `min_disk_gb`；KVM 全局技术底线调整为 3 GiB。\n- 管理后台支持编辑每个系统镜像的最低系统盘。\n- 旧数据库执行一次性兼容迁移，之后不会覆盖管理员自定义值。\n- Mobile API v1 `/api/v1/system-images` 新增 `min_disk_gb` 字段，保持向后兼容。\n- v1.0.2 → v1.0.3 为正式验证的直接 Panel 升级路径。\n- Host Agent、Agent API、Panel 整体 UI 与主要业务交互保持不变。\n\n**由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**\n\n## v1.0.2 - 2026-09-14\n'''
-          s = new_head + s[len(old_head):]
-          s = s.replace('\n# Changelog\n\n## v1.0.1', '\n## v1.0.1', 1)
-          p.write_text(s)
-
-          p = Path('scripts/check.sh')
-          s = p.read_text()
-          if 'v1.0.3 configurable image disk policy contract' not in s:
-              s += '''\n\n# v1.0.3 configurable image disk policy contract\ngrep -q 'KVM_MIN_DISK_GB = 3.0' panel/app/services/image_policy.py\ngrep -q 'return max(configured, KVM_MIN_DISK_GB)' panel/app/services/image_policy.py\ngrep -q '/admin/system-images/{image_id}/disk' panel/app/main.py\ngrep -q '最低系统盘 (GiB)' panel/app/templates/admin.html\ngrep -q '"min_disk_gb": float(row.min_disk_gb or 1.0)' panel/app/mobile_api.py\ngrep -q 'image_disk_policy_configurable_v1' panel/app/schema.py\ngrep -q '1.0.2) UPGRADE_PATH="verified-v1.0.2"' scripts/upgrade-panel.sh\n'''
-          p.write_text(s)
-
-          p = Path('scripts/build-release.sh')
-          s = p.read_text()
-          a = s.index('cat > "$DIST/RELEASE_NOTES.md" <<EOF_NOTES')
-          b = s.index('(cd "$DIST" && sha256sum', a)
-          notes = '''cat > "$DIST/RELEASE_NOTES.md" <<EOF_NOTES\n# XNAT v${RELEASE_VERSION}\n\n系统镜像最低磁盘策略与后台配置能力更新。\n\n- XNAT Release：v${RELEASE_VERSION}\n- Panel：v${PANEL_VERSION}\n- Host Agent：v${AGENT_VERSION}\n- Agent API：v${AGENT_API_VERSION}\n- Mobile API：v1\n- 系统镜像最低系统盘改为 Panel 后台逐镜像配置，不再按 Debian / Ubuntu 家族写死\n- 默认 Debian 12 / 13 为 1 GiB、Ubuntu 22.04 / 24.04 为 2 GiB、Alpine 3.24 为 1 GiB\n- LXC 直接使用后台配置；KVM 使用 max(镜像配置, 3 GiB)\n- 管理后台系统镜像页面支持直接修改最低系统盘，新建镜像时也可指定\n- 旧数据库仅执行一次兼容迁移，不会在后续启动中覆盖管理员自定义值\n- Mobile API v1 的 /api/v1/system-images 新增 min_disk_gb 字段，现有客户端保持兼容\n- v1.0.2 → v1.0.3 已作为正式验证的直接 Panel 升级路径\n- Host Agent、Agent API、Panel 整体 UI 与主要业务交互保持不变\n\n> Android v1.0.1 仍可继续使用；后续 Android 版本会改为直接读取 Panel 下发的 min_disk_gb。\n\n**由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**\nEOF_NOTES\n'''
-          p.write_text(s[:a] + notes + s[b:])
-
-          Path('.github/workflows/publish-v1.0.3.yml').unlink()
-          PY
+        run: python3 scripts/prepare-v1.0.3.py
 
       - name: Validate and build release assets
         run: |
@@ -138,11 +43,12 @@ jobs:
           print('v1.0.3 release matrix verified')
           PY
 
-      - name: Commit clean release state
+      - name: Commit release state
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
+          git rm scripts/prepare-v1.0.3.py
+          git add VERSION panel/VERSION panel/app/__init__.py release.json panel/app/main.py panel/app/templates/base.html scripts/upgrade-panel.sh scripts/check.sh README.md docs/MOBILE_API.md docs/INTRODUCTION.md CHANGELOG.md scripts/build-release.sh
           git commit -m 'release: XNAT v1.0.3'
           git push origin HEAD:main
 
