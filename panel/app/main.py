@@ -3139,8 +3139,8 @@ def admin_create_plan(
     except ValueError as exc:
         flash(request, str(exc), "error")
         return RedirectResponse("/admin?section=plans", status_code=303)
-    if virtualization_type == "kvm" and (memory_mb < 512 or disk_gb < 4):
-        flash(request, "KVM 套餐最低需要 512 MB 内存和 4 GB 磁盘。", "error")
+    if virtualization_type == "kvm" and (memory_mb < 512 or disk_gb < 3):
+        flash(request, "KVM 套餐最低需要 512 MB 内存和 3 GB 磁盘。", "error")
         return RedirectResponse("/admin?section=plans", status_code=303)
     if (
         not clean_name or len(clean_name) > 80 or cpu < 1 or memory_mb < 64
@@ -3244,8 +3244,8 @@ def admin_update_plan(
         if not row:
             raise HTTPException(404, "套餐不存在")
 
-        if virtualization_type == "kvm" and (memory_mb < 512 or disk_gb < 4):
-            flash(request, "KVM 套餐最低需要 512 MB 内存和 4 GB 磁盘。", "error")
+        if virtualization_type == "kvm" and (memory_mb < 512 or disk_gb < 3):
+            flash(request, "KVM 套餐最低需要 512 MB 内存和 3 GB 磁盘。", "error")
             return RedirectResponse("/admin?section=plans", status_code=303)
         if (
             not clean_name or len(clean_name) > 80 or price < 0 or reset_price <= 0 or cpu < 1
@@ -3365,8 +3365,8 @@ def admin_resize_server_resources(
             return RedirectResponse("/admin?section=servers", status_code=303)
 
         virtualization_type = str(server.virtualization_type or "lxc").strip().lower()
-        if virtualization_type == "kvm" and (memory_mb < 512 or disk_gb < 4):
-            flash(request, "KVM 实例最低需要 512 MB 内存和 4 GB 磁盘。", "error")
+        if virtualization_type == "kvm" and (memory_mb < 512 or disk_gb < 3):
+            flash(request, "KVM 实例最低需要 512 MB 内存和 3 GB 磁盘。", "error")
             return RedirectResponse("/admin?section=servers", status_code=303)
 
         current_disk = float(server.disk_gb or 0)

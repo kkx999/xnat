@@ -32,9 +32,9 @@ cat > "$DIST/RELEASE_NOTES.md" <<EOF_NOTES
 - 旧数据库仅执行一次兼容迁移，不会在后续启动中覆盖管理员自定义值
 - Mobile API v1 的 /api/v1/system-images 新增 min_disk_gb 字段，现有客户端保持兼容
 - v1.0.2 → v1.0.3 已作为正式验证的直接 Panel 升级路径
-- Host Agent、Agent API、Panel 整体 UI 与主要业务交互保持不变
+- Host Agent v1.0.2 修复旧镜像磁盘硬编码；Agent API、Panel 整体 UI 与主要业务交互保持不变
 
-> Android v1.0.1 仍可继续使用；后续 Android 版本会改为直接读取 Panel 下发的 min_disk_gb。
+> Android v1.0.2 已直接读取 Panel 下发的 min_disk_gb。
 
 **由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**
 EOF_NOTES

@@ -20,7 +20,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse
 
-AGENT_VERSION = "1.0.1"
+AGENT_VERSION = "1.0.2"
 AGENT_API_VERSION = "2"
 AGENT_TOKEN = os.getenv("AGENT_TOKEN", "")
 STORAGE_POOL = os.getenv("INCUS_STORAGE_POOL", "natpool")
@@ -378,16 +378,11 @@ def disk_size_value(disk_gb: float) -> str:
 
 
 def image_min_disk_gb(image_alias: str, virtualization_type: str = "lxc") -> float:
-    alias = str(image_alias or "").strip().lower()
-    if alias.startswith("images:alpine/"):
-        minimum = 1.0
-    elif alias.startswith("images:ubuntu/") or alias.startswith("images:debian/"):
-        minimum = 2.0
-    else:
-        minimum = 1.0
+    # Per-image business minimums are owned by Panel. The Agent only keeps
+    # virtualization-level technical floors so it cannot contradict Panel config.
     if str(virtualization_type or "lxc").strip().lower() == "kvm":
-        minimum = max(minimum, 4.0)
-    return minimum
+        return 3.0
+    return 0.125
 
 
 def validate_image_resources(image_alias: str, disk_gb: float, virtualization_type: str = "lxc"):
@@ -606,8 +601,8 @@ def launch(name: str, image_alias: str, memory_mb: int, disk_gb: float, cpu: int
     if mode == "kvm":
         if memory_mb < 512:
             raise RuntimeError("KVM 实例内存至少需要 512 MiB")
-        if disk_gb < 4:
-            raise RuntimeError("KVM 实例系统盘至少需要 4 GiB")
+        if disk_gb < 3:
+            raise RuntimeError("KVM 实例系统盘至少需要 3 GiB")
         args.append("--vm")
     run(args, timeout=250 if mode == "kvm" else 190)
     set_bandwidth(name, bandwidth_mbps)
@@ -1318,8 +1313,8 @@ def resize_resources(instance_id: str, body: ResourceResizeBody):
     if not instance_exists(instance_id):
         raise HTTPException(404, "实例不存在")
     mode = instance_virtualization_type(instance_id)
-    if mode == "kvm" and (body.memory_mb < 512 or body.disk_gb < 4):
-        raise HTTPException(400, "KVM 实例至少需要 512 MiB 内存和 4 GiB 系统盘")
+    if mode == "kvm" and (body.memory_mb < 512 or body.disk_gb < 3):
+        raise HTTPException(400, "KVM 实例至少需要 512 MiB 内存和 3 GiB 系统盘")
     try:
         result = resize_instance_resources(instance_id, body.cpu, body.memory_mb, body.disk_gb)
         return result

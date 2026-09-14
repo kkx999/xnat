@@ -223,8 +223,8 @@ ss -lnt '( sport = :22 )' | grep 'LISTEN' >/dev/null
                 raise ProviderError("/dev/kvm 不可用；请检查 Nested Virtualization")
             if memory_mb < 512:
                 raise ProviderError("KVM 实例内存至少需要 512 MiB")
-            if disk_gb < 4:
-                raise ProviderError("KVM 实例系统盘至少需要 4 GiB")
+            if disk_gb < 3:
+                raise ProviderError("KVM 实例系统盘至少需要 3 GiB")
             args.append("--vm")
         self._run(args, timeout=240 if mode == "kvm" else 180)
         self.set_bandwidth(name, bandwidth_mbps)
@@ -383,8 +383,8 @@ ss -lnt '( sport = :22 )' | grep 'LISTEN' >/dev/null
 
     def resize_resources(self, instance_id: str, cpu: int, memory_mb: int, disk_gb: float) -> dict:
         mode = self._instance_virtualization_type(instance_id)
-        if mode == "kvm" and (memory_mb < 512 or disk_gb < 4):
-            raise ProviderError("KVM 实例至少需要 512 MiB 内存和 4 GiB 系统盘")
+        if mode == "kvm" and (memory_mb < 512 or disk_gb < 3):
+            raise ProviderError("KVM 实例至少需要 512 MiB 内存和 3 GiB 系统盘")
         before = self._instance_resource_snapshot(instance_id)
         if before["disk_gb"] > 0 and disk_gb < before["disk_gb"]:
             raise ProviderError(f"根磁盘禁止缩容：当前 {before['disk_gb']} GiB")

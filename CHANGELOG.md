@@ -2,7 +2,7 @@
 
 ## v1.0.3 - 2026-09-14
 
-- XNAT Release 1.0.3 / Panel 1.0.3；Host Agent 保持 1.0.1，Agent API 保持 v2，Mobile API 保持 v1。
+- XNAT Release 1.0.3 / Panel 1.0.3；Host Agent 1.0.2，Agent API 保持 v2，Mobile API 保持 v1。
 - 系统镜像最低系统盘改为 Panel 后台逐镜像配置，不再按 Debian / Ubuntu 家族写死。
 - 默认 Debian 12 / 13 为 1 GiB、Ubuntu 22.04 / 24.04 为 2 GiB、Alpine 3.24 为 1 GiB。
 - LXC 直接使用镜像 `min_disk_gb`；KVM 全局技术底线调整为 3 GiB。
@@ -10,7 +10,8 @@
 - 旧数据库执行一次性兼容迁移，之后不会覆盖管理员自定义值。
 - Mobile API v1 `/api/v1/system-images` 新增 `min_disk_gb` 字段，保持向后兼容。
 - v1.0.2 → v1.0.3 为正式验证的直接 Panel 升级路径。
-- Host Agent、Agent API、Panel 整体 UI 与主要业务交互保持不变。
+- Host Agent v1.0.2 修复旧的 Debian / Ubuntu 2 GiB 与 KVM 4 GiB 硬编码，LXC 不再覆盖 Panel 后台逐镜像配置；KVM 技术底线统一为 3 GiB。
+- Agent API、Panel 整体 UI 与主要业务交互保持不变。
 
 **由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**
 

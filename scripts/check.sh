@@ -570,9 +570,9 @@ if grep -RInE \
 fi
 
 # v1.3.x KVM/admin compatibility guards
-grep -q 'KVM 套餐最低需要 512 MB 内存和 4 GB 磁盘' panel/app/main.py
+grep -q 'KVM 套餐最低需要 512 MB 内存和 3 GB 磁盘' panel/app/main.py
 grep -q 'data-virtualization-form' panel/app/templates/admin.html
-grep -q 'KVM 实例最低需要 512 MB 内存和 4 GB 磁盘' panel/app/main.py
+grep -q 'KVM 实例最低需要 512 MB 内存和 3 GB 磁盘' panel/app/main.py
 grep -q 'wait_guest_agent(instance_id, mode)' agent/natvps_agent/main.py
 grep -q 'virtualization_type: str | None = None' panel/app/providers/base.py
 grep -q '虚拟化类型不一致：Panel=' panel/app/reconcile.py
@@ -590,11 +590,11 @@ import json
 root=Path('.')
 assert (root/'VERSION').read_text().strip() == '1.0.3'
 assert (root/'panel/VERSION').read_text().strip() == '1.0.3'
-assert (root/'agent/VERSION').read_text().strip() == '1.0.1'
+assert (root/'agent/VERSION').read_text().strip() == '1.0.2'
 meta=json.loads((root/'release.json').read_text())
 assert meta['release_version']=='1.0.3'
 assert meta['panel_version']=='1.0.3'
-assert meta['agent_version']=='1.0.1'
+assert meta['agent_version']=='1.0.2'
 assert str(meta['agent_api_version'])=='2'
 assert str(meta['mobile_api_version'])=='1'
 host=(root/'scripts/install-host.sh').read_text()
@@ -623,3 +623,19 @@ grep -q '最低系统盘 (GiB)' panel/app/templates/admin.html
 grep -q '"min_disk_gb": float(row.min_disk_gb or 1.0)' panel/app/mobile_api.py
 grep -q 'image_disk_policy_configurable_v1' panel/app/schema.py
 grep -q '1.0.2) UPGRADE_PATH="verified-v1.0.2"' scripts/upgrade-panel.sh
+
+
+# v1.0.3 Host Agent disk-policy regression guard
+python3 - <<'PYAGENTDISK'
+from pathlib import Path
+agent=Path('agent/natvps_agent/main.py').read_text()
+fn=agent.split('def image_min_disk_gb',1)[1].split('def validate_image_resources',1)[0]
+assert 'images:debian/' not in fn and 'images:ubuntu/' not in fn and 'images:alpine/' not in fn
+assert 'return 0.125' in fn and 'return 3.0' in fn
+assert 'disk_gb < 4' not in agent
+incus=Path('panel/app/providers/incus.py').read_text()
+assert 'disk_gb < 4' not in incus and 'disk_gb < 3' in incus
+panel=Path('panel/app/main.py').read_text()
+assert panel.count('disk_gb < 3') >= 3
+print('v1.0.3 Host Agent disk-policy regression guard: ok')
+PYAGENTDISK
