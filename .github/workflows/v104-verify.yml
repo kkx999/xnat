@@ -1,5 +1,7 @@
 name: Verify v1.0.4
 on:
+  push:
+    branches: [release/v1.0.4]
   workflow_dispatch:
 permissions:
   contents: read
