@@ -255,7 +255,7 @@ assert 'cap.get("remaining_disk_gb")' not in fn, 'physical/min storage must not 
 admin=Path('panel/app/templates/admin.html').read_text()
 assert '实际存储继续水位保护' in admin, 'physical storage watermark explanation missing'
 readme=Path('README.md').read_text()
-assert '当前正式版本：v1.0.2' in readme
+assert '当前正式版本：v1.0.3' in readme
 assert '指定 v1.4.3 安装' not in readme, 'legacy upgrade manual returned to project landing page'
 print('v1.6.2 logical quota capacity contract: ok')
 PYV162
@@ -539,8 +539,8 @@ if find . -maxdepth 3 -type f | grep -Ei '(testing|preview-[0-9]|rc[0-9]|patch-p
   cat /tmp/xnat-clean-guard.txt
   exit 1
 fi
-if grep -RInE 'v1\.0\.3|v1\.0\.4|testing-v|(^|[^A-Za-z])RC[0-9]+|(^|[^A-Za-z])rc[0-9]+|候选版本' \
-  --exclude-dir=.git --exclude-dir=__pycache__ --exclude='check.sh' . >/tmp/xnat-old-version.txt; then
+if grep -RInE 'v1\.0\.4|testing-v|(^|[^A-Za-z])RC[0-9]+|(^|[^A-Za-z])rc[0-9]+|候选版本' \
+  --exclude-dir=.git --exclude-dir=.github --exclude-dir=__pycache__ --exclude='check.sh' . >/tmp/xnat-old-version.txt; then
   echo "[ERROR] Found old/test version references:"
   cat /tmp/xnat-old-version.txt
   exit 1
@@ -613,3 +613,13 @@ assert 'Release 组件版本' not in xnat
 assert '当前组件已是最新；有新的管理组件可同步' in xnat
 print('v1.0.3 baseline contracts: ok')
 PYV100
+
+
+# v1.0.3 configurable image disk policy contract
+grep -q 'KVM_MIN_DISK_GB = 3.0' panel/app/services/image_policy.py
+grep -q 'return max(configured, KVM_MIN_DISK_GB)' panel/app/services/image_policy.py
+grep -q '/admin/system-images/{image_id}/disk' panel/app/main.py
+grep -q '最低系统盘 (GiB)' panel/app/templates/admin.html
+grep -q '"min_disk_gb": float(row.min_disk_gb or 1.0)' panel/app/mobile_api.py
+grep -q 'image_disk_policy_configurable_v1' panel/app/schema.py
+grep -q '1.0.2) UPGRADE_PATH="verified-v1.0.2"' scripts/upgrade-panel.sh

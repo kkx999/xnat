@@ -1,16 +1,21 @@
-# XNAT v1.0.1
+# XNAT v1.0.3
 
-Panel 卸载安全与数据清理修复。
+系统镜像最低磁盘策略与后台配置能力更新。
 
-- Panel：v1.0.1
-- Host：v1.0.0
-- Agent API：v1
+- XNAT Release：v1.0.3
+- Panel：v1.0.3
+- Host Agent：v1.0.1
+- Agent API：v2
 - Mobile API：v1
-- 修复卸载 Panel 后旧 Panel 域名可能落入同机 Komari / 其他 Nginx 站点的问题
-- 卸载 Panel 可选择保留备份或完全清除 XNAT Panel 数据
-- 完全卸载清理数据库、.env、安装凭据、Panel 备份、诊断文件与 XNAT 托管证书
-- 旧 Panel 域名保留无业务数据的 Nginx 拒绝占位，避免跨站回退
-- 不删除 Nginx、Certbot，也不修改 Komari 或其他站点配置
-- Panel UI、页面布局、视觉风格和业务交互保持不变
+- 系统镜像最低系统盘改为 Panel 后台逐镜像配置，不再按 Debian / Ubuntu 家族写死
+- 默认 Debian 12 / 13 为 1 GiB、Ubuntu 22.04 / 24.04 为 2 GiB、Alpine 3.24 为 1 GiB
+- LXC 直接使用后台配置；KVM 使用 max(镜像配置, 3 GiB)
+- 管理后台系统镜像页面支持直接修改最低系统盘，新建镜像时也可指定
+- 旧数据库仅执行一次兼容迁移，不会在后续启动中覆盖管理员自定义值
+- Mobile API v1 的 /api/v1/system-images 新增 min_disk_gb 字段，现有客户端保持兼容
+- v1.0.2 → v1.0.3 已作为正式验证的直接 Panel 升级路径
+- Host Agent、Agent API、Panel 整体 UI 与主要业务交互保持不变
+
+> Android v1.0.1 仍可继续使用；后续 Android 版本会改为直接读取 Panel 下发的 min_disk_gb。
 
 **由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**

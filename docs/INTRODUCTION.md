@@ -8,8 +8,8 @@ XNAT 将用户、套餐、订单、Host、实例、NAT 端口、流量、生命�
 
 | 组件 | 版本 |
 | --- | --- |
-| XNAT Release | v1.0.2 |
-| XNAT Panel | v1.0.2 |
+| XNAT Release | v1.0.3 |
+| XNAT Panel | v1.0.3 |
 | XNAT Host Agent | v1.0.1 |
 | Agent API | v2 |
 | Mobile API | v1 |
@@ -17,13 +17,13 @@ XNAT 将用户、套餐、订单、Host、实例、NAT 端口、流量、生命�
 
 ## 版本说明
 
-v1.0.2 是一次稳定性、安全性与一致性更新，同时包含正式发布元数据修正。Panel 为 v1.0.2，Host Agent 为 v1.0.1，Agent API 为 v2，Mobile API 保持 v1。
+v1.0.3 是镜像最低系统盘策略与后台配置能力更新。Panel 为 v1.0.3，Host Agent 保持 v1.0.1，Agent API 保持 v2，Mobile API 保持 v1。
 
-本次重点完善开通幂等、任务原子抢占、Host 端口租约、Agent API v2 防重放、TLS 指纹校验、重装失败保护、镜像最低磁盘校验和最小化系统 SSH 兼容性，同时保持现有 Web UI 与主要交互不变。
+系统镜像的最低系统盘现在由 Panel 后台每个镜像自己的 `min_disk_gb` 决定，不再按 Debian / Ubuntu 家族写死。默认 Debian 为 1 GiB、Ubuntu 为 2 GiB、Alpine 为 1 GiB；LXC 直接使用后台配置值，KVM 仅保留 3 GiB 全局技术底线。
 
-Panel v1.0.2 兼容 Agent API v1 / v2，便于分批升级 Host；完整的新安全与幂等能力需要 Host Agent v1.0.1 / Agent API v2。
+Mobile API v1 的 `/api/v1/system-images` 新增 `min_disk_gb` 字段，属于向后兼容的字段扩展。Panel v1.0.3 继续兼容 Agent API v1 / v2。
 
-如果 Host Agent 从 API v1 升级到 API v2，请先确认 Panel 已升级到 v1.0.2，再在对应 Host 执行：
+如果 Host Agent 从 API v1 升级到 API v2，请先确认 Panel 已升级到 v1.0.3，再在对应 Host 执行：
 
 ```bash
 XNAT_ALLOW_AGENT_API_CHANGE=1 xnat
@@ -108,6 +108,17 @@ Ubuntu 26.04 LTS Resolute
 内部容量规划中，LXC 会为 Host 保留约 **4GiB 总空间预算**，KVM / 混合模式约 **6GiB**。LXC 套餐最低可配置到 **1C / 64MB / 128MB**；KVM Guest 保留 **512MB / 4GB** 技术下限。系统镜像自身还可能有更高的最低系统盘要求。
 
 ## 更新记录
+
+### v1.0.3
+
+- 系统镜像最低系统盘改为 Panel 后台逐镜像配置。
+- 默认 Debian 12 / 13 为 1 GiB、Ubuntu 22.04 / 24.04 为 2 GiB、Alpine 3.24 为 1 GiB。
+- LXC 直接使用后台配置；KVM 使用 `max(镜像配置, 3 GiB)`。
+- 系统镜像后台支持编辑最低系统盘，新建镜像时也可指定。
+- 旧数据库只执行一次安全迁移，不会持续覆盖管理员自定义值。
+- Mobile API v1 系统镜像响应新增 `min_disk_gb`。
+- v1.0.2 → v1.0.3 标记为正式验证的直接升级路径。
+- Host Agent、Agent API 与 Panel 整体 UI 保持不变。
 
 ### v1.0.2
 
