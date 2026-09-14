@@ -5,3 +5,4 @@ background workers share the same behavior without changing the UI layer.
 """
 
 # Release 1.0.2 keeps presentation concerns outside this package.
+# Shared services are the compatibility boundary for Web, Mobile and workers.
