@@ -4732,7 +4732,7 @@ def admin_backup_download(request:Request,backup_name:str):
 def health():
     return {
         "status": "ok",
-        "version": "1.0.8",
+        "version": "1.0.9",
         "provider": PROVIDER_NAME,
         "timezone": APP_TIMEZONE,
     }
