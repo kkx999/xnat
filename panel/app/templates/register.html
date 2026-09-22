@@ -1,14 +1,15 @@
-{% extends "base.html" %}
+{% extends "auth_base.html" %}
 {% block title %}注册 · {{ app_name }}{% endblock %}
-{% block content %}
-<div class="authbox">
-  <h1>创建账号</h1>
-  <form method="post" action="/register">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <label>用户名<input name="username" minlength="3" maxlength="32" required></label>
-    <label>邮箱<input name="email" type="email" required></label>
-    <label>密码<input name="password" type="password" minlength="10" required></label>
-    <button class="btn wide" type="submit">注册</button>
-  </form>
-</div>
+{% block auth_kicker %}CREATE ACCOUNT{% endblock %}
+{% block auth_heading %}创建 XNAT 账号{% endblock %}
+{% block auth_description %}完成注册后即可购买并管理你的 NAT VPS。{% endblock %}
+{% block auth_content %}
+<form class="auth-v106-form" method="post" action="/register">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label><span>用户名</span><div class="auth-v106-input"><input name="username" minlength="3" maxlength="32" autocomplete="username" placeholder="3–32 个字符" required autofocus></div></label>
+  <label><span>邮箱</span><div class="auth-v106-input"><input name="email" type="email" autocomplete="email" placeholder="name@example.com" required></div></label>
+  <label><span>密码</span><div class="auth-v106-input auth-v106-password"><input name="password" type="password" minlength="10" autocomplete="new-password" placeholder="至少 10 个字符" required><button type="button" data-auth-password-toggle aria-label="显示密码" aria-pressed="false">显示</button></div></label>
+  <button class="auth-v106-primary" type="submit" data-loading-label="正在创建…"><span>创建账号</span><i>→</i></button>
+</form>
+<div class="auth-v106-links auth-v106-links-single"><span>已有账号？<a href="/login">返回登录</a></span></div>
 {% endblock %}
