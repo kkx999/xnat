@@ -10722,3 +10722,973 @@ html[data-client-theme="light"] body.client-body .server-renew-chevron{color:#88
   .auth-card-footer{margin:18px -20px -24px;padding:0 20px}
   .auth-card-modern h1{font-size:27px}
 }
+
+
+/* ==========================================================================
+   Admin / Client visual unification
+   Same XNAT visual language, denser information hierarchy for administration.
+   ========================================================================== */
+body.admin-body{
+  --admin-motion-fast:140ms;
+  --admin-motion:220ms;
+  --admin-ease:cubic-bezier(.2,.78,.2,1);
+  --admin-control-h:40px;
+  --admin-control-radius:10px;
+
+  /* Mirror the customer-area palette instead of maintaining a second product. */
+  --admin-bg:#081225;
+  --admin-bg-2:#07101f;
+  --admin-surface:#101b30;
+  --admin-surface-soft:#0d182a;
+  --admin-surface-raised:#13223a;
+  --admin-line:#263955;
+  --admin-line-strong:#355477;
+  --admin-text:#edf4ff;
+  --admin-text-strong:#f5f8ff;
+  --admin-muted:#8294ae;
+  --admin-faint:#6e819d;
+  --admin-accent:#5b96d2;
+  --admin-accent-hover:#6ba3dc;
+  --admin-accent-soft:#142945;
+  --admin-good:#67c99e;
+  --admin-warn:#dcb96e;
+  --admin-bad:#df8c98;
+
+  background:var(--admin-bg)!important;
+  color:var(--admin-text)!important;
+  -webkit-tap-highlight-color:transparent;
+}
+
+body.admin-body .admin-shell{
+  background:linear-gradient(135deg,#10213d 0%,#09162b 42%,#07101f 100%)!important;
+}
+body.admin-body .admin-main{
+  background:
+    radial-gradient(circle at 18% 0%,rgba(38,84,146,.18),transparent 28%),
+    linear-gradient(135deg,#0d1d36 0%,#081426 52%,#07101e 100%)!important;
+  color:var(--admin-text)!important;
+}
+body.admin-body .admin-topbar{
+  border-bottom-color:#253754!important;
+}
+
+/* Sidebar follows the same material and active-state language as customer UI. */
+body.admin-body .admin-sidebar{
+  background:
+    radial-gradient(circle at 18% 0%,rgba(38,84,146,.09),transparent 28%),
+    #0c1525!important;
+  border-right:1px solid #263955!important;
+}
+body.admin-body .admin-brand,
+body.admin-body .admin-sidebar-bottom{
+  border-color:#263955!important;
+}
+body.admin-body .brand-mark,
+body.admin-body .admin-user-avatar{
+  background:linear-gradient(145deg,#315f98,#244878)!important;
+  color:#f4f8ff!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.10),0 7px 20px rgba(0,0,0,.12)!important;
+}
+body.admin-body .admin-nav-collapsible .admin-dashboard-link,
+body.admin-body .admin-nav-group>summary,
+body.admin-body .admin-nav-group-items a{
+  border-radius:12px!important;
+  transition:
+    transform var(--admin-motion) var(--admin-ease),
+    background-color var(--admin-motion) var(--admin-ease),
+    border-color var(--admin-motion) var(--admin-ease),
+    color var(--admin-motion-fast) ease,
+    box-shadow var(--admin-motion) var(--admin-ease)!important;
+}
+body.admin-body .admin-nav-collapsible .admin-dashboard-link:hover,
+body.admin-body .admin-nav-group>summary:hover,
+body.admin-body .admin-nav-group-items a:hover{
+  transform:translateX(2px);
+  background:#142945!important;
+  border-color:#315274!important;
+  color:#f0f6ff!important;
+  box-shadow:0 7px 18px rgba(0,0,0,.10)!important;
+}
+body.admin-body .admin-nav-collapsible .admin-dashboard-link.active,
+body.admin-body .admin-nav-group-items a.active,
+body.admin-body .admin-nav-group[open]>summary{
+  transform:none!important;
+  background:linear-gradient(100deg,rgba(57,111,190,.42),rgba(32,70,123,.24) 72%,rgba(21,46,81,.15))!important;
+  border-color:rgba(92,150,226,.52)!important;
+  color:#f3f8ff!important;
+  box-shadow:0 8px 22px rgba(13,41,78,.20),inset 0 1px 0 rgba(255,255,255,.035)!important;
+}
+
+/* All panels/cards use the same customer-facing blue-glass surface. */
+body.admin-body .card,
+body.admin-body .admin-card,
+body.admin-body .idc-panel,
+body.admin-body .admin-plan-card,
+body.admin-body .node-admin-card,
+body.admin-body .admin-inline-card,
+body.admin-body .manual-provision-card,
+body.admin-body .site-settings-card,
+body.admin-body .notification-config-card,
+body.admin-body .settings-section,
+body.admin-body .admin-create-box,
+body.admin-body .node-create-box,
+body.admin-body .backup-list article,
+body.admin-body .backup-restore-preview,
+body.admin-body .payment-chain-card,
+body.admin-body .operations-policy-card,
+body.admin-body .homepage-settings-group,
+body.admin-body .v112-server-card,
+body.admin-body .admin-ticket-card{
+  border:1px solid var(--admin-line)!important;
+  border-radius:14px!important;
+  background:
+    linear-gradient(180deg,rgba(18,32,55,.94),rgba(13,26,45,.96))!important;
+  box-shadow:
+    0 10px 28px rgba(0,0,0,.10),
+    inset 0 1px 0 rgba(255,255,255,.025)!important;
+}
+body.admin-body .admin-plan-card:hover,
+body.admin-body .node-admin-card:hover,
+body.admin-body .v112-server-card:hover,
+body.admin-body .admin-ticket-card:hover{
+  transform:translateY(-1px);
+  border-color:var(--admin-line-strong)!important;
+  box-shadow:0 12px 30px rgba(0,0,0,.14)!important;
+}
+body.admin-body .admin-plan-card,
+body.admin-body .node-admin-card,
+body.admin-body .v112-server-card,
+body.admin-body .admin-ticket-card{
+  transition:
+    transform .18s ease,
+    border-color .18s ease,
+    box-shadow .18s ease,
+    background-color .18s ease!important;
+}
+
+/* Nested surfaces stay quieter, like frontend detail cards. */
+body.admin-body .node-edit-details,
+body.admin-body .node-plan-details,
+body.admin-body .admin-delete-details,
+body.admin-body .admin-traffic-manage,
+body.admin-body .admin-expiry-details,
+body.admin-body .panel-details,
+body.admin-body .v112-tool-panel,
+body.admin-body .node-info-details,
+body.admin-body .node-maintenance-control,
+body.admin-body .deployment-status-grid>div,
+body.admin-body .env-status-grid>div,
+body.admin-body .homepage-cms-items>div{
+  border-color:#263955!important;
+  background:#0d182a!important;
+  box-shadow:none!important;
+}
+
+/* Typography mirrors the customer hierarchy. */
+body.admin-body .eyebrow{
+  color:#8fbcff!important;
+  letter-spacing:.13em!important;
+}
+body.admin-body .admin-topbar h1,
+body.admin-body .admin-heading h1,
+body.admin-body h2,
+body.admin-body h3,
+body.admin-body h4{
+  color:var(--admin-text-strong)!important;
+}
+body.admin-body .admin-section-intro,
+body.admin-body .admin-heading p,
+body.admin-body .result-meta,
+body.admin-body .small-muted,
+body.admin-body .muted,
+body.admin-body .field-hint{
+  color:var(--admin-muted)!important;
+}
+
+/* Form controls use customer-area focus behavior and geometry. */
+body.admin-body input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+body.admin-body select{
+  min-height:var(--admin-control-h)!important;
+  height:var(--admin-control-h)!important;
+  margin:0!important;
+  padding:0 12px!important;
+  border:1px solid #2c4260!important;
+  border-radius:var(--admin-control-radius)!important;
+  background:#0c1728!important;
+  color:#eef5ff!important;
+  box-sizing:border-box!important;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.035)!important;
+  transition:
+    border-color var(--admin-motion-fast) ease,
+    box-shadow var(--admin-motion) var(--admin-ease),
+    background-color var(--admin-motion) ease!important;
+}
+body.admin-body textarea{
+  border:1px solid #2c4260!important;
+  border-radius:var(--admin-control-radius)!important;
+  background:#0c1728!important;
+  color:#eef5ff!important;
+  padding:11px 12px!important;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.035)!important;
+  transition:border-color var(--admin-motion-fast) ease,box-shadow var(--admin-motion) var(--admin-ease)!important;
+}
+body.admin-body input::placeholder,
+body.admin-body textarea::placeholder{
+  color:#687b95!important;
+  opacity:1!important;
+}
+body.admin-body input:focus,
+body.admin-body select:focus,
+body.admin-body textarea:focus{
+  border-color:#5f91c9!important;
+  box-shadow:0 0 0 3px rgba(84,139,201,.10),0 7px 20px rgba(0,0,0,.055)!important;
+  outline:none!important;
+}
+body.admin-body label{
+  color:#9eb0c7!important;
+}
+body.admin-body label>small,
+body.admin-body form small{
+  color:#6f829a!important;
+}
+
+/* One button system. Default = secondary, primary is opt-in/contextual. */
+body.admin-body button:not(.admin-theme-toggle):not(.announcement-close):not(.xnat-confirm-close),
+body.admin-body .btn{
+  min-height:var(--admin-control-h)!important;
+  height:var(--admin-control-h)!important;
+  margin:0!important;
+  padding:0 15px!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  gap:7px!important;
+  border:1px solid #304a68!important;
+  border-radius:var(--admin-control-radius)!important;
+  background:#142238!important;
+  color:#9fbfe1!important;
+  font-size:10px!important;
+  font-weight:780!important;
+  line-height:1!important;
+  white-space:nowrap!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.025)!important;
+  filter:none!important;
+  transition:
+    transform var(--admin-motion-fast) var(--admin-ease),
+    background-color var(--admin-motion) var(--admin-ease),
+    border-color var(--admin-motion) var(--admin-ease),
+    color var(--admin-motion-fast) ease,
+    box-shadow var(--admin-motion) var(--admin-ease)!important;
+}
+body.admin-body button:not(.admin-theme-toggle):not(.announcement-close):not(.xnat-confirm-close):hover,
+body.admin-body .btn:hover{
+  background:#1a3150!important;
+  border-color:#446c98!important;
+  color:#e5f2ff!important;
+  box-shadow:0 7px 18px rgba(0,0,0,.11)!important;
+  filter:none!important;
+}
+body.admin-body button:not(.admin-theme-toggle):not(.announcement-close):not(.xnat-confirm-close):active,
+body.admin-body .btn:active{
+  transform:translateY(1px) scale(.985);
+  transition-duration:70ms!important;
+}
+body.admin-body button:disabled,
+body.admin-body .btn:disabled{
+  opacity:.46!important;
+  cursor:not-allowed!important;
+  transform:none!important;
+}
+
+/* Primary actions are softer customer-style blue, never giant flat blocks. */
+body.admin-body .admin-primary-action,
+body.admin-body .primary-admin-action,
+body.admin-body .admin-search button,
+body.admin-body .plan-edit-actions button,
+body.admin-body .settings-save-row button,
+body.admin-body .manual-provision-card>button,
+body.admin-body .admin-inline-card>button,
+body.admin-body .ticket-submit-button,
+body.admin-body .backup-upload-submit,
+body.admin-body .payment-repair-verify button{
+  border-color:#5487bf!important;
+  background:linear-gradient(180deg,#4d87c3 0%,#4077b1 100%)!important;
+  color:#f7fbff!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 7px 18px rgba(25,72,119,.16)!important;
+}
+body.admin-body .admin-primary-action:hover,
+body.admin-body .primary-admin-action:hover,
+body.admin-body .admin-search button:hover,
+body.admin-body .plan-edit-actions button:hover,
+body.admin-body .settings-save-row button:hover,
+body.admin-body .manual-provision-card>button:hover,
+body.admin-body .admin-inline-card>button:hover,
+body.admin-body .ticket-submit-button:hover,
+body.admin-body .backup-upload-submit:hover,
+body.admin-body .payment-repair-verify button:hover{
+  border-color:#6598cf!important;
+  background:linear-gradient(180deg,#5b94cf 0%,#4981ba 100%)!important;
+  color:#fff!important;
+}
+
+/* Compact actions inside data tables stay compact. */
+body.admin-body table button:not(.balance-action-button),
+body.admin-body .admin-compact-save,
+body.admin-body .tiny-action,
+body.admin-body .node-card-actions button,
+body.admin-body .v112-inline-action{
+  min-height:34px!important;
+  height:34px!important;
+  padding:0 11px!important;
+  border-radius:9px!important;
+  font-size:9px!important;
+}
+body.admin-body .admin-compact-form{
+  display:inline-flex!important;
+  align-items:center!important;
+  gap:7px!important;
+  margin:0!important;
+}
+body.admin-body .admin-compact-form input{
+  width:92px!important;
+  min-height:34px!important;
+  height:34px!important;
+  border-radius:9px!important;
+}
+
+/* State-changing controls are semantic but restrained. */
+body.admin-body .admin-state-action.disable,
+body.admin-body button.danger,
+body.admin-body .danger-button,
+body.admin-body .danger-lite,
+body.admin-body .announcement-delete-button,
+body.admin-body .backup-action-button.delete{
+  border-color:#68404a!important;
+  background:#29191f!important;
+  color:#efb4bd!important;
+  box-shadow:none!important;
+}
+body.admin-body .admin-state-action.disable:hover,
+body.admin-body button.danger:hover,
+body.admin-body .danger-button:hover,
+body.admin-body .danger-lite:hover,
+body.admin-body .announcement-delete-button:hover,
+body.admin-body .backup-action-button.delete:hover{
+  border-color:#86515d!important;
+  background:#38232b!important;
+  color:#ffd8de!important;
+}
+body.admin-body .admin-state-action.enable{
+  border-color:#376b59!important;
+  background:#143027!important;
+  color:#9ad9bd!important;
+}
+body.admin-body .admin-state-action.enable:hover{
+  border-color:#4b876f!important;
+  background:#193c30!important;
+  color:#c3f1dc!important;
+}
+
+/* User balance cluster resembles a compact customer control group. */
+body.admin-body .balance-action-form{
+  width:max-content!important;
+  display:grid!important;
+  grid-template-columns:92px auto!important;
+  gap:7px!important;
+  align-items:center!important;
+}
+body.admin-body .balance-action-amount{
+  margin:0!important;
+}
+body.admin-body .balance-action-amount input{
+  width:92px!important;
+  height:34px!important;
+  min-height:34px!important;
+  padding:0 9px!important;
+  border-radius:9px!important;
+}
+body.admin-body .balance-action-buttons{
+  width:max-content!important;
+  display:grid!important;
+  grid-template-columns:repeat(2,82px)!important;
+  gap:6px!important;
+}
+body.admin-body .balance-action-button{
+  width:82px!important;
+  height:34px!important;
+  min-height:34px!important;
+  padding:0 8px!important;
+  border-radius:9px!important;
+  font-size:9px!important;
+}
+body.admin-body .balance-action-button.credit{
+  border-color:#315878!important;
+  background:#172d43!important;
+  color:#b9d7f2!important;
+}
+body.admin-body .balance-action-button.debit{
+  border-color:#70414a!important;
+  background:#2e1e25!important;
+  color:#efb8c0!important;
+}
+
+/* Search bars match frontend toolbars. */
+body.admin-body .admin-search{
+  width:min(760px,100%)!important;
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) auto auto!important;
+  gap:9px!important;
+  align-items:center!important;
+  margin:0 0 14px!important;
+}
+body.admin-body .admin-search input{
+  width:100%!important;
+  max-width:none!important;
+}
+body.admin-body .admin-search button{
+  min-width:90px!important;
+}
+body.admin-body .admin-search>a{
+  min-height:40px!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  padding:0 12px!important;
+  border:1px solid #304a68!important;
+  border-radius:10px!important;
+  background:#142238!important;
+  color:#9fbfe1!important;
+  text-decoration:none!important;
+}
+body.admin-body .admin-search>a:hover{
+  background:#1a3150!important;
+  border-color:#446c98!important;
+  color:#e5f2ff!important;
+}
+
+/* Fix the system-images form: three fields + action belong to one row. */
+body.admin-body .admin-inline-card{
+  grid-template-columns:
+    minmax(170px,.85fr)
+    minmax(250px,1.45fr)
+    minmax(150px,.65fr)
+    auto!important;
+  gap:12px!important;
+  align-items:end!important;
+  padding:16px!important;
+}
+body.admin-body .admin-inline-card label{
+  display:flex!important;
+  flex-direction:column!important;
+  gap:6px!important;
+  min-width:0!important;
+  min-height:0!important;
+  margin:0!important;
+  font-size:10px!important;
+  font-weight:700!important;
+  line-height:1.2!important;
+}
+body.admin-body .admin-inline-card label>input,
+body.admin-body .admin-inline-card label>select{
+  width:100%!important;
+}
+body.admin-body .admin-inline-card>button{
+  min-width:112px!important;
+  margin:0!important;
+}
+
+/* Manual provision mirrors the same single-row toolbar structure. */
+body.admin-body .manual-provision-card{
+  grid-template-columns:minmax(220px,1.15fr) minmax(180px,1fr) minmax(180px,1fr) auto!important;
+  gap:12px!important;
+  align-items:end!important;
+  padding:16px!important;
+}
+body.admin-body .manual-provision-card label{
+  display:flex!important;
+  flex-direction:column!important;
+  gap:6px!important;
+  min-width:0!important;
+  margin:0!important;
+  font-size:10px!important;
+  font-weight:700!important;
+}
+body.admin-body .manual-provision-card>button{
+  min-width:132px!important;
+}
+
+/* Plan actions use the same pair geometry as frontend renewal controls. */
+body.admin-body .admin-plan-actions-row{
+  min-height:58px!important;
+  padding-top:14px!important;
+  gap:9px!important;
+  border-top-color:#263955!important;
+}
+body.admin-body .admin-plan-actions-row button{
+  width:auto!important;
+  min-width:124px!important;
+  min-height:40px!important;
+  height:40px!important;
+  padding:0 15px!important;
+}
+body.admin-body .admin-plan-actions-row .secondary-admin-btn{
+  background:#142238!important;
+  border-color:#304a68!important;
+  color:#9fbfe1!important;
+}
+
+/* Create/fold surfaces behave like customer detail sections. */
+body.admin-body .admin-create-box,
+body.admin-body .node-create-box{
+  padding:0!important;
+  overflow:hidden!important;
+}
+body.admin-body .admin-create-box>summary,
+body.admin-body .node-create-box>summary{
+  min-height:58px!important;
+  display:flex!important;
+  align-items:center!important;
+  padding:0 16px!important;
+  border-radius:13px!important;
+  color:#dbe8f7!important;
+  font-size:12px!important;
+  font-weight:780!important;
+  list-style:none!important;
+  cursor:pointer!important;
+  transition:background-color var(--admin-motion) var(--admin-ease),color var(--admin-motion-fast) ease!important;
+}
+body.admin-body .admin-create-box>summary:hover,
+body.admin-body .node-create-box>summary:hover{
+  background:rgba(44,86,137,.075)!important;
+}
+body.admin-body .admin-create-box[open]>summary,
+body.admin-body .node-create-box[open]>summary{
+  border-bottom:1px solid #263955!important;
+}
+body.admin-body .admin-create-box>form,
+body.admin-body .node-create-box>form{
+  padding:16px!important;
+}
+
+/* Tables use the same soft card/table treatment as customer area. */
+body.admin-body .table-wrap,
+body.admin-body .client-table-wrap{
+  overflow:hidden!important;
+  border:1px solid #263955!important;
+  border-radius:14px!important;
+  background:#101b30!important;
+  box-shadow:0 10px 28px rgba(0,0,0,.08)!important;
+}
+body.admin-body table{
+  background:transparent!important;
+}
+body.admin-body table thead{
+  background:#0d182a!important;
+}
+body.admin-body th{
+  height:42px!important;
+  padding:0 14px!important;
+  color:#8397b2!important;
+  border-bottom:1px solid #29405f!important;
+  font-size:9.5px!important;
+  font-weight:760!important;
+  vertical-align:middle!important;
+}
+body.admin-body td{
+  padding:11px 14px!important;
+  color:#dbe5f2!important;
+  border-bottom:1px solid #223650!important;
+  vertical-align:middle!important;
+}
+body.admin-body tbody tr{
+  background:#101b30!important;
+  transition:background-color .16s ease!important;
+}
+body.admin-body tbody tr:nth-child(even){
+  background:#0f1a2d!important;
+}
+body.admin-body tbody tr:hover{
+  background:#14243b!important;
+}
+
+/* Pagination is a small client-style control group. */
+body.admin-body .pagination{
+  display:flex!important;
+  align-items:center!important;
+  gap:8px!important;
+  margin-top:12px!important;
+}
+body.admin-body .pagination>a,
+body.admin-body .pagination>span.disabled{
+  min-height:34px!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  padding:0 11px!important;
+  border:1px solid #304a68!important;
+  border-radius:9px!important;
+  background:#142238!important;
+  color:#9fbfe1!important;
+  text-decoration:none!important;
+  font-size:9px!important;
+}
+body.admin-body .pagination>a:hover{
+  background:#1a3150!important;
+  border-color:#446c98!important;
+  color:#e5f2ff!important;
+}
+body.admin-body .pagination>span.disabled{
+  opacity:.42!important;
+}
+body.admin-body .pagination>span:not(.disabled){
+  color:#8294ae!important;
+  font-size:9px!important;
+}
+
+/* Settings/folds inherit frontend hover behavior. */
+body.admin-body .settings-fold>.settings-section-head,
+body.admin-body .admin-record-fold>summary,
+body.admin-body .notification-admin-fold>summary{
+  transition:background-color var(--admin-motion) var(--admin-ease),border-color var(--admin-motion) var(--admin-ease)!important;
+}
+body.admin-body .settings-fold>.settings-section-head:hover,
+body.admin-body .admin-record-fold>summary:hover,
+body.admin-body .notification-admin-fold>summary:hover{
+  background:rgba(44,86,137,.065)!important;
+}
+
+/* Strong keyboard focus matches customer area. */
+body.admin-body :is(a,button,input,select,textarea,summary):focus-visible{
+  outline:2px solid rgba(94,157,232,.82)!important;
+  outline-offset:2px!important;
+}
+
+/* Light admin = same softened paper system as light customer pages. */
+html[data-admin-theme="light"] body.admin-body{
+  --admin-bg:#edf2f7;
+  --admin-bg-2:#e9eff5;
+  --admin-surface:#f8fafc;
+  --admin-surface-soft:#f1f5f9;
+  --admin-surface-raised:#fbfcfd;
+  --admin-line:#cbd7e3;
+  --admin-line-strong:#b9c9d9;
+  --admin-text:#1e2c3d;
+  --admin-text-strong:#1d2b3d;
+  --admin-muted:#5d6f83;
+  --admin-faint:#617386;
+  --admin-accent:#4f87c2;
+  background:var(--admin-bg)!important;
+  color:var(--admin-text)!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-shell{
+  background:var(--admin-bg)!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-main{
+  background:
+    radial-gradient(circle at 84% 0%,rgba(81,132,190,.055),transparent 30%),
+    linear-gradient(180deg,#edf2f7 0%,#e9eff5 100%)!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-sidebar{
+  background:
+    radial-gradient(circle at 18% 0%,rgba(72,124,184,.055),transparent 29%),
+    linear-gradient(180deg,#f4f7fa 0%,#eef3f7 60%,#eaf0f5 100%)!important;
+  border-right-color:#cbd7e3!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-brand,
+html[data-admin-theme="light"] body.admin-body .admin-sidebar-bottom,
+html[data-admin-theme="light"] body.admin-body .admin-topbar{
+  border-color:#cbd7e3!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-nav-collapsible .admin-dashboard-link:hover,
+html[data-admin-theme="light"] body.admin-body .admin-nav-group>summary:hover,
+html[data-admin-theme="light"] body.admin-body .admin-nav-group-items a:hover{
+  background:linear-gradient(100deg,#edf5fd,#e6f0fb)!important;
+  border-color:#bfd3e8!important;
+  color:#244d78!important;
+  box-shadow:0 7px 18px rgba(48,92,142,.08)!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-nav-collapsible .admin-dashboard-link.active,
+html[data-admin-theme="light"] body.admin-body .admin-nav-group-items a.active,
+html[data-admin-theme="light"] body.admin-body .admin-nav-group[open]>summary{
+  background:linear-gradient(100deg,rgba(76,142,228,.18),rgba(119,174,238,.10) 72%,rgba(255,255,255,.18))!important;
+  border-color:#a9c9ed!important;
+  color:#1d5f9f!important;
+  box-shadow:0 8px 22px rgba(48,104,173,.10),inset 0 1px 0 rgba(255,255,255,.72)!important;
+}
+
+html[data-admin-theme="light"] body.admin-body .card,
+html[data-admin-theme="light"] body.admin-body .admin-card,
+html[data-admin-theme="light"] body.admin-body .idc-panel,
+html[data-admin-theme="light"] body.admin-body .admin-plan-card,
+html[data-admin-theme="light"] body.admin-body .node-admin-card,
+html[data-admin-theme="light"] body.admin-body .admin-inline-card,
+html[data-admin-theme="light"] body.admin-body .manual-provision-card,
+html[data-admin-theme="light"] body.admin-body .site-settings-card,
+html[data-admin-theme="light"] body.admin-body .notification-config-card,
+html[data-admin-theme="light"] body.admin-body .settings-section,
+html[data-admin-theme="light"] body.admin-body .admin-create-box,
+html[data-admin-theme="light"] body.admin-body .node-create-box,
+html[data-admin-theme="light"] body.admin-body .backup-list article,
+html[data-admin-theme="light"] body.admin-body .v112-server-card,
+html[data-admin-theme="light"] body.admin-body .admin-ticket-card{
+  background:#f8fafc!important;
+  border-color:#cbd7e3!important;
+  box-shadow:0 7px 22px rgba(44,64,88,.045)!important;
+}
+html[data-admin-theme="light"] body.admin-body .node-edit-details,
+html[data-admin-theme="light"] body.admin-body .node-plan-details,
+html[data-admin-theme="light"] body.admin-body .admin-delete-details,
+html[data-admin-theme="light"] body.admin-body .admin-traffic-manage,
+html[data-admin-theme="light"] body.admin-body .admin-expiry-details,
+html[data-admin-theme="light"] body.admin-body .panel-details,
+html[data-admin-theme="light"] body.admin-body .v112-tool-panel,
+html[data-admin-theme="light"] body.admin-body .node-info-details,
+html[data-admin-theme="light"] body.admin-body .node-maintenance-control,
+html[data-admin-theme="light"] body.admin-body .deployment-status-grid>div,
+html[data-admin-theme="light"] body.admin-body .env-status-grid>div,
+html[data-admin-theme="light"] body.admin-body .homepage-cms-items>div{
+  background:#f1f5f9!important;
+  border-color:#cfdbe6!important;
+}
+html[data-admin-theme="light"] body.admin-body input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+html[data-admin-theme="light"] body.admin-body select,
+html[data-admin-theme="light"] body.admin-body textarea{
+  background:#f8fafc!important;
+  border-color:#c4d2df!important;
+  color:#1c2a3a!important;
+  box-shadow:inset 0 1px 2px rgba(37,55,76,.025)!important;
+}
+html[data-admin-theme="light"] body.admin-body input::placeholder,
+html[data-admin-theme="light"] body.admin-body textarea::placeholder{
+  color:#65778b!important;
+}
+html[data-admin-theme="light"] body.admin-body input:focus,
+html[data-admin-theme="light"] body.admin-body select:focus,
+html[data-admin-theme="light"] body.admin-body textarea:focus{
+  background:#fbfcfd!important;
+  border-color:#6f99c7!important;
+  box-shadow:0 0 0 3px rgba(76,126,181,.105)!important;
+}
+html[data-admin-theme="light"] body.admin-body label{
+  color:#5d6f83!important;
+}
+html[data-admin-theme="light"] body.admin-body label>small,
+html[data-admin-theme="light"] body.admin-body form small{
+  color:#617386!important;
+}
+
+html[data-admin-theme="light"] body.admin-body button:not(.admin-theme-toggle):not(.announcement-close):not(.xnat-confirm-close),
+html[data-admin-theme="light"] body.admin-body .btn,
+html[data-admin-theme="light"] body.admin-body .admin-search>a{
+  border-color:#c6d4e1!important;
+  background:#f2f6fa!important;
+  color:#416486!important;
+  box-shadow:none!important;
+}
+html[data-admin-theme="light"] body.admin-body button:not(.admin-theme-toggle):not(.announcement-close):not(.xnat-confirm-close):hover,
+html[data-admin-theme="light"] body.admin-body .btn:hover,
+html[data-admin-theme="light"] body.admin-body .admin-search>a:hover{
+  border-color:#9fb8d2!important;
+  background:#e8f0f8!important;
+  color:#285b8e!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-primary-action,
+html[data-admin-theme="light"] body.admin-body .primary-admin-action,
+html[data-admin-theme="light"] body.admin-body .admin-search button,
+html[data-admin-theme="light"] body.admin-body .plan-edit-actions button,
+html[data-admin-theme="light"] body.admin-body .settings-save-row button,
+html[data-admin-theme="light"] body.admin-body .manual-provision-card>button,
+html[data-admin-theme="light"] body.admin-body .admin-inline-card>button,
+html[data-admin-theme="light"] body.admin-body .ticket-submit-button,
+html[data-admin-theme="light"] body.admin-body .backup-upload-submit,
+html[data-admin-theme="light"] body.admin-body .payment-repair-verify button{
+  border-color:#7aa7d4!important;
+  background:linear-gradient(180deg,#5f95cd 0%,#5085bd 100%)!important;
+  color:#fff!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 6px 16px rgba(45,91,139,.12)!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-state-action.disable,
+html[data-admin-theme="light"] body.admin-body button.danger,
+html[data-admin-theme="light"] body.admin-body .danger-button,
+html[data-admin-theme="light"] body.admin-body .danger-lite,
+html[data-admin-theme="light"] body.admin-body .announcement-delete-button,
+html[data-admin-theme="light"] body.admin-body .backup-action-button.delete{
+  border-color:#dfb8be!important;
+  background:#fff4f5!important;
+  color:#a44d5a!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-state-action.disable:hover,
+html[data-admin-theme="light"] body.admin-body button.danger:hover,
+html[data-admin-theme="light"] body.admin-body .danger-button:hover,
+html[data-admin-theme="light"] body.admin-body .danger-lite:hover{
+  border-color:#d08c97!important;
+  background:#ffecee!important;
+  color:#8f3442!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-state-action.enable{
+  border-color:#b7d7c8!important;
+  background:#edf8f3!important;
+  color:#2d7859!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-state-action.enable:hover{
+  border-color:#96c8ae!important;
+  background:#e3f4ec!important;
+  color:#236849!important;
+}
+
+html[data-admin-theme="light"] body.admin-body .table-wrap,
+html[data-admin-theme="light"] body.admin-body .client-table-wrap{
+  background:#f8fafc!important;
+  border-color:#cbd7e3!important;
+  box-shadow:0 7px 22px rgba(44,64,88,.04)!important;
+}
+html[data-admin-theme="light"] body.admin-body table thead{
+  background:#eef3f8!important;
+}
+html[data-admin-theme="light"] body.admin-body th{
+  color:#5d7085!important;
+  border-bottom-color:#cad6e2!important;
+}
+html[data-admin-theme="light"] body.admin-body td{
+  color:#32465d!important;
+  border-bottom-color:#d9e2eb!important;
+}
+html[data-admin-theme="light"] body.admin-body tbody tr{
+  background:#f8fafc!important;
+}
+html[data-admin-theme="light"] body.admin-body tbody tr:nth-child(even){
+  background:#f3f7fa!important;
+}
+html[data-admin-theme="light"] body.admin-body tbody tr:hover{
+  background:#eaf2fa!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-create-box>summary,
+html[data-admin-theme="light"] body.admin-body .node-create-box>summary{
+  color:#304d69!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-create-box>summary:hover,
+html[data-admin-theme="light"] body.admin-body .node-create-box>summary:hover,
+html[data-admin-theme="light"] body.admin-body .settings-fold>.settings-section-head:hover,
+html[data-admin-theme="light"] body.admin-body .admin-record-fold>summary:hover,
+html[data-admin-theme="light"] body.admin-body .notification-admin-fold>summary:hover{
+  background:rgba(82,131,183,.055)!important;
+}
+
+/* Responsive admin controls: same mobile behavior as frontend, denser content. */
+@media(max-width:980px){
+  body.admin-body .admin-inline-card,
+  body.admin-body .manual-provision-card{
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  }
+  body.admin-body .admin-inline-card>button,
+  body.admin-body .manual-provision-card>button{
+    width:100%!important;
+    min-width:0!important;
+  }
+}
+@media(max-width:760px){
+  body.admin-body .admin-search{
+    grid-template-columns:1fr!important;
+  }
+  body.admin-body .admin-search button,
+  body.admin-body .admin-search>a{
+    width:100%!important;
+  }
+  body.admin-body .admin-inline-card,
+  body.admin-body .manual-provision-card{
+    grid-template-columns:1fr!important;
+  }
+  body.admin-body .balance-action-form{
+    width:100%!important;
+    grid-template-columns:1fr!important;
+  }
+  body.admin-body .balance-action-amount input{
+    width:100%!important;
+  }
+  body.admin-body .balance-action-buttons{
+    width:100%!important;
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  }
+  body.admin-body .balance-action-button{
+    width:100%!important;
+  }
+  body.admin-body .admin-plan-actions-row{
+    align-items:stretch!important;
+    flex-direction:column!important;
+  }
+  body.admin-body .admin-plan-actions-row>button,
+  body.admin-body .admin-plan-actions-row>form,
+  body.admin-body .admin-plan-actions-row>form>button{
+    width:100%!important;
+  }
+}
+@media(prefers-reduced-motion:reduce){
+  body.admin-body *,
+  body.admin-body *::before,
+  body.admin-body *::after{
+    scroll-behavior:auto!important;
+  }
+  body.admin-body .admin-plan-card,
+  body.admin-body .node-admin-card,
+  body.admin-body .v112-server-card,
+  body.admin-body .admin-ticket-card,
+  body.admin-body button,
+  body.admin-body .btn,
+  body.admin-body .admin-nav-group-items a{
+    transition:none!important;
+  }
+}
+
+
+/* Final geometry guards: legacy high-specificity rules must not reintroduce
+   mismatched 42/44px controls inside the unified admin system. */
+body.admin-body .plan-edit-grid label>input,
+body.admin-body .plan-edit-grid label>select,
+body.admin-body .coupon-create-grid label>input,
+body.admin-body .coupon-create-grid label>select,
+body.admin-body .admin-inline-card label>input,
+body.admin-body .admin-inline-card label>select,
+body.admin-body .manual-provision-card label>input,
+body.admin-body .manual-provision-card label>select,
+body.admin-body .settings-fields input,
+body.admin-body .settings-fields select,
+body.admin-body .node-edit-form input,
+body.admin-body .node-edit-form select,
+body.admin-body .node-create-form input,
+body.admin-body .node-create-form select{
+  height:40px!important;
+  min-height:40px!important;
+  border-radius:10px!important;
+}
+body.admin-body .plan-edit-actions button,
+body.admin-body .admin-search input,
+body.admin-body .admin-search button{
+  height:40px!important;
+  min-height:40px!important;
+  border-radius:10px!important;
+}
+body.admin-body .admin-inline-card>button,
+body.admin-body .manual-provision-card>button{
+  height:40px!important;
+  min-height:40px!important;
+}
+html[data-admin-theme="light"] body.admin-body .balance-action-button.credit{
+  border-color:#b6d2ed!important;
+  background:#edf6ff!important;
+  color:#28629b!important;
+}
+html[data-admin-theme="light"] body.admin-body .balance-action-button.debit{
+  border-color:#e7c2c7!important;
+  background:#fff4f5!important;
+  color:#a13d49!important;
+}
+html[data-admin-theme="light"] body.admin-body .balance-action-button.credit:hover{
+  border-color:#8fbbe2!important;
+  background:#e4f2ff!important;
+  color:#1f568d!important;
+}
+html[data-admin-theme="light"] body.admin-body .balance-action-button.debit:hover{
+  border-color:#d9959e!important;
+  background:#ffeaed!important;
+  color:#913541!important;
+}

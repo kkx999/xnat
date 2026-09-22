@@ -275,7 +275,7 @@
               <button class="primary-admin-action" type="submit" form="plan-update-{{ p.id }}">保存套餐</button>
               <form class="inline" method="post" action="/admin/plans/{{ p.id }}/toggle">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button class="secondary-admin-btn" type="submit">{{ "下架套餐" if p.is_active else "重新上架" }}</button>
+                <button class="secondary-admin-btn admin-state-action {{ 'disable' if p.is_active else 'enable' }}" type="submit">{{ "下架套餐" if p.is_active else "重新上架" }}</button>
               </form>
             </div>
           </div>
@@ -319,12 +319,12 @@
           <td>{{ image.id }}</td>
           <td>{{ image.name }}</td>
           <td><code>{{ image.alias }}</code></td>
-          <td><form method="post" action="/admin/system-images/{{ image.id }}/disk" class="inline-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="number" name="min_disk_gb" min="0.125" max="1024" step="0.125" value="{{ image.min_disk_gb }}" style="width:92px" required><button type="submit">保存</button></form></td>
+          <td><form method="post" action="/admin/system-images/{{ image.id }}/disk" class="inline-form admin-compact-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="number" name="min_disk_gb" min="0.125" max="1024" step="0.125" value="{{ image.min_disk_gb }}" style="width:92px" required><button class="admin-compact-save" type="submit">保存</button></form></td>
           <td>{{ "启用" if image.is_active else "停用" }}</td>
           <td>
             <form method="post" action="/admin/system-images/{{ image.id }}/toggle">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <button type="submit">{{ "停用" if image.is_active else "启用" }}</button>
+              <button class="admin-state-action {{ 'disable' if image.is_active else 'enable' }}" type="submit">{{ "停用" if image.is_active else "启用" }}</button>
             </form>
           </td>
         </tr>
@@ -338,7 +338,7 @@
         <label>系统名称<input name="name" placeholder="例如 Debian 14" required></label>
         <label>Incus 镜像别名<input name="alias" placeholder="images:debian/14" required></label>
         <label>最低系统盘 (GiB)<input type="number" name="min_disk_gb" min="0.125" max="1024" step="0.125" value="1" required></label>
-        <button type="submit">添加系统</button>
+        <button class="admin-primary-action" type="submit">添加系统</button>
       </form>
 
     {% elif section == "coupons" %}
@@ -366,7 +366,7 @@
           <td>
             <form method="post" action="/admin/coupons/{{ c.id }}/toggle">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <button type="submit">{{ "停用" if c.is_active else "启用" }}</button>
+              <button class="admin-state-action {{ 'disable' if c.is_active else 'enable' }}" type="submit">{{ "停用" if c.is_active else "启用" }}</button>
             </form>
           </td>
         </tr>
@@ -491,7 +491,7 @@
           </select>
         </label>
 
-        <button type="submit">免费开通 VPS</button>
+        <button class="admin-primary-action" type="submit">免费开通 VPS</button>
       </form>
 
     {% elif section == "servers" %}
