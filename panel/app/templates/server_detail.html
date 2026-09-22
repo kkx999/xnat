@@ -199,17 +199,27 @@ html[data-client-theme="light"] body.client-body .client-port-row em{color:#7486
   </div>
 </section>
 
-<section class="client-panel server-renew-panel">
+<section class="client-panel server-renew-panel server-renew-panel-v106">
   <div class="renew-expiry-copy">
     <span>到期时间</span>
     <strong class="{% if server.expires_at and server.expires_at <= now %}expired{% endif %}">{{ local_dt(server.expires_at).strftime("%Y-%m-%d %H:%M") if server.expires_at else "-" }}</strong>
     <small>续费价格 {{ money(server.monthly_price_cents) }} / 30 天 · <em class="lifecycle-pill {{ lifecycle.code }}">{{ lifecycle.label }}</em></small>
     {% if lifecycle.code == 'grace' and lifecycle.grace_end %}<small>宽限结束：{{ local_dt(lifecycle.grace_end).strftime("%Y-%m-%d %H:%M") }}</small>{% endif %}
   </div>
-  <form method="post" action="/servers/{{ server.id }}/renew">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <button type="submit" data-loading-label="正在续费…">续费 30 天 · {{ money(server.monthly_price_cents) }}</button>
-  </form>
+  <div class="renew-actions-v106">
+    <form class="server-auto-renew-form" method="post" action="/servers/{{ server.id }}/auto-renew" data-auto-renew-form>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="server-auto-renew-row">
+        <span class="server-auto-renew-copy"><strong>自动续费</strong><small data-auto-renew-status>{% if server.auto_renew %}已开启 · 到期前 24 小时自动续费{% else %}已关闭 · 手动续费不受影响{% endif %}</small></span>
+        <input class="server-auto-renew-input" type="checkbox" name="enabled" value="true" {% if server.auto_renew %}checked{% endif %} aria-label="自动续费">
+        <span class="server-auto-renew-switch" aria-hidden="true"><i></i></span>
+      </label>
+    </form>
+    <form class="server-manual-renew-form" method="post" action="/servers/{{ server.id }}/renew">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" data-loading-label="正在续费…">续费 30 天 · {{ money(server.monthly_price_cents) }}</button>
+    </form>
+  </div>
 </section>
 
 <section class="client-panel">
@@ -290,7 +300,11 @@ html[data-client-theme="light"] body.client-body .client-port-row em{color:#7486
     <span class="detail-summary-action">展开</span>
   </summary>
   <div class="client-detail-body">
-    <div class="client-danger-note">重装会清空实例内全部数据；永久删除实例后无法恢复。</div>
+    <div class="danger-machine-id-v106">
+      <div><span>当前机器编号</span><strong>{{ server_display_id(server) }}</strong></div>
+      <button type="button" data-machine-copy="{{ server_display_id(server) }}" aria-label="复制机器编号 {{ server_display_id(server) }}">复制编号</button>
+    </div>
+    <div class="client-danger-note">重装会清空宿主机实例内全部数据；永久删除只清理 XNAT Panel 记录、映射端口与保存的敏感信息，不会连接 Host Agent。</div>
     <div class="client-danger-grid">
       <form method="post" action="/servers/{{ server.id }}/reinstall">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -309,7 +323,7 @@ html[data-client-theme="light"] body.client-body .client-port-row em{color:#7486
       <form method="post" action="/servers/{{ server.id }}/delete">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <h3>永久删除实例</h3>
-        <p>删除后服务器、映射端口和数据都不可恢复。</p>
+        <p>删除后 Panel 中的服务器记录和映射端口不可恢复；宿主机上的实际实例不会被删除。</p>
         <label>输入服务器编号确认<input name="confirm_name" placeholder="{{ server_display_id(server) }}" required></label>
         <button class="danger" type="submit" data-loading-label="正在提交删除…">永久删除实例</button>
       </form>
