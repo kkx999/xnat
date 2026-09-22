@@ -40,6 +40,7 @@ SCHEMA_EXTENSIONS: dict[str, dict[str, str]] = {
     "servers": {
         "traffic_cycle_mode": "VARCHAR(24) NOT NULL DEFAULT 'rolling30'",
         "traffic_cycle_day": "INTEGER NOT NULL DEFAULT 1",
+        "auto_renew": "BOOLEAN NOT NULL DEFAULT 0",
         "expiry_suspended_at": "DATETIME",
         "expiry_delete_queued_at": "DATETIME",
         "virtualization_type": "VARCHAR(16) NOT NULL DEFAULT 'lxc'",

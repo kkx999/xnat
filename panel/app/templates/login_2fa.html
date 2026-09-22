@@ -1,7 +1,37 @@
 {% extends "base.html" %}
 {% block title %}两步验证 · {{ app_name }}{% endblock %}
 {% block content %}
-<div class="auth-shell"><section class="auth-card compact-auth"><span class="eyebrow">SECURITY</span><h1>两步验证</h1><p>账号 {{ pending_username }} 已启用 2FA，请输入身份验证器中的 6 位验证码。</p>
-<form method="post" action="/login/2fa"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>验证码<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="000000" required autofocus></label><button class="btn wide" type="submit">继续登录</button></form>
-<a class="auth-back" href="/login">返回登录</a></section></div>
+<div class="auth-experience">
+  <section class="auth-visual" aria-hidden="true">
+    <div class="auth-visual-grid"></div>
+    <div class="auth-brand-lockup"><span class="auth-brand-mark">N</span><div><strong>XNAT</strong><small>Multi-Node NAT VPS Platform</small></div></div>
+    <div class="auth-visual-copy"><span class="auth-kicker">CONTROL PLANE</span><h2>一套更清晰的<br>云服务管理体验</h2><p>节点、实例、流量与账务集中管理，保持简单，也保持可控。</p></div>
+    <div class="auth-console-preview">
+      <div class="auth-preview-head"><span></span><span></span><span></span><em>LIVE INFRASTRUCTURE</em></div>
+      <div class="auth-preview-body">
+        <div class="auth-preview-metric"><small>节点状态</small><strong>ONLINE</strong><i class="online"></i></div>
+        <div class="auth-preview-metric"><small>网络流量</small><strong>2.48 TB</strong><i></i></div>
+        <div class="auth-preview-server"><span><b>TYO-0008</b><small>Tokyo · LXC</small></span><em>RUNNING</em></div>
+        <div class="auth-preview-server"><span><b>HKG-0012</b><small>Hong Kong · KVM</small></span><em>RUNNING</em></div>
+      </div>
+    </div>
+    <div class="auth-orb auth-orb-one"></div><div class="auth-orb auth-orb-two"></div>
+  </section>
+  <section class="auth-form-side">
+    <div class="auth-form-wrap">
+      <div class="auth-mobile-brand"><span class="auth-brand-mark">N</span><div><strong>XNAT</strong><small>Secure Control Plane</small></div></div>
+      <div class="auth-card-modern">
+        <span class="auth-card-kicker">SECURITY CHECK</span>
+        <h1>两步验证</h1>
+        <p class="auth-card-desc">账号 {{ pending_username }} 已启用 2FA，请输入身份验证器中的 6 位验证码。</p>
+        <form class="auth-modern-form" method="post" action="/login/2fa">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label><span>验证码</span><input class="auth-code-input" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="000000" required autofocus></label>
+          <button class="auth-primary-button" type="submit" data-loading-label="正在验证…">继续登录</button>
+        </form>
+        <div class="auth-card-footer"><a href="/login">← 返回登录</a></div>
+      </div>
+    </div>
+  </section>
+</div>
 {% endblock %}

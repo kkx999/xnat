@@ -333,10 +333,13 @@
     const value = button.getAttribute("data-copy-value") || "";
     if (!value) return;
     const original = button.textContent;
+    const successLabel = button.getAttribute("data-copy-success-label") || "✓ 已复制";
+    const toastMessage = button.getAttribute("data-copy-toast") || "信息已复制";
     try {
       await navigator.clipboard.writeText(value);
       button.classList.add("copied");
-      showTransientToast("密码 / 信息已复制");
+      button.textContent = successLabel;
+      showTransientToast(toastMessage);
     } catch (_) {
       const input = document.createElement("textarea");
       input.value = value;
@@ -347,12 +350,60 @@
       document.execCommand("copy");
       input.remove();
       button.classList.add("copied");
-      showTransientToast("密码 / 信息已复制");
+      button.textContent = successLabel;
+      showTransientToast(toastMessage);
     }
     window.setTimeout(() => {
       button.textContent = original;
       button.classList.remove("copied");
     }, 1300);
+  });
+
+  // Server auto-renew saves immediately without reloading the detail page.
+  document.querySelectorAll("[data-auto-renew-form]").forEach((form) => {
+    const input = form.querySelector("[data-auto-renew-switch]");
+    const status = form.querySelector("[data-auto-renew-status]");
+    if (!input) return;
+    input.addEventListener("change", async () => {
+      const intended = input.checked;
+      input.disabled = true;
+      form.classList.add("is-saving");
+      const data = new FormData(form);
+      data.set("enabled", intended ? "true" : "false");
+      try {
+        const response = await fetch(form.action, {
+          method: "POST",
+          body: data,
+          credentials: "same-origin",
+          headers: {Accept: "application/json"},
+        });
+        if (!response.ok) throw new Error("save failed");
+        const result = await response.json();
+        input.checked = Boolean(result.enabled);
+        if (status) status.textContent = result.enabled ? "已开启" : "已关闭";
+        showTransientToast(result.message || (result.enabled ? "自动续费已开启" : "自动续费已关闭"));
+      } catch (_) {
+        input.checked = !intended;
+        if (status) status.textContent = input.checked ? "已开启" : "已关闭";
+        showTransientToast("自动续费设置保存失败");
+      } finally {
+        input.disabled = false;
+        form.classList.remove("is-saving");
+      }
+    });
+  });
+
+  // Shared show/hide interaction across login, register and password reset.
+  document.querySelectorAll("[data-password-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const field = button.closest(".auth-password-field")?.querySelector("[data-auth-password]");
+      if (!field) return;
+      const showing = field.type === "text";
+      field.type = showing ? "password" : "text";
+      button.textContent = showing ? "显示" : "隐藏";
+      button.setAttribute("aria-label", showing ? "显示密码" : "隐藏密码");
+      field.focus({preventScroll: true});
+    });
   });
 
   // XNAT confirmation modal: replaces browser-native confirm() with a themed,

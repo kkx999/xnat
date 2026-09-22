@@ -21,8 +21,9 @@
 </head>
 {% set is_home_area = request.url.path == '/' %}
 {% set is_admin_area = request.url.path.startswith('/admin') %}
-{% set is_client_area = user and not is_admin_area and request.url.path != '/' and request.url.path not in ['/login', '/register'] %}
-<body class="{% if is_admin_area %}admin-body{% elif is_client_area %}client-body{% elif is_home_area %}home095-body{% endif %}">
+{% set is_auth_area = request.url.path in ['/login', '/login/2fa', '/register', '/forgot-password', '/reset-password'] %}
+{% set is_client_area = user and not is_admin_area and not is_auth_area and request.url.path != '/' %}
+<body class="{% if is_admin_area %}admin-body{% elif is_client_area %}client-body{% elif is_auth_area %}auth-body{% elif is_home_area %}home095-body{% endif %}">
 
 {% if is_admin_area %}
   <main class="admin-wrap">
@@ -170,6 +171,17 @@
           </div>
         {% endif %}
 
+{% elif is_auth_area %}
+  <main class="auth-page-root">
+    {% if flash %}<div class="flash auth-flash {{ flash.kind }}" role="status" aria-live="polite">{{ flash.message }}</div>{% endif %}
+    {% if one_time_secret %}
+      <div class="secret-alert">
+        <strong>{{ one_time_secret.title }}</strong>
+        <code>{{ one_time_secret.value }}</code>
+        <span>离开或刷新本页后将不再显示，请立即保存。</span>
+      </div>
+    {% endif %}
+
 {% else %}
   <header class="topbar">
     <div class="wrap nav">
@@ -210,6 +222,8 @@
       </main>
     </section>
   </div>
+{% elif is_auth_area %}
+  </main>
 {% else %}
   </main>
   <footer class="wrap footer">

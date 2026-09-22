@@ -8,7 +8,7 @@ from sqlalchemy import select
 from .audit import write_audit
 from .db import SessionLocal
 from .jobs import enqueue_job
-from .models import Job, Server, SiteSetting, User
+from .models import BalanceLedger, Job, Order, Server, SiteSetting, User
 from .geo import server_display_id
 from .notifications import queue_notification, queue_admin_notification
 
@@ -146,7 +146,7 @@ def resume_after_renewal(db, provider, provider_name: str, server: Server) -> tu
 def run_expiry_lifecycle(provider, provider_name: str) -> dict:
     """Process expiry notices, grace, suspension and optional auto-delete."""
     now = datetime.utcnow()
-    stats = {"notices": 0, "grace": 0, "stopped": 0, "delete_warned": 0, "delete_queued": 0, "errors": 0}
+    stats = {"notices": 0, "grace": 0, "stopped": 0, "delete_warned": 0, "delete_queued": 0, "auto_renewed": 0, "auto_renew_failed": 0, "errors": 0}
 
     with SessionLocal() as db:
         cfg = lifecycle_config(db)
@@ -161,6 +161,80 @@ def run_expiry_lifecycle(provider, provider_name: str) -> dict:
             expiry_key = server.expires_at.strftime("%Y%m%d%H%M")
             remaining = server.expires_at - now
             days_remaining = remaining.total_seconds() / 86400
+
+            # Auto-renew is a Panel billing action and intentionally does not
+            # depend on Host Agent connectivity or TLS state.
+            if remaining.total_seconds() <= 0 and bool(getattr(server, "auto_renew", False)):
+                cancelled_deletes, blocking_delete = cancel_pending_expiry_delete(db, server)
+                price = int(server.monthly_price_cents if server.monthly_price_cents is not None else server.plan.monthly_price_cents)
+                if not blocking_delete and price >= 0 and int(user.balance_cents or 0) >= price:
+                    base = server.expires_at if server.expires_at and server.expires_at > now else now
+                    server.expires_at = base + timedelta(days=30)
+                    order = Order(
+                        user_id=user.id,
+                        plan_id=server.plan_id,
+                        server_id=server.id,
+                        amount_cents=price,
+                        status="completed",
+                        kind="renewal",
+                    )
+                    db.add(order)
+                    db.flush()
+                    user.balance_cents = int(user.balance_cents or 0) - price
+                    db.add(BalanceLedger(
+                        user_id=user.id,
+                        delta_cents=-price,
+                        balance_after_cents=int(user.balance_cents or 0),
+                        kind="renewal",
+                        reference_type="order",
+                        reference_id=order.id,
+                        note=f"自动续费 {server_display_id(server)}",
+                    ))
+                    restarted, restart_error = resume_after_renewal(db, provider, provider_name, server)
+                    queue_notification(
+                        db,
+                        user,
+                        title="VPS 自动续费成功",
+                        body=(
+                            f"{server_display_id(server)} 已自动续费 30 天，新到期时间：{server.expires_at:%Y-%m-%d %H:%M} UTC。"
+                            + (" 到期停机实例已自动恢复开机。" if restarted else "")
+                            + (f" 自动开机失败：{restart_error}" if restart_error else "")
+                        ),
+                        kind="billing",
+                        severity="warning" if restart_error else "success",
+                        event_key=f"auto-renew:{order.id}",
+                    )
+                    write_audit(
+                        db,
+                        actor_username="system",
+                        action="server.auto_renew.completed",
+                        target_type="server",
+                        target_id=server.id,
+                        target_name=server.name,
+                        detail={
+                            "order_id": order.id,
+                            "amount_cents": price,
+                            "cancelled_expiry_delete_jobs": cancelled_deletes,
+                            "auto_restarted": restarted,
+                            "restart_error": restart_error,
+                        },
+                    )
+                    stats["auto_renewed"] += 1
+                    continue
+
+                queue_notification(
+                    db,
+                    user,
+                    title="VPS 自动续费未完成",
+                    body=(
+                        f"{server_display_id(server)} 自动续费未完成："
+                        + ("存在正在执行的删除任务。" if blocking_delete else f"账户余额不足，续费需要 ¥{price / 100:.2f}。")
+                    ),
+                    kind="billing",
+                    severity="error",
+                    event_key=f"auto-renew-failed:{server.id}:{expiry_key}",
+                )
+                stats["auto_renew_failed"] += 1
 
             if remaining.total_seconds() > 0:
                 for threshold in cfg["notice_days"]:
@@ -239,7 +313,7 @@ def run_expiry_lifecycle(provider, provider_name: str) -> dict:
                     db,
                     user,
                     title="VPS 即将自动删除",
-                    body=f"{server_display_id(server)} 预计在 {delete_at:%Y-%m-%d %H:%M} UTC 永久删除。请在删除前完成续费。",
+                    body=f"{server_display_id(server)} 预计在 {delete_at:%Y-%m-%d %H:%M} UTC 从 Panel 永久删除。该删除不会连接 Host Agent；请在删除前完成续费。",
                     kind="expiry",
                     severity="error",
                     event_key=f"expiry-delete-warning:{server.id}:{expiry_key}",

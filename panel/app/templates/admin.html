@@ -619,7 +619,7 @@
               <summary><span>删除服务器</span><small>永久操作</small></summary>
               <form method="post" action="/admin/servers/{{ s.id }}/delete">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <small>输入 <code>{{ server_display_id(s) }}</code> 确认永久删除。</small>
+                <div class="admin-machine-id-copy"><small>输入 <code>{{ server_display_id(s) }}</code> 确认从 Panel 永久删除；不会连接 Host。</small><button type="button" data-copy-value="{{ server_display_id(s) }}" data-copy-success-label="✓ 已复制" data-copy-toast="机器编号已复制">复制编号</button></div>
                 <input name="confirm_name" placeholder="{{ server_display_id(s) }}" required>
                 <button class="danger" type="submit">永久删除</button>
               </form>

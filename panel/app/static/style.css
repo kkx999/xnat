@@ -10086,3 +10086,306 @@ html[data-admin-theme="light"] body.admin-body .node-plan-capacity-item.blocked{
 .server-live-item>small{display:block;color:#71839c;font-size:9px}.server-live-network-rates{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:17px 0 11px}.server-live-network-rates span,.server-live-network-rates strong{display:block}.server-live-network-rates span{color:#8294ae;font-size:9px}.server-live-network-rates strong{margin-top:5px;color:#dce9fb;font-size:14px;white-space:nowrap}
 html[data-client-theme="light"] body.client-body .server-live-panel{border-color:#c7d7e9;background:#fff}html[data-client-theme="light"] body.client-body .server-live-head,html[data-client-theme="light"] body.client-body .server-live-item:nth-child(odd),html[data-client-theme="light"] body.client-body .server-live-item:nth-child(-n+2){border-color:#d7e2ee}html[data-client-theme="light"] body.client-body .server-live-value>strong{color:#1c2f48}html[data-client-theme="light"] body.client-body .server-live-progress{background:#e7eef6}
 @media(max-width:620px){.server-live-head{align-items:flex-start;flex-direction:column}.server-live-grid{grid-template-columns:1fr}.server-live-item:nth-child(odd){border-right:0}.server-live-item:nth-child(-n+3){border-bottom:1px solid #263955}}
+
+
+/* ==========================================================================
+   XNAT service controls + authentication experience
+   ========================================================================== */
+
+/* Server renewal controls: shared geometry prevents visual fragmentation. */
+body.client-body .server-renew-panel{align-items:center}
+body.client-body .server-renew-actions{
+  width:min(470px,48%);
+  display:grid;
+  grid-template-columns:minmax(185px,1fr) minmax(195px,1fr);
+  gap:10px;
+  align-items:stretch;
+}
+body.client-body .server-renew-actions form{margin:0}
+body.client-body .server-manual-renew-form button,
+body.client-body .server-auto-renew-toggle{
+  width:100%;
+  min-height:42px;
+  height:42px;
+  border-radius:10px;
+}
+body.client-body .server-manual-renew-form button{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  margin:0;
+  padding:0 14px;
+}
+body.client-body .server-auto-renew-toggle{
+  position:relative;
+  margin:0;
+  padding:0 10px 0 12px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  border:1px solid #33465d;
+  background:#111c2a;
+  cursor:pointer;
+  user-select:none;
+  transition:border-color .18s ease,background-color .18s ease,box-shadow .18s ease,transform .14s ease;
+}
+body.client-body .server-auto-renew-toggle:hover{border-color:#426b94;background:#142235}
+body.client-body .server-auto-renew-toggle:active{transform:scale(.992)}
+body.client-body .server-auto-renew-toggle>input{
+  position:absolute!important;
+  width:1px!important;height:1px!important;min-height:0!important;
+  margin:0!important;padding:0!important;opacity:0;pointer-events:none;
+}
+body.client-body .server-auto-renew-copy{min-width:0}
+body.client-body .server-auto-renew-copy strong,
+body.client-body .server-auto-renew-copy small{display:block!important;margin:0!important}
+body.client-body .server-auto-renew-copy strong{color:#eaf2fb;font-size:11px!important;line-height:1.15}
+body.client-body .server-auto-renew-copy small{margin-top:3px!important;color:#7f92a8!important;font-size:8px!important;line-height:1}
+body.client-body .server-auto-renew-control{
+  position:relative;width:42px;height:24px;flex:0 0 42px;
+  border:1px solid #40546a;border-radius:999px;background:#1b2a3b;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.2);
+  transition:border-color .2s ease,background-color .2s ease,box-shadow .2s ease;
+}
+body.client-body .server-auto-renew-control>span{
+  position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;
+  background:#a8b6c5;box-shadow:0 2px 5px rgba(0,0,0,.3);
+  transition:transform .22s cubic-bezier(.2,.78,.2,1.08),background-color .18s ease;
+}
+body.client-body .server-auto-renew-toggle>input:checked~.server-auto-renew-control{
+  border-color:#4c98e7;background:linear-gradient(135deg,#327fce,#60acf1);
+  box-shadow:0 0 0 3px rgba(77,153,229,.08),inset 0 1px 0 rgba(255,255,255,.14);
+}
+body.client-body .server-auto-renew-toggle>input:checked~.server-auto-renew-control>span{transform:translateX(18px);background:#fff}
+body.client-body .server-auto-renew-toggle>input:focus-visible~.server-auto-renew-control{box-shadow:0 0 0 3px rgba(91,164,236,.24)}
+body.client-body .server-auto-renew-form.is-saving{opacity:.72;pointer-events:none}
+
+/* Destructive section: one shared machine-ID row for reinstall and deletion. */
+body.client-body .danger-machine-id-row{
+  min-height:54px;margin:0 0 12px;padding:9px 10px 9px 12px;
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  border:1px solid #3b414e;border-radius:10px;background:#121820;
+}
+body.client-body .danger-machine-id-row>div{min-width:0}
+body.client-body .danger-machine-id-row span,
+body.client-body .danger-machine-id-row code{display:block}
+body.client-body .danger-machine-id-row span{margin-bottom:3px;color:#7f8997;font-size:9px}
+body.client-body .danger-machine-id-row code{color:#e7edf5;font-size:12px;font-weight:800;letter-spacing:.04em}
+body.client-body .danger-machine-id-row button{
+  min-width:92px;min-height:40px;margin:0;padding:0 13px;
+  border:1px solid #465467;border-radius:9px;background:#182230;
+  color:#cdd9e7;font-size:10px;font-weight:800;transition:.16s ease;
+}
+body.client-body .danger-machine-id-row button:hover{border-color:#5a7696;background:#1b2a3b}
+body.client-body .danger-machine-id-row button:active{transform:scale(.98)}
+body.client-body .danger-machine-id-row button.copied{border-color:#32745c;background:#153128;color:#93e0bd}
+body.client-body .client-danger-grid input,
+body.client-body .client-danger-grid select,
+body.client-body .client-danger-grid button{min-height:42px}
+body.client-body .client-danger-grid form>button{width:100%;margin-top:2px}
+
+/* Admin server-delete copy action follows the same compact control rhythm. */
+body.admin-body .admin-machine-id-copy{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;
+}
+body.admin-body .admin-machine-id-copy small{margin:0;line-height:1.45}
+body.admin-body .admin-machine-id-copy button{
+  flex:0 0 auto;min-width:84px;min-height:36px;padding:0 11px;border-radius:8px;
+  border:1px solid #40516a;background:#172235;color:#c9d8eb;font-size:9px;font-weight:800;
+}
+body.admin-body .admin-machine-id-copy button.copied{border-color:#39725d;background:#153128;color:#91dcb9}
+
+/* Authentication pages: desktop split view, mobile-first single-column fallback. */
+body.auth-body{
+  min-height:100vh;
+  margin:0;
+  background:#08111d;
+  color:#edf5ff;
+  overflow-x:hidden;
+}
+body.auth-body .auth-page-root{min-height:100vh;width:100%;margin:0;padding:0}
+body.auth-body .auth-flash{
+  position:fixed;z-index:60;top:18px;left:50%;transform:translateX(-50%);
+  width:min(520px,calc(100vw - 32px));margin:0;
+}
+.auth-experience{min-height:100vh;display:grid;grid-template-columns:minmax(0,1.12fr) minmax(430px,.88fr)}
+.auth-visual{
+  position:relative;min-height:100vh;overflow:hidden;padding:clamp(28px,4vw,58px);
+  display:flex;flex-direction:column;justify-content:space-between;
+  background:
+    radial-gradient(circle at 18% 18%,rgba(55,127,210,.20),transparent 34%),
+    radial-gradient(circle at 82% 72%,rgba(51,179,169,.13),transparent 30%),
+    linear-gradient(145deg,#0b1727 0%,#0b1320 54%,#08101a 100%);
+  border-right:1px solid rgba(112,151,197,.16);
+}
+.auth-visual-grid{
+  position:absolute;inset:0;opacity:.16;pointer-events:none;
+  background-image:linear-gradient(rgba(141,177,218,.16) 1px,transparent 1px),linear-gradient(90deg,rgba(141,177,218,.16) 1px,transparent 1px);
+  background-size:44px 44px;
+  mask-image:linear-gradient(to bottom,rgba(0,0,0,.8),transparent 86%);
+}
+.auth-brand-lockup,.auth-mobile-brand{position:relative;z-index:2;display:flex;align-items:center;gap:11px}
+.auth-brand-mark{
+  width:42px;height:42px;display:grid;place-items:center;border-radius:13px;
+  border:1px solid rgba(121,174,235,.35);
+  background:linear-gradient(145deg,rgba(57,112,181,.62),rgba(35,70,118,.52));
+  box-shadow:0 10px 34px rgba(23,80,145,.22),inset 0 1px 0 rgba(255,255,255,.15);
+  color:#fff;font-size:17px;font-weight:900;
+}
+.auth-brand-lockup strong,.auth-brand-lockup small,.auth-mobile-brand strong,.auth-mobile-brand small{display:block}
+.auth-brand-lockup strong,.auth-mobile-brand strong{font-size:14px;letter-spacing:.08em}
+.auth-brand-lockup small,.auth-mobile-brand small{margin-top:3px;color:#71869f;font-size:8px;letter-spacing:.07em}
+.auth-visual-copy{position:relative;z-index:2;max-width:610px;margin:auto 0}
+.auth-kicker,.auth-card-kicker{
+  display:block;color:#75aef0;font-size:9px;font-weight:850;letter-spacing:.2em;text-transform:uppercase;
+}
+.auth-visual-copy h2{
+  margin:14px 0 16px;color:#f0f6ff;font-size:clamp(37px,4.5vw,66px);
+  line-height:1.04;letter-spacing:-.045em;
+}
+.auth-visual-copy p{max-width:500px;margin:0;color:#7990aa;font-size:12px;line-height:1.8}
+.auth-console-preview{
+  position:relative;z-index:3;width:min(560px,82%);margin:34px 0 0 auto;overflow:hidden;
+  border:1px solid rgba(108,150,199,.22);border-radius:18px;
+  background:linear-gradient(160deg,rgba(18,34,54,.84),rgba(8,18,31,.88));
+  box-shadow:0 28px 80px rgba(0,0,0,.34),inset 0 1px 0 rgba(255,255,255,.05);
+  backdrop-filter:blur(18px);
+  transform:perspective(900px) rotateY(-4deg) rotateX(1deg);
+  animation:xnatAuthFloat 7s ease-in-out infinite;
+}
+.auth-preview-head{
+  min-height:40px;padding:0 13px;display:flex;align-items:center;gap:6px;border-bottom:1px solid rgba(113,148,190,.14)
+}
+.auth-preview-head>span{width:6px;height:6px;border-radius:50%;background:#496278}
+.auth-preview-head em{margin-left:auto;color:#53708e;font-size:7px;font-style:normal;font-weight:800;letter-spacing:.15em}
+.auth-preview-body{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px}
+.auth-preview-metric,.auth-preview-server{
+  position:relative;min-height:70px;padding:12px;border:1px solid rgba(109,145,188,.12);
+  border-radius:11px;background:rgba(10,22,37,.78)
+}
+.auth-preview-metric small,.auth-preview-server small{display:block;color:#60758d;font-size:8px}
+.auth-preview-metric strong{display:block;margin-top:8px;color:#dcecff;font-size:15px}
+.auth-preview-metric i{position:absolute;right:12px;top:14px;width:7px;height:7px;border-radius:50%;background:#6b8299}
+.auth-preview-metric i.online{background:#48d39d;box-shadow:0 0 0 4px rgba(72,211,157,.08)}
+.auth-preview-server{grid-column:1/-1;min-height:56px;display:flex;align-items:center;justify-content:space-between}
+.auth-preview-server b{display:block;margin-bottom:4px;color:#dbe8f7;font-size:10px}
+.auth-preview-server em{padding:4px 7px;border-radius:999px;background:#14352d;color:#7fd7b5;font-size:7px;font-style:normal;font-weight:850}
+.auth-orb{position:absolute;border-radius:50%;filter:blur(2px);pointer-events:none}
+.auth-orb-one{width:320px;height:320px;right:-110px;top:17%;background:radial-gradient(circle,rgba(61,126,213,.12),transparent 70%)}
+.auth-orb-two{width:280px;height:280px;left:5%;bottom:-100px;background:radial-gradient(circle,rgba(55,181,167,.09),transparent 70%)}
+@keyframes xnatAuthFloat{0%,100%{transform:perspective(900px) rotateY(-4deg) rotateX(1deg) translateY(0)}50%{transform:perspective(900px) rotateY(-3deg) rotateX(1deg) translateY(-6px)}}
+
+.auth-form-side{
+  min-height:100vh;display:flex;align-items:center;justify-content:center;padding:42px;
+  background:
+    radial-gradient(circle at 50% 20%,rgba(43,93,151,.09),transparent 32%),
+    linear-gradient(180deg,#0b1420,#09111b);
+}
+.auth-form-wrap{width:min(410px,100%)}
+.auth-mobile-brand{display:none;margin-bottom:26px}
+.auth-card-modern{
+  position:relative;width:100%;padding:30px;
+  border:1px solid rgba(105,140,181,.24);border-radius:20px;
+  background:linear-gradient(160deg,rgba(19,32,49,.86),rgba(11,21,34,.9));
+  box-shadow:0 30px 90px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.035);
+  backdrop-filter:blur(20px);
+}
+.auth-card-modern::before{
+  content:"";position:absolute;left:30px;top:0;width:74px;height:2px;border-radius:999px;
+  background:linear-gradient(90deg,#6ea7ec,#68c9ba);
+}
+.auth-card-modern h1{margin:10px 0 8px;color:#f0f5fc;font-size:30px;letter-spacing:-.025em}
+.auth-card-desc{margin:0 0 24px;color:#73879e;font-size:10px;line-height:1.65}
+.auth-modern-form{display:grid;gap:14px}
+.auth-modern-form label{display:block;margin:0;color:#8ea1b7;font-size:9px;font-weight:750}
+.auth-modern-form label>span{display:block;margin-bottom:6px}
+.auth-modern-form input{
+  width:100%;height:46px;margin:0;padding:0 13px;
+  border:1px solid #2b4058;border-radius:10px;background:#0b1624;color:#e8f1fb;
+  font-size:12px;outline:none;transition:border-color .17s ease,box-shadow .17s ease,background-color .17s ease;
+}
+.auth-modern-form input::placeholder{color:#4f647b}
+.auth-modern-form input:focus{border-color:#4a86c5;background:#0e1a29;box-shadow:0 0 0 3px rgba(75,137,202,.12)}
+.auth-password-field{position:relative}
+.auth-password-field input{padding-right:60px}
+.auth-password-field button{
+  position:absolute;right:6px;top:6px;height:34px;min-width:48px;margin:0;padding:0 8px;
+  border:0;border-radius:7px;background:transparent;color:#7190b2;font-size:9px;font-weight:800;
+}
+.auth-password-field button:hover{background:#15263a;color:#9bc1ed}
+.auth-form-row{display:flex;align-items:center;justify-content:space-between;min-height:18px;color:#5f748b;font-size:9px}
+.auth-form-row a,.auth-card-footer a{color:#77a9e1;text-decoration:none}
+.auth-form-row a:hover,.auth-card-footer a:hover{color:#a0c9f5}
+.auth-primary-button{
+  width:100%;height:46px;margin:2px 0 0;padding:0 16px;
+  border:1px solid #4a89ce;border-radius:10px;
+  background:linear-gradient(135deg,#3d82ca,#579de1);
+  color:#f7fbff;font-size:12px;font-weight:850;
+  box-shadow:0 10px 26px rgba(39,105,173,.18),inset 0 1px 0 rgba(255,255,255,.12);
+  transition:transform .14s ease,filter .16s ease,box-shadow .16s ease;
+}
+.auth-primary-button:hover{filter:brightness(1.07);box-shadow:0 13px 30px rgba(39,105,173,.24)}
+.auth-primary-button:active{transform:translateY(1px) scale(.995)}
+.auth-card-footer{
+  min-height:42px;margin:20px -30px -30px;padding:0 30px;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  border-top:1px solid rgba(107,142,183,.12);color:#687c93;font-size:9px;
+}
+.auth-code-input{font-size:18px!important;font-weight:800;letter-spacing:.22em;text-align:center}
+body.auth-body .announcement-backdrop{z-index:100}
+
+/* Light customer theme also keeps the newly added controls integrated. */
+html[data-client-theme="light"] body.client-body .server-auto-renew-toggle{
+  border-color:#ccd9e6;background:#f6f9fc;
+}
+html[data-client-theme="light"] body.client-body .server-auto-renew-copy strong{color:#263d56}
+html[data-client-theme="light"] body.client-body .server-auto-renew-copy small{color:#73889e!important}
+html[data-client-theme="light"] body.client-body .server-auto-renew-control{border-color:#bbc9d7;background:#dfe8f0}
+html[data-client-theme="light"] body.client-body .danger-machine-id-row{border-color:#d7e1eb;background:#f8fbfe}
+html[data-client-theme="light"] body.client-body .danger-machine-id-row code{color:#263d56}
+html[data-client-theme="light"] body.client-body .danger-machine-id-row button{border-color:#bfd0e0;background:#edf4fb;color:#456885}
+
+/* Tablet/mobile: simplify the visual area instead of shrinking the desktop composition. */
+@media(max-width:980px){
+  .auth-experience{grid-template-columns:1fr}
+  .auth-visual{display:none}
+  .auth-form-side{
+    min-height:100vh;padding:max(28px,env(safe-area-inset-top)) 20px max(28px,env(safe-area-inset-bottom));
+    align-items:center;
+  }
+  .auth-mobile-brand{display:flex}
+  .auth-card-modern{padding:26px;border-radius:18px}
+  .auth-card-footer{margin:18px -26px -26px;padding:0 26px}
+}
+@media(max-width:720px){
+  body.client-body .server-renew-panel{align-items:stretch!important;flex-direction:column}
+  body.client-body .server-renew-actions{width:100%;grid-template-columns:1fr}
+  body.client-body .server-auto-renew-toggle,
+  body.client-body .server-manual-renew-form button{height:44px;min-height:44px}
+  body.client-body .danger-machine-id-row{align-items:stretch}
+  body.client-body .danger-machine-id-row button{min-height:42px}
+  body.admin-body .admin-machine-id-copy{align-items:flex-start;flex-direction:column}
+}
+@media(max-width:520px){
+  .auth-form-side{padding-left:14px;padding-right:14px}
+  .auth-form-wrap{width:100%}
+  .auth-mobile-brand{padding:0 4px;margin-bottom:18px}
+  .auth-brand-mark{width:38px;height:38px;border-radius:11px;font-size:15px}
+  .auth-card-modern{padding:22px 18px;border-radius:16px}
+  .auth-card-modern::before{left:18px;width:62px}
+  .auth-card-modern h1{font-size:26px}
+  .auth-card-desc{font-size:10px;margin-bottom:20px}
+  .auth-modern-form{gap:13px}
+  .auth-modern-form input,.auth-primary-button{height:46px}
+  .auth-card-footer{margin:18px -18px -22px;padding:0 18px}
+  body.client-body .danger-machine-id-row{flex-direction:column}
+  body.client-body .danger-machine-id-row button{width:100%;min-width:0}
+}
+@media(prefers-reduced-motion:reduce){
+  .auth-console-preview{animation:none}
+  body.client-body .server-auto-renew-control,
+  body.client-body .server-auto-renew-control>span,
+  body.client-body .server-auto-renew-toggle,
+  .auth-primary-button{transition:none}
+}

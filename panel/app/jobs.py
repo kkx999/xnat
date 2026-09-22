@@ -173,27 +173,54 @@ def _run_reinstall(db, provider, server: Server, job: Job):
 
 
 def _run_delete(db, provider, server: Server, job: Job):
+    """Delete only the Panel-side service record; never contact the Host Agent."""
     if server.deleted_at is not None:
         return {"noop": "already_deleted"}
-    if server.provider_instance_id:
-        provider.delete(server.provider_instance_id)
+
+    pending_jobs = db.scalars(
+        select(Job).where(
+            Job.server_id == server.id,
+            Job.id != job.id,
+            Job.status == "pending",
+            Job.job_type.in_(["provision_server", "reinstall_server"]),
+        )
+    ).all()
+    now = datetime.utcnow()
+    for pending in pending_jobs:
+        pending.status = "cancelled"
+        pending.finished_at = now
+        pending.error_text = "服务器已从 Panel 删除，取消后续实例操作"
+
+    for mapping in list(server.ports):
+        db.delete(mapping)
+
     server.status = "deleted"
-    server.deleted_at = datetime.utcnow()
+    server.deleted_at = now
     server.root_password_enc = None
     server.reconcile_status = "deleted"
+    server.reconcile_message = "Panel-only deletion; Host Agent was not contacted"
+
     user = db.get(User, server.user_id)
     if user:
         queue_notification(
             db,
             user,
             title="VPS 已删除",
-            body=f"{server_display_id(server)} 已永久删除。",
+            body=f"{server_display_id(server)} 已从面板永久删除。",
             kind="server",
             severity="warning",
             event_key=f"deleted:{server.id}:{job.id}",
         )
-    write_audit(db, actor_username="system", action="server.delete.completed", target_type="server", target_id=server.id, target_name=server.name)
-    return {"deleted": True}
+    write_audit(
+        db,
+        actor_username="system",
+        action="server.delete.completed",
+        target_type="server",
+        target_id=server.id,
+        target_name=server.name,
+        detail={"panel_only": True, "host_contacted": False, "cancelled_jobs": len(pending_jobs)},
+    )
+    return {"deleted": True, "panel_only": True, "host_contacted": False}
 
 
 def _claim_next_job_id(db, now: datetime) -> int | None:

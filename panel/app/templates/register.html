@@ -1,14 +1,39 @@
 {% extends "base.html" %}
 {% block title %}注册 · {{ app_name }}{% endblock %}
 {% block content %}
-<div class="authbox">
-  <h1>创建账号</h1>
-  <form method="post" action="/register">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <label>用户名<input name="username" minlength="3" maxlength="32" required></label>
-    <label>邮箱<input name="email" type="email" required></label>
-    <label>密码<input name="password" type="password" minlength="10" required></label>
-    <button class="btn wide" type="submit">注册</button>
-  </form>
+<div class="auth-experience">
+  <section class="auth-visual" aria-hidden="true">
+    <div class="auth-visual-grid"></div>
+    <div class="auth-brand-lockup"><span class="auth-brand-mark">N</span><div><strong>XNAT</strong><small>Multi-Node NAT VPS Platform</small></div></div>
+    <div class="auth-visual-copy"><span class="auth-kicker">CONTROL PLANE</span><h2>一套更清晰的<br>云服务管理体验</h2><p>节点、实例、流量与账务集中管理，保持简单，也保持可控。</p></div>
+    <div class="auth-console-preview">
+      <div class="auth-preview-head"><span></span><span></span><span></span><em>LIVE INFRASTRUCTURE</em></div>
+      <div class="auth-preview-body">
+        <div class="auth-preview-metric"><small>节点状态</small><strong>ONLINE</strong><i class="online"></i></div>
+        <div class="auth-preview-metric"><small>网络流量</small><strong>2.48 TB</strong><i></i></div>
+        <div class="auth-preview-server"><span><b>TYO-0008</b><small>Tokyo · LXC</small></span><em>RUNNING</em></div>
+        <div class="auth-preview-server"><span><b>HKG-0012</b><small>Hong Kong · KVM</small></span><em>RUNNING</em></div>
+      </div>
+    </div>
+    <div class="auth-orb auth-orb-one"></div><div class="auth-orb auth-orb-two"></div>
+  </section>
+  <section class="auth-form-side">
+    <div class="auth-form-wrap">
+      <div class="auth-mobile-brand"><span class="auth-brand-mark">N</span><div><strong>XNAT</strong><small>Secure Control Plane</small></div></div>
+      <div class="auth-card-modern">
+        <span class="auth-card-kicker">CREATE ACCOUNT</span>
+        <h1>创建账号</h1>
+        <p class="auth-card-desc">创建一个 XNAT 账户，开始管理你的云服务。</p>
+        <form class="auth-modern-form" method="post" action="/register">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label><span>用户名</span><input name="username" minlength="3" maxlength="32" autocomplete="username" placeholder="3–32 个字符" required></label>
+          <label><span>邮箱</span><input name="email" type="email" autocomplete="email" placeholder="name@example.com" required></label>
+          <label><span>密码</span><div class="auth-password-field"><input name="password" type="password" minlength="10" autocomplete="new-password" placeholder="至少 10 个字符" required data-auth-password><button type="button" data-password-toggle aria-label="显示密码">显示</button></div></label>
+          <button class="auth-primary-button" type="submit" data-loading-label="正在创建…">创建账号</button>
+        </form>
+        <div class="auth-card-footer"><span>已有账号？</span><a href="/login">返回登录</a></div>
+      </div>
+    </div>
+  </section>
 </div>
 {% endblock %}

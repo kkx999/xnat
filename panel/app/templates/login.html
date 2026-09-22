@@ -1,14 +1,39 @@
 {% extends "base.html" %}
 {% block title %}登录 · {{ app_name }}{% endblock %}
 {% block content %}
-<div class="authbox">
-  <h1>登录</h1>
-  <form method="post" action="/login">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <label>用户名<input name="username" autocomplete="username" required></label>
-    <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
-    <button class="btn wide" type="submit">登录</button>
-  </form>
-  <p class="muted">还没有账号？<a href="/register">注册</a> · <a href="/forgot-password">忘记密码</a></p>
+<div class="auth-experience">
+  <section class="auth-visual" aria-hidden="true">
+    <div class="auth-visual-grid"></div>
+    <div class="auth-brand-lockup"><span class="auth-brand-mark">N</span><div><strong>XNAT</strong><small>Multi-Node NAT VPS Platform</small></div></div>
+    <div class="auth-visual-copy"><span class="auth-kicker">CONTROL PLANE</span><h2>一套更清晰的<br>云服务管理体验</h2><p>节点、实例、流量与账务集中管理，保持简单，也保持可控。</p></div>
+    <div class="auth-console-preview">
+      <div class="auth-preview-head"><span></span><span></span><span></span><em>LIVE INFRASTRUCTURE</em></div>
+      <div class="auth-preview-body">
+        <div class="auth-preview-metric"><small>节点状态</small><strong>ONLINE</strong><i class="online"></i></div>
+        <div class="auth-preview-metric"><small>网络流量</small><strong>2.48 TB</strong><i></i></div>
+        <div class="auth-preview-server"><span><b>TYO-0008</b><small>Tokyo · LXC</small></span><em>RUNNING</em></div>
+        <div class="auth-preview-server"><span><b>HKG-0012</b><small>Hong Kong · KVM</small></span><em>RUNNING</em></div>
+      </div>
+    </div>
+    <div class="auth-orb auth-orb-one"></div><div class="auth-orb auth-orb-two"></div>
+  </section>
+  <section class="auth-form-side">
+    <div class="auth-form-wrap">
+      <div class="auth-mobile-brand"><span class="auth-brand-mark">N</span><div><strong>XNAT</strong><small>Secure Control Plane</small></div></div>
+      <div class="auth-card-modern">
+        <span class="auth-card-kicker">WELCOME BACK</span>
+        <h1>欢迎回来</h1>
+        <p class="auth-card-desc">登录后继续管理你的服务器、流量和账户。</p>
+        <form class="auth-modern-form" method="post" action="/login">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label><span>用户名</span><input name="username" autocomplete="username" placeholder="输入用户名" required></label>
+          <label><span>密码</span><div class="auth-password-field"><input name="password" type="password" autocomplete="current-password" placeholder="输入密码" required data-auth-password><button type="button" data-password-toggle aria-label="显示密码">显示</button></div></label>
+          <div class="auth-form-row"><span>安全登录</span><a href="/forgot-password">忘记密码？</a></div>
+          <button class="auth-primary-button" type="submit" data-loading-label="正在登录…">登录</button>
+        </form>
+        <div class="auth-card-footer"><span>还没有账号？</span>{% if registration_enabled %}<a href="/register">创建账号</a>{% else %}<span>注册暂未开放</span>{% endif %}</div>
+      </div>
+    </div>
+  </section>
 </div>
 {% endblock %}

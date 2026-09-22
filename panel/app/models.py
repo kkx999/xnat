@@ -230,6 +230,8 @@ class Server(Base):
     reconciled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Customer-controlled automatic renewal for this service. Disabled by default.
+    auto_renew: Mapped[bool] = mapped_column(Boolean, default=False)
     # Lifecycle markers used for safe expiry suspension / auto-delete.
     expiry_suspended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     expiry_delete_queued_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

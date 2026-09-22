@@ -206,10 +206,20 @@ html[data-client-theme="light"] body.client-body .client-port-row em{color:#7486
     <small>续费价格 {{ money(server.monthly_price_cents) }} / 30 天 · <em class="lifecycle-pill {{ lifecycle.code }}">{{ lifecycle.label }}</em></small>
     {% if lifecycle.code == 'grace' and lifecycle.grace_end %}<small>宽限结束：{{ local_dt(lifecycle.grace_end).strftime("%Y-%m-%d %H:%M") }}</small>{% endif %}
   </div>
-  <form method="post" action="/servers/{{ server.id }}/renew">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <button type="submit" data-loading-label="正在续费…">续费 30 天 · {{ money(server.monthly_price_cents) }}</button>
-  </form>
+  <div class="server-renew-actions">
+    <form class="server-auto-renew-form" method="post" action="/servers/{{ server.id }}/auto-renew" data-auto-renew-form>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="server-auto-renew-toggle">
+        <span class="server-auto-renew-copy"><strong>自动续费</strong><small data-auto-renew-status>{{ "已开启" if server.auto_renew else "已关闭" }}</small></span>
+        <input type="checkbox" data-auto-renew-switch {% if server.auto_renew %}checked{% endif %} aria-label="自动续费">
+        <span class="server-auto-renew-control" aria-hidden="true"><span></span></span>
+      </label>
+    </form>
+    <form class="server-manual-renew-form" method="post" action="/servers/{{ server.id }}/renew">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" data-loading-label="正在续费…">续费 30 天 · {{ money(server.monthly_price_cents) }}</button>
+    </form>
+  </div>
 </section>
 
 <section class="client-panel">
@@ -290,7 +300,11 @@ html[data-client-theme="light"] body.client-body .client-port-row em{color:#7486
     <span class="detail-summary-action">展开</span>
   </summary>
   <div class="client-detail-body">
-    <div class="client-danger-note">重装会清空实例内全部数据；永久删除实例后无法恢复。</div>
+    <div class="client-danger-note">重装会清空宿主机实例内全部数据；删除只清理 Panel 记录，不会连接或操作 Host Agent。</div>
+    <div class="danger-machine-id-row">
+      <div><span>当前机器编号</span><code>{{ server_display_id(server) }}</code></div>
+      <button type="button" data-copy-value="{{ server_display_id(server) }}" data-copy-success-label="✓ 已复制" data-copy-toast="机器编号已复制">复制编号</button>
+    </div>
     <div class="client-danger-grid">
       <form method="post" action="/servers/{{ server.id }}/reinstall">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -309,7 +323,7 @@ html[data-client-theme="light"] body.client-body .client-port-row em{color:#7486
       <form method="post" action="/servers/{{ server.id }}/delete">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <h3>永久删除实例</h3>
-        <p>删除后服务器、映射端口和数据都不可恢复。</p>
+        <p>删除后该服务器会从 Panel 中移除；不会连接宿主机，也不会删除 Host 上可能仍存在的实例。</p>
         <label>输入服务器编号确认<input name="confirm_name" placeholder="{{ server_display_id(server) }}" required></label>
         <button class="danger" type="submit" data-loading-label="正在提交删除…">永久删除实例</button>
       </form>

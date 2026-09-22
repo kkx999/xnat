@@ -2203,6 +2203,37 @@ def delete_server(
         return RedirectResponse(f"/servers/{server.id}", status_code=303)
 
 
+@app.post("/servers/{server_id}/auto-renew")
+def update_server_auto_renew(
+    request: Request,
+    server_id: int,
+    enabled: str = Form("false"),
+    csrf_token: str = Form(...),
+):
+    validate_csrf(request, csrf_token)
+    with db_session() as db:
+        user = login_required(request, db)
+        server = active_server_for_user(db, user, server_id)
+        value = str(enabled or "").strip().lower() in {"1", "true", "yes", "on"}
+        server.auto_renew = value
+        write_audit(
+            db,
+            actor=user,
+            request=request,
+            action="server.auto_renew.update",
+            target_type="server",
+            target_id=server.id,
+            target_name=server.name,
+            detail={"enabled": value},
+        )
+        db.commit()
+        message = "自动续费已开启。" if value else "自动续费已关闭。"
+        if "application/json" in (request.headers.get("accept") or "").lower():
+            return JSONResponse({"ok": True, "enabled": value, "message": message})
+        flash(request, message, "success")
+        return RedirectResponse(f"/servers/{server.id}", status_code=303)
+
+
 @app.post("/servers/{server_id}/renew")
 def renew_server(
     request: Request,
@@ -2772,6 +2803,10 @@ def admin_update_node(
             flash(request, f"机器编号前缀 {machine_prefix} 已被宿主机 {duplicate_prefix.name} 使用，请换一个。", "error")
             return RedirectResponse("/admin?section=nodes", status_code=303)
 
+        old_api_url = (row.api_url or "").strip().rstrip("/")
+        token_replaced = bool(api_token.strip())
+        endpoint_changed = api_url != old_api_url
+
         row.name = name
         row.region = region
         row.country_code = country_code
@@ -2783,8 +2818,13 @@ def admin_update_node(
         row.schedule_cpu_max_percent = max(0, min(100, schedule_cpu_max_percent))
         row.schedule_memory_max_percent = max(0, min(100, schedule_memory_max_percent))
         row.schedule_storage_max_percent = max(0, min(100, schedule_storage_max_percent))
-        if api_token.strip():
+        if token_replaced:
             row.api_token_enc = encrypt_secret(api_token.strip())
+        if token_replaced or endpoint_changed:
+            # Explicitly replacing the Agent credential or endpoint is a
+            # re-adoption event (for example after reinstalling the Host).
+            # Forget only the stale TOFU pin; the next connection pins again.
+            row.tls_fingerprint = None
 
         db.flush()
         for server in db.scalars(select(Server).where(Server.host_id == row.id, Server.display_id.is_(None))).all():
@@ -2798,9 +2838,14 @@ def admin_update_node(
             target_type="host_node",
             target_id=row.id,
             target_name=row.name,
+            detail={"tls_fingerprint_reset": bool(token_replaced or endpoint_changed)},
         )
         db.commit()
-        flash(request, f"节点 {row.name} 设置已保存。", "success")
+        flash(
+            request,
+            f"节点 {row.name} 设置已保存。" + (" 新 Agent 凭据/地址将在下次连接时重新建立 TLS 信任。" if (token_replaced or endpoint_changed) else ""),
+            "success",
+        )
     return RedirectResponse("/admin?section=nodes", status_code=303)
 
 
