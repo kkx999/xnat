@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 
 from .audit import write_audit
 from .db import SessionLocal
 from .jobs import enqueue_job
-from .models import Job, Server, SiteSetting, User
+from .models import BalanceLedger, Job, Order, Server, SiteSetting, User
 from .geo import server_display_id
 from .notifications import queue_notification, queue_admin_notification
 
@@ -143,10 +143,76 @@ def resume_after_renewal(db, provider, provider_name: str, server: Server) -> tu
         return False, str(exc)[:180]
 
 
+AUTO_RENEW_WINDOW = timedelta(hours=24)
+
+
+def _money_text(cents: int) -> str:
+    return f"¥{int(cents or 0) / 100:.2f}"
+
+
+def _attempt_auto_renew(db, provider, provider_name: str, server: Server, user: User, now: datetime) -> str:
+    """Attempt one balance renewal inside the final 24 hours before expiry."""
+    if not bool(getattr(server, "auto_renew", False)) or not server.expires_at or server.deleted_at:
+        return "skip"
+    old_expiry = server.expires_at
+    if old_expiry > now + AUTO_RENEW_WINDOW:
+        return "skip"
+
+    price = int(server.monthly_price_cents if server.monthly_price_cents is not None else getattr(server.plan, "monthly_price_cents", 0) or 0)
+    expiry_key = old_expiry.strftime("%Y%m%d%H%M")
+    if price <= 0:
+        queue_notification(db, user, title="自动续费暂不可用", body=f"{server_display_id(server)} 没有有效续费价格，请联系管理员。", kind="billing", severity="error", event_key=f"auto-renew-price:{server.id}:{expiry_key}")
+        return "invalid_price"
+    if int(user.balance_cents or 0) < price:
+        queue_notification(db, user, title="自动续费余额不足", body=f"{server_display_id(server)} 自动续费需要 {_money_text(price)}，当前余额 {_money_text(user.balance_cents)}。请及时充值。", kind="billing", severity="warning", event_key=f"auto-renew-insufficient:{server.id}:{expiry_key}")
+        return "insufficient"
+
+    cancelled_deletes, blocking_delete = cancel_pending_expiry_delete(db, server)
+    if blocking_delete:
+        queue_notification(db, user, title="自动续费未执行", body=f"{server_display_id(server)} 存在正在执行的删除任务，系统没有扣款。", kind="billing", severity="error", event_key=f"auto-renew-delete-block:{server.id}:{expiry_key}")
+        return "blocked"
+
+    claimed = db.execute(
+        update(Server)
+        .where(
+            Server.id == server.id,
+            Server.auto_renew.is_(True),
+            Server.expires_at == old_expiry,
+            or_(Server.auto_renew_last_expiry_at.is_(None), Server.auto_renew_last_expiry_at != old_expiry),
+        )
+        .values(auto_renew_last_expiry_at=old_expiry)
+    )
+    if int(claimed.rowcount or 0) != 1:
+        return "already_claimed"
+
+    order = Order(user_id=user.id, plan_id=server.plan_id, server_id=server.id, amount_cents=price, status="completed", kind="auto_renewal")
+    db.add(order)
+    db.flush()
+    user.balance_cents = int(user.balance_cents or 0) - price
+    db.add(BalanceLedger(user_id=user.id, delta_cents=-price, balance_after_cents=int(user.balance_cents or 0), kind="auto_renewal", reference_type="order", reference_id=order.id, note=f"自动续费 {server_display_id(server)}"))
+
+    base = old_expiry if old_expiry > now else now
+    server.expires_at = base + timedelta(days=30)
+    server.auto_renew_last_expiry_at = old_expiry
+    restarted, restart_error = resume_after_renewal(db, provider, provider_name, server)
+    queue_notification(
+        db, user, title="自动续费成功",
+        body=f"{server_display_id(server)} 已自动续费 30 天，扣除 {_money_text(price)}，新到期时间：{server.expires_at:%Y-%m-%d %H:%M} UTC。" + (" 到期停机实例已自动恢复开机。" if restarted else ""),
+        kind="billing", severity="warning" if restart_error else "success", event_key=f"auto-renew:{order.id}",
+    )
+    write_audit(
+        db, actor_username="system", action="server.auto_renew.completed", target_type="server", target_id=server.id, target_name=server.name,
+        detail={"order_id": order.id, "amount_cents": price, "previous_expiry": old_expiry.isoformat(), "new_expiry": server.expires_at.isoformat(), "cancelled_expiry_delete_jobs": cancelled_deletes, "auto_restarted": restarted, "restart_error": restart_error},
+    )
+    if restart_error:
+        queue_admin_notification(db, title="自动续费后恢复开机失败", body=f"{server_display_id(server)} 已完成自动续费和扣款，但恢复开机失败：{restart_error}", kind="system", severity="warning", event_key=f"auto-renew-restart:{order.id}")
+    return "renewed"
+
+
 def run_expiry_lifecycle(provider, provider_name: str) -> dict:
     """Process expiry notices, grace, suspension and optional auto-delete."""
     now = datetime.utcnow()
-    stats = {"notices": 0, "grace": 0, "stopped": 0, "delete_warned": 0, "delete_queued": 0, "errors": 0}
+    stats = {"notices": 0, "auto_renewed": 0, "auto_renew_insufficient": 0, "grace": 0, "stopped": 0, "delete_warned": 0, "delete_queued": 0, "errors": 0}
 
     with SessionLocal() as db:
         cfg = lifecycle_config(db)
@@ -161,6 +227,15 @@ def run_expiry_lifecycle(provider, provider_name: str) -> dict:
             expiry_key = server.expires_at.strftime("%Y%m%d%H%M")
             remaining = server.expires_at - now
             days_remaining = remaining.total_seconds() / 86400
+
+            auto_renew_result = _attempt_auto_renew(db, provider, provider_name, server, user, now)
+            if auto_renew_result == "renewed":
+                stats["auto_renewed"] += 1
+                expiry_key = server.expires_at.strftime("%Y%m%d%H%M")
+                remaining = server.expires_at - now
+                days_remaining = remaining.total_seconds() / 86400
+            elif auto_renew_result == "insufficient":
+                stats["auto_renew_insufficient"] += 1
 
             if remaining.total_seconds() > 0:
                 for threshold in cfg["notice_days"]:
