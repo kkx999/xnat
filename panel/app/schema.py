@@ -46,6 +46,8 @@ SCHEMA_EXTENSIONS: dict[str, dict[str, str]] = {
         "display_id": "VARCHAR(32)",
         "server_region_snapshot": "VARCHAR(120)",
         "network_line_snapshot": "VARCHAR(160)",
+        "auto_renew": "BOOLEAN NOT NULL DEFAULT 0",
+        "auto_renew_last_expiry_at": "DATETIME",
     },
     "recharge_orders": {
         "cancelled_at": "DATETIME",
