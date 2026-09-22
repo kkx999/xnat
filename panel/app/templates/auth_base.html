@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="auth-v106-shell">
+  <section class="auth-v106-showcase">
+    <a class="auth-v106-brand" href="/" aria-label="{{ app_name }} 首页">
+      <span class="auth-v106-brand-mark">N</span>
+      <span><strong>{{ app_name }}</strong><small>NAT VPS CONTROL PLANE</small></span>
+    </a>
+    <div class="auth-v106-hero-copy">
+      <span class="auth-v106-eyebrow">MODERN INFRASTRUCTURE</span>
+      <h1>把多节点 VPS 管理，<br><em>收进一个更清晰的控制面板。</em></h1>
+      <p>实例、NAT 端口、流量、账务和生命周期统一管理。保持强大，也保持简单。</p>
+    </div>
+    <div class="auth-v106-visual" aria-hidden="true">
+      <div class="auth-v106-glow auth-v106-glow-a"></div>
+      <div class="auth-v106-glow auth-v106-glow-b"></div>
+      <div class="auth-v106-node-card auth-v106-node-card-main">
+        <div class="auth-v106-card-top"><span>CONTROL PLANE</span><i></i></div>
+        <strong>Tokyo Edge</strong><small>Host online · Agent API v2</small>
+        <div class="auth-v106-meter"><span></span></div>
+        <div class="auth-v106-card-metrics"><span>CPU <b>24%</b></span><span>MEM <b>41%</b></span><span>NET <b>LIVE</b></span></div>
+      </div>
+      <div class="auth-v106-node-card auth-v106-node-card-side">
+        <div class="auth-v106-card-top"><span>INSTANCE</span><i></i></div>
+        <strong>TYO-0042</strong><small>1C · 512M · 8G</small>
+        <div class="auth-v106-instance-state"><i></i><span>RUNNING</span></div>
+      </div>
+      <div class="auth-v106-traffic-card"><span>MONTHLY TRAFFIC</span><strong>318 GB</strong><small>/ 500 GB</small><div><i></i></div></div>
+    </div>
+    <div class="auth-v106-points"><span><i></i>多节点统一管理</span><span><i></i>LXC / KVM</span><span><i></i>实时状态与自动化</span></div>
+  </section>
+
+  <section class="auth-v106-stage">
+    <div class="auth-v106-stage-inner">
+      <div class="auth-v106-card">
+        <div class="auth-v106-card-head">
+          <span class="auth-v106-kicker">{% block auth_kicker %}WELCOME{% endblock %}</span>
+          <h2>{% block auth_heading %}欢迎回来{% endblock %}</h2>
+          <p>{% block auth_description %}登录后继续管理你的服务。{% endblock %}</p>
+        </div>
+        {% block auth_content %}{% endblock %}
+      </div>
+      <div class="auth-v106-security-note"><i></i><span>Secure session · CSRF protected</span></div>
+    </div>
+  </section>
+</div>
+{% endblock %}
