@@ -1,14 +1,14 @@
-{% extends "base.html" %}
+{% extends "auth_base.html" %}
 {% block title %}登录 · {{ app_name }}{% endblock %}
-{% block content %}
-<div class="authbox">
-  <h1>登录</h1>
-  <form method="post" action="/login">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <label>用户名<input name="username" autocomplete="username" required></label>
-    <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
-    <button class="btn wide" type="submit">登录</button>
-  </form>
-  <p class="muted">还没有账号？<a href="/register">注册</a> · <a href="/forgot-password">忘记密码</a></p>
-</div>
+{% block auth_kicker %}WELCOME BACK{% endblock %}
+{% block auth_heading %}登录控制台{% endblock %}
+{% block auth_description %}使用你的 XNAT 账号继续管理服务器与服务。{% endblock %}
+{% block auth_content %}
+<form class="auth-v106-form" method="post" action="/login">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label><span>用户名</span><div class="auth-v106-input"><input name="username" autocomplete="username" placeholder="输入用户名" required autofocus></div></label>
+  <label><span>密码</span><div class="auth-v106-input auth-v106-password"><input name="password" type="password" autocomplete="current-password" placeholder="输入密码" required><button type="button" data-auth-password-toggle aria-label="显示密码" aria-pressed="false">显示</button></div></label>
+  <button class="auth-v106-primary" type="submit" data-loading-label="正在登录…"><span>登录控制台</span><i>→</i></button>
+</form>
+<div class="auth-v106-links"><span>还没有账号？{% if registration_enabled %}<a href="/register">创建账号</a>{% else %}<em>当前暂停注册</em>{% endif %}</span><a href="/forgot-password">忘记密码</a></div>
 {% endblock %}
