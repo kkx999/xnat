@@ -2,38 +2,28 @@
 
 XNAT 是一个面向自建场景的 **多节点 NAT VPS 管理平台**，基于 **Incus + LVM Thin**，支持 LXC、KVM 与混合虚拟化。
 
+> **项目状态：Beta / 测试版** — 当前仍处于持续测试与快速迭代阶段，建议先在非关键生产环境验证后再正式使用。
+
 XNAT 将用户、套餐、订单、Host、实例、NAT 端口、流量、生命周期、充值、通知和日常运维集中到一套 Panel 中管理。整体采用 **Panel Server + Host Agent** 分离架构：Panel 负责业务、调度与数据一致性，Host Agent 负责每台母机上的实例、网络、存储和底层执行。
 
-## 当前正式版本
+## 当前测试版本
 
 | 组件 | 版本 |
 | --- | --- |
-| XNAT Release | v1.0.4 |
-| XNAT Panel | v1.0.4 |
-| XNAT Host Agent | v1.0.4 |
+| XNAT Release | v1.1.0（Beta） |
+| XNAT Panel | v1.1.0 |
+| XNAT Host Agent | v1.0.5 |
 | Agent API | v2 |
 | Mobile API | v1 |
-| XNAT Android | v1.0.2 |
+| XNAT Android | v1.0.5（Beta） |
 
 ## 版本说明
 
-v1.0.4 新增服务器实时资源监控：服务器详情页在原有概览下方增加一个整体监控区域，以 2×2 对称布局展示 CPU、内存、硬盘和实时上下行网络速率。CPU / 内存 / 硬盘使用全圆角胶囊进度条。Web 每 5 秒刷新，页面进入后台后停止轮询；Host Agent 仅保留数秒内存采样，不写监控数据库、不保存历史。
+v1.1.0 重点修正服务器删除与 NAT / SSH 端口安全：普通删除会先永久删除 Host 上真实实例，并在 Host 与 Panel 双重确认实例不存在后才清理 Panel；管理员保留独立“强制从 Panel 移除”入口，用于 Host 已重装、失联或凭据不可恢复等特殊场景。
 
-Agent API 继续保持 v2，Mobile API 继续保持 v1；Mobile API v1 可通过服务器详情接口的 `?metrics=1` 获取同一套实时指标，为后续 Android 接入保留兼容能力。
+Host Agent v1.0.5 增加实际 Incus proxy 端口占用查询与严格删除确认。Panel 分配新 SSH / NAT 公网端口时会避开 Host 实际已占用端口，Provision 遇到明确端口冲突时可自动换端口重试。
 
-v1.0.3 是镜像最低系统盘策略与后台配置能力更新。Panel 为 v1.0.3，Host Agent 为 v1.0.3，Agent API 保持 v2，Mobile API 保持 v1。
-
-系统镜像的最低系统盘现在由 Panel 后台每个镜像自己的 `min_disk_gb` 决定，不再按 Debian / Ubuntu 家族写死。默认 Debian 为 1 GiB、Ubuntu 为 2 GiB、Alpine 为 1 GiB；LXC 直接使用后台配置值，KVM 仅保留 3 GiB 全局技术底线。
-
-Mobile API v1 的 `/api/v1/system-images` 新增 `min_disk_gb` 字段，属于向后兼容的字段扩展。Panel v1.0.3 继续兼容 Agent API v1 / v2。
-
-如果 Host Agent 从 API v1 升级到 API v2，请先确认 Panel 已升级到 v1.0.3，再在对应 Host 执行：
-
-```bash
-XNAT_ALLOW_AGENT_API_CHANGE=1 xnat
-```
-
-随后进入 **更新 → Host Agent 更新**。该变量只用于本次跨 API 升级，无需写入 `.env` 或永久设置。
+Web、Mobile API 与 Android 普通删除语义保持一致。Android 当前测试版本为 v1.0.5；Agent API 继续保持 v2，Mobile API 继续保持 v1。
 
 ## XNAT 能做什么
 
