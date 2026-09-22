@@ -63,6 +63,7 @@ case "$CURRENT_VERSION" in
   "$COMPONENT_VERSION") UPGRADE_PATH="reapply" ;;
   1.1.0) UPGRADE_PATH="legacy-v1.1.0"; warn "当前为 v1.1.0；v${COMPONENT_VERSION} 的正式升级验收基线包含 v1.3.2 / v1.3.1 / v1.3.0 / v1.2.0，建议先执行 xnat update 1.1.1。" ;;
   1.1.*) UPGRADE_PATH="compatible-v1.1.x"; warn "当前为 v${CURRENT_VERSION}；v${COMPONENT_VERSION} 的正式升级验收基线包含 v1.3.2 / v1.3.1 / v1.3.0 / v1.2.0。" ;;
+  1.0.6) UPGRADE_PATH="verified-v1.0.6" ;;
   1.0.5) UPGRADE_PATH="verified-v1.0.5" ;;
   1.0.4) UPGRADE_PATH="verified-v1.0.4" ;;
   1.0.3) UPGRADE_PATH="verified-v1.0.3" ;;
@@ -202,6 +203,7 @@ for spec in \
   'host_nodes:network_line' \
   'servers:traffic_cycle_mode' \
   'servers:traffic_cycle_day' \
+  'servers:auto_renew' \
   'servers:expiry_suspended_at' \
   'servers:expiry_delete_queued_at' \
   'servers:virtualization_type' \

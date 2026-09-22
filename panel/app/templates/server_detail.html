@@ -217,7 +217,11 @@ html[data-client-theme="light"] body.client-body .client-port-row em{color:#7486
     </form>
     <form class="server-manual-renew-form" method="post" action="/servers/{{ server.id }}/renew">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button type="submit" data-loading-label="正在续费…">续费 30 天 · {{ money(server.monthly_price_cents) }}</button>
+      <button class="server-renew-button" type="submit" data-loading-label="正在续费…">
+        <span class="server-renew-button-copy"><strong>手动续费</strong><small>延长 30 天</small></span>
+        <span class="server-renew-price">{{ money(server.monthly_price_cents) }}</span>
+        <span class="server-renew-chevron" aria-hidden="true">›</span>
+      </button>
     </form>
   </div>
 </section>
