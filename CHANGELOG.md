@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.0.8 - 2026-09-22
+
+- XNAT Release / Panel 升级到 v1.0.8；Host Agent 保持 v1.0.4，Agent API v2、Mobile API v1 均不变。
+- Mobile API v1 的服务器列表与详情新增 `auto_renew` 状态字段，保持向后兼容。
+- 新增 `POST /api/v1/servers/{server_id}/auto-renew`，供 Android 客户端开启或关闭单台 VPS 自动续费。
+- 自动续费设置仍由 Panel 保存与执行，到期扣款 / 续费逻辑不直接依赖 Host Agent。
+- 为 XNAT Android v1.0.4 配套提供自动续费控制接口；旧版 Android 可继续正常使用原有 Mobile API v1。
+- v1.0.7 → v1.0.8 为 Panel Mobile API 增量更新；Host Agent v1.0.4 无需重复更新。
+
+**由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**
+
 ## v1.0.7 - 2026-09-22
 
 - XNAT Release / Panel 升级到 v1.0.7；Host Agent 保持 v1.0.4，Agent API v2、Mobile API v1 均不变。

@@ -21,6 +21,7 @@ Base prefix: `/api/v1`
 - `GET /api/v1/servers`
 - `GET /api/v1/servers/{server_id}`
 - `POST /api/v1/servers/{server_id}/action` — `start | stop | reboot`
+- `POST /api/v1/servers/{server_id}/auto-renew` — 设置单台 VPS 自动续费，JSON：`{"enabled": true|false}`
 - `GET /api/v1/system-images`
 
 系统镜像 payload 包含 `min_disk_gb`，表示 Panel 后台为该镜像配置的最低系统盘（GiB）。LXC 直接使用该值；KVM 还会应用服务端 3 GiB 全局底线。
@@ -115,3 +116,16 @@ Base prefix: `/api/v1`
 ## 实时资源监控（v1.0.4）
 
 `GET /api/v1/servers/{server_id}?metrics=1` 返回当前 CPU、内存、硬盘和上下行网络速率。该能力属于 Mobile API v1 的向后兼容扩展，服务端不保存监控历史。
+
+
+## 自动续费（v1 向后兼容扩展）
+
+服务器列表与详情 payload 增加 `auto_renew: boolean`。旧客户端可安全忽略该字段。
+
+`POST /api/v1/servers/{server_id}/auto-renew` 接收 JSON：
+
+```json
+{"enabled": true}
+```
+
+返回保存后的 `enabled` 状态。该接口仅修改 Panel 内每台 VPS 的自动续费设置，不直接访问 Host Agent；实际到期扣款和续费仍由 Panel 现有生命周期任务处理。

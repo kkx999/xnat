@@ -296,6 +296,7 @@ def _server_payload(db, server: Server, ui_status: str | None = None, user: User
         "traffic_reset_reason": reset["reason"] if reset is not None else "",
         "virtualization_type": server.virtualization_type,
         "expires_at": server.expires_at.isoformat() + "Z" if server.expires_at else None,
+        "auto_renew": bool(getattr(server, "auto_renew", False)),
         "lifecycle": life,
         "port_limit": int(server.port_limit if server.port_limit is not None else (server.plan.port_count if server.plan else 0) or 0),
         "port_count": len(server.ports),
@@ -691,6 +692,39 @@ def api_server_detail(request: Request, server_id: int):
         payload = _server_payload(db, server, status, user)
         db.commit()
         return payload
+
+
+@router.post("/servers/{server_id}/auto-renew")
+async def api_update_server_auto_renew(request: Request, server_id: int):
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(400, "请求格式错误")
+
+    enabled = data.get("enabled")
+    if not isinstance(enabled, bool):
+        raise HTTPException(400, "enabled 必须为布尔值")
+
+    with SessionLocal() as db:
+        user, _ = _mobile_session(db, request)
+        server = _server_for_user(db, user, server_id)
+        server.auto_renew = enabled
+        write_audit(
+            db,
+            actor=user,
+            request=request,
+            action="server.auto_renew.update.mobile",
+            target_type="server",
+            target_id=server.id,
+            target_name=server.name,
+            detail={"enabled": enabled},
+        )
+        db.commit()
+        return {
+            "ok": True,
+            "enabled": bool(server.auto_renew),
+            "display_id": server_display_id(server),
+        }
 
 
 @router.post("/servers/{server_id}/action")
