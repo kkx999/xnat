@@ -2,20 +2,20 @@
 
 XNAT 是一个面向自建场景的 **多节点 NAT VPS 管理平台**，基于 **Incus + LVM Thin**，支持 LXC、KVM 与混合虚拟化。
 
-> **项目状态：Beta / 测试版** — 当前仍处于持续测试与快速迭代阶段，建议先在非关键生产环境验证后再正式使用。
+> **项目状态：测试阶段** — 当前项目仍在持续开发与验证中，部分功能和接口可能调整，暂不建议用于关键生产环境。
 
 XNAT 将用户、套餐、订单、Host、实例、NAT 端口、流量、生命周期、充值、通知和日常运维集中到一套 Panel 中管理。整体采用 **Panel Server + Host Agent** 分离架构：Panel 负责业务、调度与数据一致性，Host Agent 负责每台母机上的实例、网络、存储和底层执行。
 
-## 当前测试版本
+## 当前版本
 
 | 组件 | 版本 |
 | --- | --- |
-| XNAT Release | v1.1.0（Beta） |
+| XNAT Release | v1.1.0 |
 | XNAT Panel | v1.1.0 |
 | XNAT Host Agent | v1.0.5 |
 | Agent API | v2 |
 | Mobile API | v1 |
-| XNAT Android | v1.0.5（Beta） |
+| XNAT Android | v1.0.5 |
 
 ## 版本说明
 
@@ -23,7 +23,7 @@ v1.1.0 重点修正服务器删除与 NAT / SSH 端口安全：普通删除会�
 
 Host Agent v1.0.5 增加实际 Incus proxy 端口占用查询与严格删除确认。Panel 分配新 SSH / NAT 公网端口时会避开 Host 实际已占用端口，Provision 遇到明确端口冲突时可自动换端口重试。
 
-Web、Mobile API 与 Android 普通删除语义保持一致。Android 当前测试版本为 v1.0.5；Agent API 继续保持 v2，Mobile API 继续保持 v1。
+Web、Mobile API 与 Android 普通删除语义保持一致。Android 当前版本为 v1.0.5；Agent API 继续保持 v2，Mobile API 继续保持 v1。
 
 ## XNAT 能做什么
 
