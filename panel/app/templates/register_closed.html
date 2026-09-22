@@ -1,10 +1,9 @@
-{% extends "base.html" %}
+{% extends "auth_base.html" %}
 {% block title %}暂停注册 · {{ app_name }}{% endblock %}
-{% block content %}
-<div class="authbox">
-  <span class="eyebrow">REGISTRATION</span>
-  <h1>暂未开放注册</h1>
-  <p class="muted">当前暂停新用户注册。已有账号仍可正常登录。</p>
-  <a class="btn wide" href="/login">返回登录</a>
-</div>
+{% block auth_kicker %}REGISTRATION{% endblock %}
+{% block auth_heading %}暂未开放注册{% endblock %}
+{% block auth_description %}当前暂停新用户注册。已有账号仍可正常登录并使用全部现有服务。{% endblock %}
+{% block auth_content %}
+<div class="auth-v106-closed"><span aria-hidden="true">i</span><p>注册入口当前处于关闭状态。</p></div>
+<a class="auth-v106-primary auth-v106-primary-link" href="/login"><span>返回登录</span><i>→</i></a>
 {% endblock %}
