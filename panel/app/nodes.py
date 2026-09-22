@@ -667,6 +667,33 @@ def public_port_in_use_on_host(db, host_id: int, port: int, protocol: str) -> bo
     return False
 
 
+
+def _live_proxy_ports_on_host(host: HostNode, protocol: str) -> set[int]:
+    """Read actual Host proxy usage when the Agent exposes the inventory endpoint.
+
+    Agent v1.0.4 and older return 404; those nodes safely fall back to the
+    Panel-side database/lease checks until upgraded.
+    """
+    protocol = str(protocol or "tcp").lower()
+    try:
+        data = host_request(host, "GET", "/v1/ports/used", timeout=35) or {}
+    except HostAPIError as exc:
+        if "HTTP 404" in str(exc):
+            return set()
+        raise
+    raw = data.get(protocol) or []
+    result: set[int] = set()
+    if isinstance(raw, list):
+        for value in raw:
+            try:
+                port = int(value)
+            except (TypeError, ValueError):
+                continue
+            if 1 <= port <= 65535:
+                result.add(port)
+    return result
+
+
 def allocate_host_port(db, host: HostNode, protocol: str, blocked: set[int] | None = None) -> int:
     blocked = blocked or set()
     if host.port_start is None or host.port_end is None:
@@ -675,8 +702,10 @@ def allocate_host_port(db, host: HostNode, protocol: str, blocked: set[int] | No
     end = min(65535, int(host.port_end))
     if start > end:
         raise HostAPIError(f"宿主机 {host.name} 的 NAT 端口池配置无效")
+
+    live_used = _live_proxy_ports_on_host(host, protocol)
     for port in range(start, end + 1):
-        if port in blocked:
+        if port in blocked or port in live_used:
             continue
         if public_port_in_use_on_host(db, host.id, port, protocol):
             continue

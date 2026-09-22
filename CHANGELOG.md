@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.1.0 - 2026-09-22
+
+- XNAT Release / Panel 升级到 v1.1.0；Host Agent 升级到 v1.0.5，Agent API v2、Mobile API v1 均保持不变。
+- 正常删除服务器改为 Host-first：先永久删除 Host 上真实 VPS，Host 明确确认删除成功后才清理 Panel 记录与端口映射；Host 离线、TLS / Token 异常或删除失败时 Panel 记录保留。
+- 管理员后台新增独立“强制从 Panel 移除”恢复入口。该操作永远不联系 Host，仅用于 Host 已重装、失联或凭据不可恢复等特殊场景，并明确提示 Host 上实例可能仍存在。
+- 强制移除后的 SSH / NAT 端口在 Panel 侧隔离 30 天，避免旧 Agent 或暂时无法读取 Host 实际状态时立即复用。
+- Host Agent v1.0.5 新增实际 Incus proxy 端口占用查询；Panel 分配 SSH / NAT 公网端口时会避开 Host 实际正在使用的端口，解决历史漂移 / 幽灵实例导致的新机端口复用失败。
+- Host Agent 删除接口改为严格删除并复核实例确实不存在；Panel 端再次执行 inspect 复核，双重确认后才清理 Panel。
+- Provision 遇到明确 SSH 端口占用冲突时可自动重新分配下一个端口并快速重试，降低历史遗留冲突导致的用户开通失败。
+- Web、Mobile API 与 Android 的普通删除语义保持一致；Android 对应版本 v1.0.5。
+- 后台 v1.0.9 的前后端视觉统一改动全部保留。
+
+**由 𝐍𝐀𝐌𝐄𝐋𝐄𝐒𝐒 和 GPT 倾力打造**
+
 ## v1.0.9 - 2026-09-22
 
 - XNAT Release / Panel 升级到 v1.0.9；Host Agent 保持 v1.0.4，Agent API v2、Mobile API v1 均不变。

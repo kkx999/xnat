@@ -108,7 +108,12 @@ class RemoteHostProvider(Provider):
 
     def delete(self, instance_id: str) -> None:
         host = self._host_for_instance(instance_id)
-        host_request(host, "DELETE", f"/v1/instances/{instance_id}", timeout=75)
+        result = host_request(host, "DELETE", f"/v1/instances/{instance_id}", timeout=150) or {}
+        if result.get("verified_absent") is False:
+            raise HostAPIError(f"Host 删除实例 {instance_id} 后仍报告实例存在")
+        probe = host_request(host, "GET", f"/v1/instances/{instance_id}/inspect", timeout=25) or {}
+        if bool(probe.get("exists")):
+            raise HostAPIError(f"Host 删除实例 {instance_id} 后复核仍存在")
 
     def add_port(self, instance_id: str, public_port: int, private_port: int, protocol: str) -> str:
         host = self._host_for_instance(instance_id)

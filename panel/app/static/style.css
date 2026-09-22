@@ -11692,3 +11692,122 @@ html[data-admin-theme="light"] body.admin-body .balance-action-button.debit:hove
   background:#ffeaed!important;
   color:#913541!important;
 }
+
+
+/* ==========================================================================
+   v1.1.0 deletion modes
+   Normal Host-first deletion and explicit admin-only Panel force removal.
+   ========================================================================== */
+body.admin-body .admin-delete-mode-stack{
+  display:grid;
+  gap:12px;
+  padding:14px;
+}
+body.admin-body .admin-delete-mode-card{
+  display:grid;
+  gap:10px;
+  margin:0!important;
+  padding:14px!important;
+  border:1px solid var(--admin-line)!important;
+  border-radius:12px!important;
+  background:#0d182a!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.02)!important;
+}
+body.admin-body .admin-delete-mode-card.normal{
+  border-color:#334d69!important;
+  background:linear-gradient(180deg,#101e31,#0d1929)!important;
+}
+body.admin-body .admin-delete-mode-card.force{
+  border-color:#623d47!important;
+  background:linear-gradient(180deg,#21171d,#191319)!important;
+}
+body.admin-body .admin-delete-mode-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+}
+body.admin-body .admin-delete-mode-head>div{
+  display:grid;
+  gap:4px;
+}
+body.admin-body .admin-delete-mode-head strong{
+  color:#edf4ff;
+  font-size:11px;
+  font-weight:820;
+}
+body.admin-body .admin-delete-mode-head small,
+body.admin-body .admin-delete-mode-card p{
+  color:#7f91a8!important;
+  font-size:9px!important;
+  line-height:1.65;
+}
+body.admin-body .admin-delete-mode-card p{
+  margin:0!important;
+}
+body.admin-body .admin-delete-mode-badge{
+  min-height:23px;
+  display:inline-flex;
+  align-items:center;
+  padding:0 8px;
+  border:1px solid #355d82;
+  border-radius:999px;
+  background:#152d45;
+  color:#9fc8ef;
+  font-size:8px;
+  font-weight:850;
+  letter-spacing:.04em;
+}
+body.admin-body .admin-delete-mode-badge.danger{
+  border-color:#714854;
+  background:#311f26;
+  color:#efabb7;
+}
+body.admin-body .admin-delete-mode-card .admin-machine-id-copy{
+  margin:0!important;
+  padding:10px 11px!important;
+  border:1px solid #263955!important;
+  border-radius:10px!important;
+  background:rgba(8,18,34,.38)!important;
+}
+body.admin-body .admin-delete-mode-card.force .admin-machine-id-copy{
+  border-color:#51343d!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-delete-mode-card{
+  background:#f4f7fa!important;
+  border-color:#cbd7e3!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-delete-mode-card.normal{
+  background:linear-gradient(180deg,#f8fbfd,#f1f6fa)!important;
+  border-color:#c4d6e6!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-delete-mode-card.force{
+  background:linear-gradient(180deg,#fff8f9,#fff2f4)!important;
+  border-color:#e2bdc4!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-delete-mode-head strong{
+  color:#24394f!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-delete-mode-head small,
+html[data-admin-theme="light"] body.admin-body .admin-delete-mode-card p{
+  color:#6b7c8f!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-delete-mode-badge{
+  border-color:#b9d1e8!important;
+  background:#edf6ff!important;
+  color:#356b9f!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-delete-mode-badge.danger{
+  border-color:#dfb4bd!important;
+  background:#fff0f2!important;
+  color:#a34b59!important;
+}
+html[data-admin-theme="light"] body.admin-body .admin-delete-mode-card .admin-machine-id-copy{
+  background:#f8fafc!important;
+  border-color:#d2dee9!important;
+}
+@media(max-width:760px){
+  body.admin-body .admin-delete-mode-stack{padding:10px}
+  body.admin-body .admin-delete-mode-head{align-items:flex-start}
+  body.admin-body .admin-delete-mode-card button[type="submit"]{width:100%!important}
+}

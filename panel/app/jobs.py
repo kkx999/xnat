@@ -8,7 +8,8 @@ from sqlalchemy import select, update
 from .audit import write_audit
 from .crypto import encrypt_secret
 from .db import SessionLocal
-from .models import BalanceLedger, Job, Order, PortMapping, Server, SystemImage, User
+from .deletion import finalize_panel_server_removal
+from .models import BalanceLedger, Job, Order, PortMapping, Server, SiteSetting, SystemImage, User
 from .geo import server_display_id
 from .notifications import queue_notification, queue_admin_notification
 from .traffic import apply_sample, ensure_cycle
@@ -173,40 +174,29 @@ def _run_reinstall(db, provider, server: Server, job: Job):
 
 
 def _run_delete(db, provider, server: Server, job: Job):
-    """Delete only the Panel-side service record; never contact the Host Agent."""
+    """Delete the real Host instance first, then finalize Panel cleanup."""
     if server.deleted_at is not None:
         return {"noop": "already_deleted"}
 
-    pending_jobs = db.scalars(
-        select(Job).where(
-            Job.server_id == server.id,
-            Job.id != job.id,
-            Job.status == "pending",
-            Job.job_type.in_(["provision_server", "reinstall_server"]),
-        )
-    ).all()
-    now = datetime.utcnow()
-    for pending in pending_jobs:
-        pending.status = "cancelled"
-        pending.finished_at = now
-        pending.error_text = "服务器已从 Panel 删除，取消后续实例操作"
+    instance_id = server.provider_instance_id or server.name
+    if instance_id:
+        provider.delete(instance_id)
 
-    for mapping in list(server.ports):
-        db.delete(mapping)
-
-    server.status = "deleted"
-    server.deleted_at = now
-    server.root_password_enc = None
-    server.reconcile_status = "deleted"
-    server.reconcile_message = "Panel-only deletion; Host Agent was not contacted"
+    result = finalize_panel_server_removal(
+        db,
+        server,
+        current_job_id=job.id,
+        panel_only=False,
+        reason="Host instance deleted successfully before Panel cleanup",
+    )
 
     user = db.get(User, server.user_id)
     if user:
         queue_notification(
             db,
             user,
-            title="VPS 已删除",
-            body=f"{server_display_id(server)} 已从面板永久删除。",
+            title="VPS 已永久删除",
+            body=f"{server_display_id(server)} 已从宿主机删除，并同步从 Panel 清理。",
             kind="server",
             severity="warning",
             event_key=f"deleted:{server.id}:{job.id}",
@@ -218,9 +208,19 @@ def _run_delete(db, provider, server: Server, job: Job):
         target_type="server",
         target_id=server.id,
         target_name=server.name,
-        detail={"panel_only": True, "host_contacted": False, "cancelled_jobs": len(pending_jobs)},
+        detail={
+            "panel_only": False,
+            "host_contacted": True,
+            "instance_id": instance_id,
+            "cancelled_jobs": result["cancelled_jobs"],
+        },
     )
-    return {"deleted": True, "panel_only": True, "host_contacted": False}
+    return {
+        "deleted": True,
+        "panel_only": False,
+        "host_contacted": True,
+        "cancelled_jobs": result["cancelled_jobs"],
+    }
 
 
 def _claim_next_job_id(db, now: datetime) -> int | None:
@@ -244,6 +244,64 @@ def _claim_next_job_id(db, now: datetime) -> int | None:
             return int(candidate_id)
         db.rollback()
     return None
+
+
+
+def _parse_blocked_public_ports(db) -> set[int]:
+    row = db.get(SiteSetting, "port_blocked_public")
+    raw = str(row.value if row else "")
+    ports: set[int] = set()
+    for chunk in raw.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        try:
+            if "-" in chunk:
+                left, right = chunk.split("-", 1)
+                a, b = int(left.strip()), int(right.strip())
+                if a > b:
+                    a, b = b, a
+                for port in range(max(1, a), min(65535, b) + 1):
+                    ports.add(port)
+            else:
+                port = int(chunk)
+                if 1 <= port <= 65535:
+                    ports.add(port)
+        except (TypeError, ValueError):
+            continue
+    return ports
+
+
+def _looks_like_port_conflict(message: str) -> bool:
+    value = str(message or "").lower()
+    markers = (
+        "address already in use",
+        "already in use",
+        "failed to bind",
+        "cannot bind",
+        "proxy device",
+        "端口已被占用",
+        "端口冲突",
+        "地址已被使用",
+    )
+    return any(marker in value for marker in markers)
+
+
+def _reallocate_ssh_port_after_conflict(db, server: Server, message: str) -> bool:
+    if not server.host or not _looks_like_port_conflict(message):
+        return False
+    try:
+        from .nodes import allocate_host_port
+        old_port = int(server.ssh_port or 0)
+        new_port = allocate_host_port(db, server.host, "tcp", _parse_blocked_public_ports(db))
+        if not new_port or new_port == old_port:
+            return False
+        server.ssh_port = int(new_port)
+        server.reconcile_status = "warning"
+        server.reconcile_message = f"检测到 SSH 公网端口冲突，已从 {old_port} 自动切换到 {new_port} 后重试。"
+        return True
+    except Exception:
+        return False
 
 
 def _defer_uncertain_provision(db, provider, server: Server, job: Job, message: str) -> bool:
@@ -339,9 +397,22 @@ def run_one_job(provider, provider_name: str) -> bool:
             message = str(exc)[:1000]
             if job:
                 job.error_text = message
+                port_reallocated = False
+                if job.job_type == "provision_server" and server and job.attempts < job.max_attempts:
+                    port_reallocated = _reallocate_ssh_port_after_conflict(db, server, message)
+                    if port_reallocated:
+                        write_audit(
+                            db,
+                            actor_username="system",
+                            action="server.provision.ssh_port_reallocated",
+                            target_type="server",
+                            target_id=server.id,
+                            target_name=server.name,
+                            detail={"ssh_port": server.ssh_port, "error": message[:240]},
+                        )
                 if job.attempts < job.max_attempts:
                     job.status = "pending"
-                    job.available_at = datetime.utcnow() + timedelta(seconds=min(60, 5 * (2 ** max(0, job.attempts - 1))))
+                    job.available_at = datetime.utcnow() + timedelta(seconds=2 if port_reallocated else min(60, 5 * (2 ** max(0, job.attempts - 1))))
                 else:
                     if job.job_type == "provision_server" and server and _defer_uncertain_provision(db, provider, server, job, message):
                         db.commit()
@@ -363,6 +434,20 @@ def run_one_job(provider, provider_name: str) -> bool:
                                 kind="server",
                                 severity="error",
                                 event_key=f"provision-failed:{server.id}:{job.id}",
+                            )
+                    elif job.job_type == "delete_server" and server:
+                        server.reconcile_status = "error"
+                        server.reconcile_message = message
+                        user = db.get(User, server.user_id)
+                        if user:
+                            queue_notification(
+                                db,
+                                user,
+                                title="VPS 删除未完成",
+                                body=f"{server_display_id(server)} 未能从宿主机删除，因此 Panel 记录已保留。请稍后重试或联系管理员。错误：{message[:180]}",
+                                kind="server",
+                                severity="error",
+                                event_key=f"delete-failed:{server.id}:{job.id}",
                             )
                     elif server:
                         server.reconcile_status = "error"

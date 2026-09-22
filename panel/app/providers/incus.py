@@ -303,6 +303,8 @@ ss -lnt '( sport = :22 )' | grep 'LISTEN' >/dev/null
 
     def delete(self, instance_id: str) -> None:
         self._delete_instance(instance_id)
+        if self._instance_exists(instance_id):
+            raise ProviderError(f"删除实例 {instance_id} 失败：Incus 复核仍然存在")
 
     def add_port(self, instance_id: str, public_port: int, private_port: int, protocol: str) -> str:
         protocol = protocol.lower()

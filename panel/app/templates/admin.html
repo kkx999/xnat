@@ -616,13 +616,26 @@
             </details>
 
             <details class="v112-tool-panel v112-danger-panel">
-              <summary><span>删除服务器</span><small>永久操作</small></summary>
-              <form method="post" action="/admin/servers/{{ s.id }}/delete">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <div class="admin-machine-id-copy"><small>输入 <code>{{ server_display_id(s) }}</code> 确认从 Panel 永久删除；不会连接 Host。</small><button type="button" data-copy-value="{{ server_display_id(s) }}" data-copy-success-label="✓ 已复制" data-copy-toast="机器编号已复制">复制编号</button></div>
-                <input name="confirm_name" placeholder="{{ server_display_id(s) }}" required>
-                <button class="danger" type="submit">永久删除</button>
-              </form>
+              <summary><span>删除服务器</span><small>Host 删除 / 强制移除</small></summary>
+              <div class="admin-delete-mode-stack">
+                <form method="post" action="/admin/servers/{{ s.id }}/delete" class="admin-delete-mode-card normal">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <div class="admin-delete-mode-head"><div><strong>正常永久删除</strong><small>先删除 Host 实例，再清理 Panel</small></div><span class="admin-delete-mode-badge">推荐</span></div>
+                  <p>Host 删除失败、离线或 TLS / Token 异常时，Panel 记录会保留，不会假装删除成功。</p>
+                  <div class="admin-machine-id-copy"><small>输入 <code>{{ server_display_id(s) }}</code> 确认永久删除真实实例。</small><button type="button" data-copy-value="{{ server_display_id(s) }}" data-copy-success-label="✓ 已复制" data-copy-toast="机器编号已复制">复制编号</button></div>
+                  <input name="confirm_name" placeholder="{{ server_display_id(s) }}" required>
+                  <button class="danger" type="submit">删除 Host 实例</button>
+                </form>
+
+                <form method="post" action="/admin/servers/{{ s.id }}/force-remove" class="admin-delete-mode-card force">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <div class="admin-delete-mode-head"><div><strong>强制从 Panel 移除</strong><small>恢复场景专用 · 永远不联系 Host</small></div><span class="admin-delete-mode-badge danger">FORCE</span></div>
+                  <p>仅用于 Host 已重装、失联或凭据不可恢复。Host 上实例可能继续存在；相关端口会先隔离 30 天，新版 Agent 还会按真实 proxy 占用继续避让。</p>
+                  <div class="admin-machine-id-copy"><small>输入 <code>{{ server_display_id(s) }}</code> 确认只删除 Panel 记录。</small><button type="button" data-copy-value="{{ server_display_id(s) }}" data-copy-success-label="✓ 已复制" data-copy-toast="机器编号已复制">复制编号</button></div>
+                  <input name="confirm_name" placeholder="{{ server_display_id(s) }}" required>
+                  <button class="danger" type="submit">强制从 Panel 移除</button>
+                </form>
+              </div>
             </details>
           </div>
         </article>

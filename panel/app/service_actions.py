@@ -169,7 +169,7 @@ def reset_server_traffic(db, user: User, server: Server, provider, *, request=No
 
 
 def enqueue_server_delete(db, user: User, server: Server, confirm_name: str, *, request=None, audit_action: str = "server.delete.enqueue") -> tuple[Job, bool]:
-    """Validate the stable display identifier and enqueue deletion once."""
+    """Validate the stable display identifier and enqueue Host-first deletion once."""
     if not confirmation_matches(server, confirm_name):
         raise ServiceActionError("删除确认编号不正确。")
 
@@ -183,7 +183,7 @@ def enqueue_server_delete(db, user: User, server: Server, confirm_name: str, *, 
     if active_job:
         return active_job, True
 
-    job = enqueue_job(db, "delete_server", user_id=user.id, server_id=server.id, payload={})
+    job = enqueue_job(db, "delete_server", user_id=user.id, server_id=server.id, payload={"delete_mode": "host_then_panel"})
     write_audit(
         db,
         actor=user,
@@ -192,6 +192,6 @@ def enqueue_server_delete(db, user: User, server: Server, confirm_name: str, *, 
         target_type="server",
         target_id=server.id,
         target_name=server.name,
-        detail={"job_id": job.id, "display_id": server_display_id(server)},
+        detail={"job_id": job.id, "display_id": server_display_id(server), "delete_mode": "host_then_panel"},
     )
     return job, False

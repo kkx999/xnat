@@ -63,6 +63,7 @@ case "$CURRENT_VERSION" in
   "$COMPONENT_VERSION") UPGRADE_PATH="reapply" ;;
   1.1.0) UPGRADE_PATH="legacy-v1.1.0"; warn "当前为 v1.1.0；v${COMPONENT_VERSION} 的正式升级验收基线包含 v1.3.2 / v1.3.1 / v1.3.0 / v1.2.0，建议先执行 xnat update 1.1.1。" ;;
   1.1.*) UPGRADE_PATH="compatible-v1.1.x"; warn "当前为 v${CURRENT_VERSION}；v${COMPONENT_VERSION} 的正式升级验收基线包含 v1.3.2 / v1.3.1 / v1.3.0 / v1.2.0。" ;;
+  1.0.9) UPGRADE_PATH="verified-v1.0.9" ;;
   1.0.8) UPGRADE_PATH="verified-v1.0.8" ;;
   1.0.7) UPGRADE_PATH="verified-v1.0.7" ;;
   1.0.6) UPGRADE_PATH="verified-v1.0.6" ;;
@@ -320,5 +321,5 @@ echo "========================================"
 echo "来源版本：v${CURRENT_VERSION}"
 echo "数据库：已自动迁移并通过 quick_check"
 echo "Panel：${PANEL_BIND_HOST}:${PANEL_PORT}"
-echo "Host Agent：无需因本次 Panel 升级重装"
+echo "Host Agent：建议同步更新到 v1.0.5，以启用真实端口占用检查与严格删除确认"
 echo "升级前备份：${BACKUP_DIR}"

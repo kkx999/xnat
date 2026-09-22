@@ -304,7 +304,7 @@ html[data-client-theme="light"] body.client-body .client-port-row em{color:#7486
     <span class="detail-summary-action">展开</span>
   </summary>
   <div class="client-detail-body">
-    <div class="client-danger-note">重装会清空宿主机实例内全部数据；删除只清理 Panel 记录，不会连接或操作 Host Agent。</div>
+    <div class="client-danger-note">重装会清空宿主机实例内全部数据；删除会先永久删除宿主机上的真实实例，确认成功后再从 Panel 清理记录。</div>
     <div class="danger-machine-id-row">
       <div><span>当前机器编号</span><code>{{ server_display_id(server) }}</code></div>
       <button type="button" data-copy-value="{{ server_display_id(server) }}" data-copy-success-label="✓ 已复制" data-copy-toast="机器编号已复制">复制编号</button>
@@ -327,9 +327,9 @@ html[data-client-theme="light"] body.client-body .client-port-row em{color:#7486
       <form method="post" action="/servers/{{ server.id }}/delete">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <h3>永久删除实例</h3>
-        <p>删除后该服务器会从 Panel 中移除；不会连接宿主机，也不会删除 Host 上可能仍存在的实例。</p>
+        <p>删除会永久移除宿主机上的 VPS、系统盘和端口转发；只有 Host 确认删除成功后，Panel 才会清理该服务器记录。</p>
         <label>输入服务器编号确认<input name="confirm_name" placeholder="{{ server_display_id(server) }}" required></label>
-        <button class="danger" type="submit" data-loading-label="正在提交删除…">永久删除实例</button>
+        <button class="danger" type="submit" data-loading-label="正在提交删除…">永久删除 Host 实例</button>
       </form>
     </div>
   </div>

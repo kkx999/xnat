@@ -127,13 +127,9 @@ def require_nat_port_allowed(port: int):
         raise HTTPException(400, f"公网端口 {port} 不在节点允许的 NAT 端口池 {start}-{end} 内")
 
 
-def current_proxy_public_ports() -> set[int]:
-    """Collect public ports already attached to Incus proxy devices.
-
-    Used only when changing the node pool, so a new range cannot silently
-    exclude ports that are already serving existing VPS instances.
-    """
-    result: set[int] = set()
+def current_proxy_public_ports_by_protocol() -> dict[str, set[int]]:
+    """Collect live Incus proxy ports grouped by protocol."""
+    result: dict[str, set[int]] = {"tcp": set(), "udp": set()}
     rows = run(["incus", "list", "--format", "json"], check=False, timeout=30)
     if rows.returncode != 0:
         return result
@@ -142,7 +138,7 @@ def current_proxy_public_ports() -> set[int]:
     except Exception:
         return result
 
-    listen_re = re.compile(r"^(?:tcp|udp):(?:0\\.0\\.0\\.0|\\[::\\]|[^:]+):(\\d+)$", re.I)
+    listen_re = re.compile(r"^(tcp|udp):(?:0\\.0\\.0\\.0|\\[::\\]|[^:]+):(\\d+)$", re.I)
     for row in instances:
         name = str(row.get("name") or "")
         if not name:
@@ -165,10 +161,17 @@ def current_proxy_public_ports() -> set[int]:
             match = listen_re.match(listen)
             if match:
                 try:
-                    result.add(int(match.group(1)))
-                except ValueError:
+                    protocol = match.group(1).lower()
+                    result.setdefault(protocol, set()).add(int(match.group(2)))
+                except (TypeError, ValueError):
                     pass
     return result
+
+
+def current_proxy_public_ports() -> set[int]:
+    """Return all live proxy ports regardless of protocol."""
+    grouped = current_proxy_public_ports_by_protocol()
+    return set(grouped.get("tcp", set())) | set(grouped.get("udp", set()))
 
 
 def _clean_command_output(text: str) -> str:
@@ -1066,6 +1069,15 @@ def status():
     }
 
 
+@app.get("/v1/ports/used")
+def used_public_ports():
+    grouped = current_proxy_public_ports_by_protocol()
+    return {
+        "tcp": sorted(grouped.get("tcp", set())),
+        "udp": sorted(grouped.get("udp", set())),
+    }
+
+
 @app.post("/v1/config/nat-port-pool")
 def configure_nat_port_pool(body: NatPortPoolBody):
     start = int(body.port_start)
@@ -1420,8 +1432,8 @@ def reinstall(instance_id: str, body: ReinstallBody):
 @app.delete("/v1/instances/{instance_id}")
 def delete(instance_id: str):
     require_instance(instance_id)
-    delete_instance(instance_id)
-    return {"deleted": True}
+    _strict_delete_instance(instance_id)
+    return {"deleted": True, "verified_absent": not instance_exists(instance_id)}
 
 
 @app.post("/v1/instances/{instance_id}/ports")

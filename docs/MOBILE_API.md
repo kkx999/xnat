@@ -1,6 +1,6 @@
 # XNAT Mobile API v1
 
-XNAT Panel `v1.0.3` 保持 **Mobile API v1**。本次重新整理 Panel / Host 正式基线与 Host 安装逻辑；Mobile API v1 的路由、认证和既有客户端语义保持兼容。
+XNAT Panel `v1.1.0` 保持 **Mobile API v1**。本次重新整理 Panel / Host 正式基线与 Host 安装逻辑；Mobile API v1 的路由、认证和既有客户端语义保持兼容。
 
 Base prefix: `/api/v1`
 
@@ -50,6 +50,8 @@ Base prefix: `/api/v1`
 ```
 
 删除复用既有 `delete_server` Job；重复提交时返回正在执行的同一任务，不重复入队。
+
+自 v1.1.0 起，普通删除采用 Host-first 语义：Panel 先删除宿主机上的真实 VPS，并复核实例已经不存在，然后才清理 Panel 记录。Host 删除失败时 Panel 记录保留。管理员专用“强制从 Panel 移除”不属于 Mobile API，普通用户客户端不会获得该入口。
 
 流量重置复用 Web Panel 的完整付费逻辑：仅流量用尽后允许执行，检查生命周期、套餐重置价格和余额，创建 `traffic_reset` 订单、扣除余额、开启新流量周期、恢复带宽、写入审计并发送通知。带宽即时恢复失败时，流量与账务仍按既有 Web 逻辑完成，并通过 `provider_warning` 返回后台重试提示。
 

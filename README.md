@@ -2,7 +2,7 @@
 
 > 一个面向自建场景的 **多节点 NAT VPS 管理平台**，基于 **Incus + LVM Thin**，支持 LXC、KVM 与混合虚拟化。
 
-**当前正式版本：v1.0.9**
+**当前正式版本：v1.1.0**
 
 <div align="center">
 
@@ -48,11 +48,11 @@ xnat
 
 升级到当前正式版时建议：
 
-1. 先通过 `xnat` 更新 Panel 到 v1.0.9；
-2. Host Agent 已是 v1.0.4 的节点无需重复更新；
+1. 先通过 `xnat` 更新 Panel 到 v1.1.0；
+2. Host Agent 建议同步更新到 v1.0.5，以启用真实 proxy 端口占用检查和严格删除确认；
 3. 在 Panel 中确认 Host 在线，并确认 Agent API 仍为 v2。
 
-如果仍有 Host Agent API v1 的历史节点，确认 Panel 已经是 v1.0.9 后，在对应 Host 执行：
+如果仍有 Host Agent API v1 的历史节点，确认 Panel 已经是 v1.1.0 后，在对应 Host 执行：
 
 ```bash
 XNAT_ALLOW_AGENT_API_CHANGE=1 xnat

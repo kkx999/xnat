@@ -40,6 +40,7 @@ from .db import Base, SessionLocal, engine
 from .schema import ensure_schema_extensions
 from .lifecycle import cancel_pending_expiry_delete, lifecycle_config, lifecycle_state, resume_after_renewal, run_expiry_lifecycle
 from .deployment import deployment_status
+from .deletion import finalize_panel_server_removal
 from .models import (
     Announcement, AnnouncementRead, AuditLog, BalanceLedger, ChainTransaction, Coupon, CouponRedemption, HostNode, PlanHost, Job, LoginEvent, LoginSession,
     Notification, Order, PasswordResetToken, Plan, PortMapping, RechargeOrder, Server, SiteSetting,
@@ -2199,7 +2200,7 @@ def delete_server(
         if replayed:
             flash(request, f"删除任务 #{job.id} 已经在执行。", "info")
         else:
-            flash(request, f"永久删除任务 #{job.id} 已提交。", "warning")
+            flash(request, f"永久删除任务 #{job.id} 已提交；系统会先删除宿主机实例，成功后再清理 Panel。", "warning")
         return RedirectResponse(f"/servers/{server.id}", status_code=303)
 
 
@@ -3767,9 +3768,80 @@ def admin_delete_server(request:Request,server_id:int,confirm_name:str=Form(...)
         if not confirmation_matches(server, confirm_name): flash(request,"删除确认名称不正确。","error"); return RedirectResponse("/admin?section=servers",status_code=303)
         existing=db.scalar(select(Job).where(Job.server_id==server.id,Job.job_type=="delete_server",Job.status.in_(["pending","running"])))
         if existing: flash(request,f"删除任务 #{existing.id} 已在执行。","info"); return RedirectResponse("/admin?section=servers",status_code=303)
-        job=enqueue_job(db,"delete_server",user_id=server.user_id,server_id=server.id,payload={"requested_by":"admin"})
-        write_audit(db,actor=admin,request=request,action="admin.server.delete.queue",target_type="server",target_id=server.id,target_name=server.name,detail={"job_id":job.id}); db.commit(); flash(request,f"{server_display_id(server)} 删除任务 #{job.id} 已进入队列。","success")
+        job=enqueue_job(db,"delete_server",user_id=server.user_id,server_id=server.id,payload={"requested_by":"admin","delete_mode":"host_then_panel"})
+        write_audit(db,actor=admin,request=request,action="admin.server.delete.queue",target_type="server",target_id=server.id,target_name=server.name,detail={"job_id":job.id,"delete_mode":"host_then_panel"}); db.commit(); flash(request,f"{server_display_id(server)} 删除任务 #{job.id} 已进入队列；Host 删除成功后才会清理 Panel。","success")
     return RedirectResponse("/admin?section=servers",status_code=303)
+
+
+@app.post("/admin/servers/{server_id}/force-remove")
+def admin_force_remove_server(
+    request: Request,
+    server_id: int,
+    confirm_name: str = Form(...),
+    csrf_token: str = Form(...),
+):
+    validate_csrf(request, csrf_token)
+    with db_session() as db:
+        admin = admin_required(request, db)
+        server = db.get(Server, server_id)
+        if not server or server.deleted_at is not None:
+            raise HTTPException(404, "服务器不存在")
+        if not confirmation_matches(server, confirm_name):
+            flash(request, "强制移除确认编号不正确。", "error")
+            return RedirectResponse("/admin?section=servers", status_code=303)
+
+        running = db.scalar(
+            select(Job).where(
+                Job.server_id == server.id,
+                Job.status == "running",
+                Job.job_type.in_(["provision_server", "reinstall_server", "delete_server"]),
+            ).order_by(Job.id.desc())
+        )
+        if running:
+            flash(request, f"任务 #{running.id} 正在执行，不能在 Host 操作进行中强制移除。", "error")
+            return RedirectResponse("/admin?section=servers", status_code=303)
+
+        display_id = server_display_id(server)
+        result = finalize_panel_server_removal(
+            db,
+            server,
+            panel_only=True,
+            reason="Administrator forced Panel-only removal; Host Agent was intentionally not contacted",
+        )
+        owner = db.get(User, server.user_id)
+        if owner:
+            queue_notification(
+                db,
+                owner,
+                title="VPS 已从 Panel 强制移除",
+                body=f"{display_id} 已由管理员从 Panel 强制移除。该操作未联系 Host，宿主机上可能仍存在实例。",
+                kind="server",
+                severity="warning",
+                event_key=f"force-panel-remove:{server.id}:{int(datetime.utcnow().timestamp())}",
+            )
+        write_audit(
+            db,
+            actor=admin,
+            request=request,
+            action="admin.server.force_remove_panel",
+            target_type="server",
+            target_id=server.id,
+            target_name=server.name,
+            detail={
+                "display_id": display_id,
+                "panel_only": True,
+                "host_contacted": False,
+                "cancelled_jobs": result["cancelled_jobs"],
+                "port_quarantine_days": 30,
+            },
+        )
+        db.commit()
+        flash(
+            request,
+            f"{display_id} 已仅从 Panel 强制移除；未联系 Host。相关端口已在 Panel 侧隔离 30 天，并由新版 Agent 的实时端口检查继续兜底。",
+            "warning",
+        )
+    return RedirectResponse("/admin?section=servers", status_code=303)
 
 
 @app.post("/admin/servers/{server_id}/reconcile")
@@ -4732,7 +4804,7 @@ def admin_backup_download(request:Request,backup_name:str):
 def health():
     return {
         "status": "ok",
-        "version": "1.0.9",
+        "version": "1.1.0",
         "provider": PROVIDER_NAME,
         "timezone": APP_TIMEZONE,
     }
