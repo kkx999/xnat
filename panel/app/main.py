@@ -23,6 +23,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import delete, func, or_, select, text
 from starlette.middleware.sessions import SessionMiddleware
 
+from . import __version__ as PANEL_VERSION
 from .auth import (
     admin_required, current_user, ensure_csrf, hash_password, login_required,
     validate_csrf, validate_username, verify_password,
@@ -194,6 +195,7 @@ def order_kind_label(value: str | None) -> str:
         "purchase": "新购",
         "renew": "续费",
         "renewal": "续费",
+        "auto_renewal": "自动续费",
         "admin": "管理员开通",
         "admin_provision": "管理员开通",
         "traffic_reset": "流量重置",
@@ -949,6 +951,7 @@ def render(request: Request, template_name: str, db, **context):
         name=template_name,
         context={
             "app_name": APP_NAME,
+            "panel_version": PANEL_VERSION,
             "user": user,
             "csrf_token": ensure_csrf(request),
             "flash": flash_message,
@@ -2203,6 +2206,35 @@ def delete_server(
         return RedirectResponse(f"/servers/{server.id}", status_code=303)
 
 
+@app.post("/servers/{server_id}/auto-renew")
+def update_server_auto_renew(
+    request: Request,
+    server_id: int,
+    enabled: str = Form("false"),
+    csrf_token: str = Form(...),
+):
+    validate_csrf(request, csrf_token)
+    with db_session() as db:
+        user = login_required(request, db)
+        server = active_server_for_user(db, user, server_id)
+        desired = str(enabled or "").strip().lower() in {"1", "true", "yes", "on"}
+        server.auto_renew = desired
+        if desired:
+            server.auto_renew_last_expiry_at = None
+        write_audit(
+            db, actor=user, request=request, action="server.auto_renew.update",
+            target_type="server", target_id=server.id, target_name=server.name,
+            detail={"enabled": desired},
+        )
+        db.commit()
+        message = "自动续费已开启。" if desired else "自动续费已关闭。"
+        wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in (request.headers.get("accept") or "")
+        if wants_json:
+            return JSONResponse({"ok": True, "enabled": desired, "message": message})
+        flash(request, message, "success")
+        return RedirectResponse(f"/servers/{server.id}", status_code=303)
+
+
 @app.post("/servers/{server_id}/renew")
 def renew_server(
     request: Request,
@@ -2772,6 +2804,8 @@ def admin_update_node(
             flash(request, f"机器编号前缀 {machine_prefix} 已被宿主机 {duplicate_prefix.name} 使用，请换一个。", "error")
             return RedirectResponse("/admin?section=nodes", status_code=303)
 
+        tls_trust_reset = api_url != (row.api_url or "").strip().rstrip("/") or bool(api_token.strip())
+
         row.name = name
         row.region = region
         row.country_code = country_code
@@ -2785,6 +2819,10 @@ def admin_update_node(
         row.schedule_storage_max_percent = max(0, min(100, schedule_storage_max_percent))
         if api_token.strip():
             row.api_token_enc = encrypt_secret(api_token.strip())
+        if tls_trust_reset:
+            # Re-enrolling a Host explicitly resets TOFU trust. The next
+            # successful connection pins the newly presented Agent certificate.
+            row.tls_fingerprint = None
 
         db.flush()
         for server in db.scalars(select(Server).where(Server.host_id == row.id, Server.display_id.is_(None))).all():
@@ -2800,7 +2838,10 @@ def admin_update_node(
             target_name=row.name,
         )
         db.commit()
-        flash(request, f"节点 {row.name} 设置已保存。", "success")
+        message = f"节点 {row.name} 设置已保存。"
+        if tls_trust_reset:
+            message += " Host TLS 指纹已重置，将在下次成功连接时重新建立信任。"
+        flash(request, message, "success")
     return RedirectResponse("/admin?section=nodes", status_code=303)
 
 
